@@ -1,0 +1,136 @@
+from nexus.config import NexusConfig, get_settings, configure
+from nexus.errors import (
+    NexusError,
+    ConfigError,
+    DatabaseError,
+    AuthError,
+    NotFoundError,
+    ValidationError,
+    ExternalServiceError,
+    RateLimitError,
+    ForbiddenError,
+    ConflictError,
+)
+from nexus.context import (
+    set_request_context,
+    get_request_id,
+    get_user_id,
+    get_trace_id,
+    new_request_id,
+    clear_request_context,
+    RequestContext,
+)
+from nexus.database import DatabaseManager, get_db, db_manager, Base, init_db, close_db
+from nexus.logging import setup_logging, get_logger
+from nexus.response import (
+    ApiResponse,
+    PaginatedResponse,
+    PaginationMeta,
+    success_response,
+    error_response,
+    paginate_response,
+)
+from nexus.utils import (
+    TimeUtils,
+    MemoryCache,
+    cached,
+    HttpClient,
+    HealthRegistry,
+)
+from nexus.middleware import (
+    setup_cors,
+    RequestIdMiddleware,
+    NoCacheMiddleware,
+    LoggingMiddleware,
+    ErrorHandlerMiddleware,
+)
+from nexus.rate_limit import RateLimitMiddleware
+from nexus.config import RateLimitConfig as RateLimitConfig
+from nexus.auth import (
+    AuthDependencies,
+    get_current_user_id_required,
+    get_current_user_id_optional,
+    get_current_user_full,
+)
+from nexus.repository import BaseRepository
+from nexus.lion import (
+    LionIntegration,
+    get_lion,
+    get_chat_config,
+    get_embed_config,
+    get_image_config,
+    clear_lion_cache,
+)
+from nexus.fastapi_setup import (
+    create_app,
+    setup_static_files,
+    setup_health_check,
+    AppLifecycle,
+)
+
+__version__ = "1.1.0"
+
+__all__ = [
+    "__version__",
+    "NexusConfig",
+    "get_settings",
+    "configure",
+    "NexusError",
+    "ConfigError",
+    "DatabaseError",
+    "AuthError",
+    "NotFoundError",
+    "ValidationError",
+    "ExternalServiceError",
+    "RateLimitError",
+    "ForbiddenError",
+    "ConflictError",
+    "set_request_context",
+    "get_request_id",
+    "get_user_id",
+    "get_trace_id",
+    "new_request_id",
+    "clear_request_context",
+    "RequestContext",
+    "DatabaseManager",
+    "get_db",
+    "db_manager",
+    "Base",
+    "init_db",
+    "close_db",
+    "setup_logging",
+    "get_logger",
+    "ApiResponse",
+    "PaginatedResponse",
+    "PaginationMeta",
+    "success_response",
+    "error_response",
+    "paginate_response",
+    "TimeUtils",
+    "MemoryCache",
+    "cached",
+    "HttpClient",
+    "HealthRegistry",
+    "setup_cors",
+    "RequestIdMiddleware",
+    "NoCacheMiddleware",
+    "LoggingMiddleware",
+    "ErrorHandlerMiddleware",
+    "RateLimitMiddleware",
+    "RateLimitConfig",
+    "AuthDependencies",
+    "get_current_user_id_required",
+    "get_current_user_id_optional",
+    "get_current_user_full",
+    "BaseRepository",
+    "LionIntegration",
+    "get_lion",
+    "get_chat_config",
+    "get_embed_config",
+    "get_image_config",
+    "clear_lion_cache",
+    "create_app",
+    "setup_static_files",
+    "setup_health_check",
+    "AppLifecycle",
+]

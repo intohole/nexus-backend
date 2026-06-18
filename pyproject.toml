@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nexus-backend"
+version = "1.0.0"
+description = "通用后端中间件框架 - 与ironman平行的非LLM后端能力集"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.100.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "aiosqlite>=0.19.0",
+    "httpx>=0.24.0",
+    "starlette>=0.27.0",
+    "python-multipart>=0.0.6",
+]
+
+[project.optional-dependencies]
+redis = ["redis>=4.5.0"]
+loguru = ["loguru>=0.7.0"]
+structlog = ["structlog>=23.0.0"]
+all = ["redis>=4.5.0", "loguru>=0.7.0", "structlog>=23.0.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nexus*"]
