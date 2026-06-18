@@ -17,6 +17,7 @@ logger = get_logger("nexus.auth")
 _security: HTTPBearer = HTTPBearer(auto_error=False)
 _uc_sdk_instance: Optional[Any] = None
 _uc_sdk_lock: asyncio.Lock = asyncio.Lock()
+_uc_sdk_ready: bool = False
 
 
 class AuthDependencies:
@@ -24,6 +25,7 @@ class AuthDependencies:
         self._config: NexusConfig = config or get_settings()
         self._sdk: Optional[Any] = None
         self._lock: asyncio.Lock = asyncio.Lock()
+        self._ready: bool = False
         self._public_paths: set[str] = set()
         self._public_prefixes: list[str] = []
         self._local_user_sync: Optional[Callable[[dict[str, Any]], Awaitable[None]]] = None
@@ -48,35 +50,35 @@ class AuthDependencies:
         return False
 
     async def get_sdk(self) -> Any:
-        if self._sdk is not None:
+        if self._sdk is not None and self._ready:
             return self._sdk
         async with self._lock:
-            if self._sdk is not None:
+            if self._sdk is not None and self._ready:
                 return self._sdk
-            try:
-                from usercenter.sdk.python.uc_sdk.client import UserCenterSDK
-
-                uc_cfg = self._config.uc
-                self._sdk = UserCenterSDK(
-                    base_url=uc_cfg.base_url,
-                    app_key=uc_cfg.app_key,
-                    app_secret=uc_cfg.app_secret,
-                    jwt_secret_key=uc_cfg.jwt_secret,
-                )
+            if self._sdk is None:
                 try:
-                    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-                    loop.create_task(self._bootstrap_sdk(self._sdk))
-                except RuntimeError:
-                    pass
-            except ImportError:
-                logger.warning("usercenter SDK not installed, auth disabled")
-                self._sdk = None
-            return self._sdk
+                    from usercenter.sdk.python.uc_sdk.client import UserCenterSDK
+
+                    uc_cfg = self._config.uc
+                    self._sdk = UserCenterSDK(
+                        base_url=uc_cfg.base_url,
+                        app_key=uc_cfg.app_key,
+                        app_secret=uc_cfg.app_secret,
+                        jwt_secret_key=uc_cfg.jwt_secret,
+                    )
+                except ImportError:
+                    logger.warning("usercenter SDK not installed, auth disabled")
+                    self._sdk = None
+                    return None
+            if not self._ready:
+                await self._bootstrap_sdk(self._sdk)
+            return self._sdk if self._ready else None
 
     async def _bootstrap_sdk(self, sdk: Any) -> None:
         try:
             ok: bool = await sdk.bootstrap()
             if ok:
+                self._ready = True
                 logger.info("UC SDK service token bootstrap success")
             else:
                 logger.warning("UC SDK service token bootstrap failed")

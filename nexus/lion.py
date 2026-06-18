@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Optional
 
 from nexus.config import NexusConfig, get_settings
@@ -11,11 +12,14 @@ logger = get_logger("nexus.lion")
 _lion_instance: Optional["LionIntegration"] = None
 _lion_lock: asyncio.Lock = asyncio.Lock()
 
+_CACHE_TTL: int = 300
+
 
 class LionIntegration:
     def __init__(self, config: Optional[NexusConfig] = None) -> None:
         self._config: NexusConfig = config or get_settings()
         self._cache: dict[str, dict[str, Any]] = {}
+        self._cache_ts: dict[str, float] = {}
         self._lock: asyncio.Lock = asyncio.Lock()
 
     async def get_config(
@@ -24,17 +28,23 @@ class LionIntegration:
         prefer_gateway: bool = True,
         use_cache: bool = True,
     ) -> dict[str, Any]:
-        if use_cache and key in self._cache:
+        if use_cache and self._is_cache_valid(key):
             return self._cache[key]
 
         async with self._lock:
-            if use_cache and key in self._cache:
+            if use_cache and self._is_cache_valid(key):
                 return self._cache[key]
 
             config: dict[str, Any] = await self._fetch_config(key, prefer_gateway)
             if config:
                 self._cache[key] = config
+                self._cache_ts[key] = time.monotonic()
             return config
+
+    def _is_cache_valid(self, key: str) -> bool:
+        if key not in self._cache or key not in self._cache_ts:
+            return False
+        return (time.monotonic() - self._cache_ts[key]) < _CACHE_TTL
 
     async def _fetch_config(
         self,
@@ -69,9 +79,11 @@ class LionIntegration:
 
     def clear_cache(self) -> None:
         self._cache.clear()
+        self._cache_ts.clear()
 
     def clear_cache_key(self, key: str) -> None:
         self._cache.pop(key, None)
+        self._cache_ts.pop(key, None)
 
 
 def get_lion() -> LionIntegration:

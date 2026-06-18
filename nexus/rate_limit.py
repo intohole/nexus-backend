@@ -57,6 +57,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             lambda: SlidingWindow(self._rph, 3600)
         )
         self._logger = get_logger("nexus.rate_limit")
+        self._last_cleanup: float = time.time()
+        self._cleanup_interval: int = 300
+        self._max_buckets: int = 10000
 
     def _get_client_id(self, request: Request) -> str:
         forwarded: Optional[str] = request.headers.get("X-Forwarded-For")
@@ -69,6 +72,26 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if path.startswith(exclude):
                 return True
         return False
+
+    def _cleanup_expired(self) -> None:
+        now: float = time.time()
+        if now - self._last_cleanup < self._cleanup_interval:
+            return
+        if len(self._minute_buckets) < self._max_buckets and len(self._hour_buckets) < self._max_buckets:
+            return
+        self._last_cleanup = now
+        minute_keys: list[str] = [
+            k for k, v in self._minute_buckets.items()
+            if not v._timestamps or (now - v._timestamps[-1]) > 120
+        ]
+        for k in minute_keys:
+            self._minute_buckets.pop(k, None)
+        hour_keys: list[str] = [
+            k for k, v in self._hour_buckets.items()
+            if not v._timestamps or (now - v._timestamps[-1]) > 7200
+        ]
+        for k in hour_keys:
+            self._hour_buckets.pop(k, None)
 
     async def dispatch(
         self,
@@ -83,6 +106,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         client_id: str = self._get_client_id(request)
+
+        self._cleanup_expired()
 
         minute_window: SlidingWindow = self._minute_buckets[client_id]
         if not minute_window.is_allowed():
