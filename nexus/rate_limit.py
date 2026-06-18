@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import ipaddress
 import time
 from collections import defaultdict
 from typing import Awaitable, Callable, Optional
@@ -17,15 +19,17 @@ class SlidingWindow:
         self._max_requests: int = max_requests
         self._window_seconds: int = window_seconds
         self._timestamps: list[float] = []
+        self._lock: asyncio.Lock = asyncio.Lock()
 
-    def is_allowed(self) -> bool:
-        now: float = time.time()
-        cutoff: float = now - self._window_seconds
-        self._timestamps = [t for t in self._timestamps if t > cutoff]
-        if len(self._timestamps) >= self._max_requests:
-            return False
-        self._timestamps.append(now)
-        return True
+    async def is_allowed(self) -> bool:
+        async with self._lock:
+            now: float = time.time()
+            cutoff: float = now - self._window_seconds
+            self._timestamps = [t for t in self._timestamps if t > cutoff]
+            if len(self._timestamps) >= self._max_requests:
+                return False
+            self._timestamps.append(now)
+            return True
 
     def retry_after(self) -> int:
         if not self._timestamps:
@@ -64,7 +68,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def _get_client_id(self, request: Request) -> str:
         forwarded: Optional[str] = request.headers.get("X-Forwarded-For")
         if forwarded:
-            return forwarded.split(",")[0].strip()
+            ips: list[str] = [ip.strip() for ip in forwarded.split(",") if ip.strip()]
+            for ip in reversed(ips):
+                try:
+                    parsed = ipaddress.ip_address(ip)
+                    if not parsed.is_private and not parsed.is_loopback:
+                        return ip
+                except ValueError:
+                    continue
+            if ips:
+                return ips[-1]
         return request.client.host if request.client else "unknown"
 
     def _is_excluded(self, path: str) -> bool:
@@ -110,7 +123,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._cleanup_expired()
 
         minute_window: SlidingWindow = self._minute_buckets[client_id]
-        if not minute_window.is_allowed():
+        if not await minute_window.is_allowed():
             retry_after: int = minute_window.retry_after()
             self._logger.warning(
                 "Rate limit exceeded (minute): %s on %s", client_id, path
@@ -130,7 +143,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             )
 
         hour_window: SlidingWindow = self._hour_buckets[client_id]
-        if not hour_window.is_allowed():
+        if not await hour_window.is_allowed():
             retry_after = hour_window.retry_after()
             self._logger.warning(
                 "Rate limit exceeded (hour): %s on %s", client_id, path

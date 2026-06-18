@@ -10,7 +10,6 @@ from nexus.logging import get_logger
 logger = get_logger("nexus.lion")
 
 _lion_instance: Optional["LionIntegration"] = None
-_lion_lock: asyncio.Lock = asyncio.Lock()
 
 _CACHE_TTL: int = 300
 

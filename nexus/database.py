@@ -38,10 +38,10 @@ class DatabaseManager:
             if self._engine is not None:
                 return
             db_url: str = self._config.database.url
-            if db_url.startswith("sqlite"):
-                db_url = db_url.replace("sqlite://", "sqlite+aiosqlite://")
+            if db_url.startswith("sqlite://"):
+                db_url = db_url.replace("sqlite://", "sqlite+aiosqlite://", 1)
             elif db_url.startswith("postgresql://"):
-                db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
+                db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
             engine_kwargs: dict[str, object] = {
                 "echo": self._config.database.echo,

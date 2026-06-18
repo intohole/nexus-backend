@@ -22,7 +22,7 @@ class DatabaseConfig(BaseSettings):
 
 
 class CORSConfig(BaseSettings):
-    allow_origins: list[str] = Field(default_factory=lambda: ["*"])
+    allow_origins: list[str] = Field(default_factory=lambda: ["http://localhost"])
     allow_credentials: bool = Field(default=True)
     allow_methods: list[str] = Field(default_factory=lambda: ["*"])
     allow_headers: list[str] = Field(default_factory=lambda: ["*"])

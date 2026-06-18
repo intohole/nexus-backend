@@ -135,9 +135,14 @@ class HttpClient:
         self._timeout: float = timeout
         self._headers: dict[str, str] = headers or {}
         self._client: Optional[httpx.AsyncClient] = None
+        self._lock: asyncio.Lock = asyncio.Lock()
 
     async def init(self) -> None:
-        if self._client is None:
+        if self._client is not None:
+            return
+        async with self._lock:
+            if self._client is not None:
+                return
             self._client = httpx.AsyncClient(
                 base_url=self._base_url,
                 timeout=self._timeout,
@@ -145,9 +150,10 @@ class HttpClient:
             )
 
     async def close(self) -> None:
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
+        async with self._lock:
+            if self._client is not None:
+                await self._client.aclose()
+                self._client = None
 
     async def request(
         self,
@@ -180,14 +186,24 @@ class HealthRegistry:
     def register(self, name: str, check_func: Callable[[], Awaitable[bool]]) -> None:
         self._checks[name] = check_func
 
+    async def _run_check(
+        self, name: str, check_func: Callable[[], Awaitable[bool]]
+    ) -> tuple[str, bool]:
+        try:
+            result: bool = await check_func()
+            return name, result
+        except Exception:
+            return name, False
+
     async def run_all(self) -> dict[str, bool]:
-        results: dict[str, bool] = {}
-        for name, check_func in self._checks.items():
-            try:
-                results[name] = await check_func()
-            except Exception:
-                results[name] = False
-        return results
+        if not self._checks:
+            return {}
+        tasks: list = [
+            self._run_check(name, func)
+            for name, func in self._checks.items()
+        ]
+        results_list: list[tuple[str, bool]] = await asyncio.gather(*tasks)
+        return dict(results_list)
 
     async def is_healthy(self) -> bool:
         results: dict[str, bool] = await self.run_all()

@@ -9,6 +9,13 @@ from typing import Optional
 from nexus.config import NexusConfig, get_settings
 from nexus.context import get_request_id
 
+_NEXUS_HANDLER_ATTR: str = "_nexus_handler"
+
+
+def _mark_handler(handler: logging.Handler) -> logging.Handler:
+    setattr(handler, _NEXUS_HANDLER_ATTR, True)
+    return handler
+
 
 class NexusFormatter(logging.Formatter):
     default_format: str = "%(asctime)s [%(levelname)s] %(name)s [req_id=%(request_id)s]: %(message)s"
@@ -39,7 +46,8 @@ def setup_logging(
     root_logger.setLevel(getattr(logging, log_cfg.level.upper(), logging.INFO))
 
     for handler in list(root_logger.handlers):
-        root_logger.removeHandler(handler)
+        if getattr(handler, _NEXUS_HANDLER_ATTR, False):
+            root_logger.removeHandler(handler)
 
     formatter: NexusFormatter = NexusFormatter(detail=cfg.debug)
 
@@ -47,6 +55,7 @@ def setup_logging(
         console_handler: logging.StreamHandler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(formatter)
         console_handler.setLevel(getattr(logging, log_cfg.level.upper(), logging.INFO))
+        _mark_handler(console_handler)
         root_logger.addHandler(console_handler)
 
     app_log_path: Path = log_dir / f"{app_name or cfg.app_name}.log"
@@ -59,6 +68,7 @@ def setup_logging(
     )
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.DEBUG)
+    _mark_handler(file_handler)
     root_logger.addHandler(file_handler)
 
     error_log_path: Path = log_dir / f"{app_name or cfg.app_name}_error.log"
@@ -71,6 +81,7 @@ def setup_logging(
     )
     error_handler.setFormatter(formatter)
     error_handler.setLevel(logging.ERROR)
+    _mark_handler(error_handler)
     root_logger.addHandler(error_handler)
 
     for noisy_logger in ("uvicorn", "uvicorn.access", "sqlalchemy.engine"):

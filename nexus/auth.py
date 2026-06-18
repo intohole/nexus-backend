@@ -16,7 +16,6 @@ logger = get_logger("nexus.auth")
 
 _security: HTTPBearer = HTTPBearer(auto_error=False)
 _uc_sdk_instance: Optional[Any] = None
-_uc_sdk_lock: asyncio.Lock = asyncio.Lock()
 _uc_sdk_ready: bool = False
 
 

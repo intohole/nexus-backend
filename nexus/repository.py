@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Generic, Optional, Type, TypeVar
 
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from nexus.errors import NotFoundError
@@ -146,8 +146,13 @@ class BaseRepository(Generic[ModelT]):
         return await self._session.scalar(stmt) or 0
 
     async def exists(self, id: int | str) -> bool:
-        obj: Optional[ModelT] = await self.get_by_id(id)
-        return obj is not None
+        stmt = (
+            select(literal(1))
+            .where(self._model.id == id)  # type: ignore[attr-defined]
+            .limit(1)
+        )
+        result: Optional[int] = await self._session.scalar(stmt)
+        return result is not None
 
     async def find_one_by(self, **kwargs: Any) -> Optional[ModelT]:
         stmt = select(self._model)

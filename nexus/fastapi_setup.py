@@ -157,12 +157,23 @@ def setup_static_files(
 
     if spa:
         index_path: Path = static_path / "index.html"
+        static_resolved: Path = static_path.resolve()
 
         @app.get(f"{prefix}/{{full_path:path}}" if prefix else "/{full_path:path}")
         async def spa_fallback_route(full_path: str) -> FileResponse:
             file_path: Path = static_path / full_path
-            if file_path.exists() and file_path.is_file():
-                return FileResponse(str(file_path))
+            try:
+                resolved: Path = file_path.resolve()
+            except (OSError, ValueError):
+                return JSONResponse(
+                    status_code=404, content={"detail": "Not Found"}
+                )
+            if not resolved.is_relative_to(static_resolved):
+                return JSONResponse(
+                    status_code=404, content={"detail": "Not Found"}
+                )
+            if resolved.exists() and resolved.is_file():
+                return FileResponse(str(resolved))
             if index_path.exists():
                 return FileResponse(str(index_path))
             return JSONResponse(
