@@ -153,14 +153,14 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
 
 
 DEFAULT_WHITELIST_PATHS: Tuple[str, ...] = (
-    "/health", "/docs", "/openapi.json", "/redoc", "/",
+    "/health", "/api/health", "/docs", "/openapi.json", "/redoc", "/",
 )
 
 DEFAULT_PUBLIC_API_PREFIXES: Tuple[str, ...] = (
     "/api/auth/login", "/api/auth/register", "/api/auth/refresh",
     "/api/auth/config", "/api/auth/login-page-config", "/api/auth/uc/config",
     "/api/vip/levels", "/api/invite-codes/validate", "/api/discovery",
-    "/.well-known/",
+    "/.well-known",
 )
 
 DEFAULT_STATIC_EXTENSIONS: Tuple[str, ...] = (
