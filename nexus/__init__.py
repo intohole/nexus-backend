@@ -43,6 +43,7 @@ from nexus.middleware import (
     NoCacheMiddleware,
     LoggingMiddleware,
     ErrorHandlerMiddleware,
+    ServiceAuthMiddleware,
 )
 from nexus.rate_limit import RateLimitMiddleware
 from nexus.config import RateLimitConfig as RateLimitConfig
@@ -68,7 +69,7 @@ from nexus.fastapi_setup import (
     AppLifecycle,
 )
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 __all__ = [
     "__version__",
@@ -116,6 +117,7 @@ __all__ = [
     "NoCacheMiddleware",
     "LoggingMiddleware",
     "ErrorHandlerMiddleware",
+    "ServiceAuthMiddleware",
     "RateLimitMiddleware",
     "RateLimitConfig",
     "AuthDependencies",
