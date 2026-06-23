@@ -220,14 +220,21 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        service_token = os.environ.get("SERVICE_TOKEN", "")
-        if not service_token:
-            self._logger.warning("SERVICE_TOKEN not set, ServiceAuthMiddleware disabled")
-            return await call_next(request)
-
         path = self._strip_prefix(request.url.path)
         if self._is_public(path):
             return await call_next(request)
+
+        service_token = os.environ.get("SERVICE_TOKEN", "")
+        if not service_token:
+            client_ip = request.client.host if request.client else "unknown"
+            self._logger.warning(
+                "SERVICE_TOKEN not set, denying non-public request: path=%s method=%s ip=%s",
+                path, request.method, client_ip,
+            )
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Service auth not configured"},
+            )
 
         token = self._extract_token(request)
         if token and hmac.compare_digest(token, service_token):

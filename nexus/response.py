@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Generic, Optional, TypeVar
+from typing import Generic, Optional, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -30,11 +30,11 @@ class PaginatedResponse(BaseModel, Generic[T]):
 
 
 def success_response(
-    data: Any = None,
+    data: object = None,
     message: str = "success",
     trace_id: Optional[str] = None,
-) -> dict[str, Any]:
-    result: dict[str, Any] = {"code": 200, "message": message}
+) -> dict[str, object]:
+    result: dict[str, object] = {"code": 200, "message": message}
     if data is not None:
         result["data"] = data
     if trace_id:
@@ -46,10 +46,10 @@ def error_response(
     message: str,
     code: int = 500,
     error_code: Optional[str] = None,
-    details: Optional[dict[str, Any]] = None,
+    details: Optional[dict[str, object]] = None,
     trace_id: Optional[str] = None,
-) -> dict[str, Any]:
-    result: dict[str, Any] = {
+) -> dict[str, object]:
+    result: dict[str, object] = {
         "code": code,
         "message": message,
     }
@@ -63,14 +63,14 @@ def error_response(
 
 
 def paginate_response(
-    data: list[Any],
+    data: list[object],
     total: int,
     page: int,
     page_size: int,
     trace_id: Optional[str] = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     total_pages: int = (total + page_size - 1) // page_size if page_size > 0 else 0
-    result: dict[str, Any] = {
+    result: dict[str, object] = {
         "code": 200,
         "message": "success",
         "data": data,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any, Awaitable, Callable, Optional
+from typing import Awaitable, Callable, Optional
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -15,19 +15,18 @@ from nexus.logging import get_logger
 logger = get_logger("nexus.auth")
 
 _security: HTTPBearer = HTTPBearer(auto_error=False)
-_uc_sdk_instance: Optional[Any] = None
 _uc_sdk_ready: bool = False
 
 
 class AuthDependencies:
     def __init__(self, config: Optional[NexusConfig] = None) -> None:
         self._config: NexusConfig = config or get_settings()
-        self._sdk: Optional[Any] = None
+        self._sdk: Optional[object] = None
         self._lock: asyncio.Lock = asyncio.Lock()
         self._ready: bool = False
         self._public_paths: set[str] = set()
         self._public_prefixes: list[str] = []
-        self._local_user_sync: Optional[Callable[[dict[str, Any]], Awaitable[None]]] = None
+        self._local_user_sync: Optional[Callable[[dict[str, object]], Awaitable[None]]] = None
 
     def add_public_path(self, path: str) -> None:
         self._public_paths.add(path)
@@ -36,7 +35,7 @@ class AuthDependencies:
         self._public_prefixes.append(prefix)
 
     def set_local_user_sync(
-        self, func: Callable[[dict[str, Any]], Awaitable[None]]
+        self, func: Callable[[dict[str, object]], Awaitable[None]]
     ) -> None:
         self._local_user_sync = func
 
@@ -48,7 +47,7 @@ class AuthDependencies:
                 return True
         return False
 
-    async def get_sdk(self) -> Any:
+    async def get_sdk(self) -> Optional[object]:
         if self._sdk is not None and self._ready:
             return self._sdk
         async with self._lock:
@@ -73,7 +72,7 @@ class AuthDependencies:
                 await self._bootstrap_sdk(self._sdk)
             return self._sdk if self._ready else None
 
-    async def _bootstrap_sdk(self, sdk: Any) -> None:
+    async def _bootstrap_sdk(self, sdk: object) -> None:
         try:
             ok: bool = await sdk.bootstrap()
             if ok:
@@ -84,16 +83,16 @@ class AuthDependencies:
         except Exception as exc:
             logger.warning("UC SDK bootstrap error: %s", str(exc))
 
-    async def validate_token(self, token: str) -> Optional[dict[str, Any]]:
-        sdk: Optional[Any] = await self.get_sdk()
+    async def validate_token(self, token: str) -> Optional[dict[str, object]]:
+        sdk: Optional[object] = await self.get_sdk()
         if sdk is None:
             return None
         try:
-            result: dict[str, Any] = await sdk.validate_token(token)
+            result: dict[str, object] = await sdk.validate_token(token)
             if result:
-                user_id: Optional[str] = result.get("user_id")
-                if user_id:
-                    set_request_context(user_id=str(user_id))
+                user_id_raw: object = result.get("user_id")
+                if user_id_raw is not None:
+                    set_request_context(user_id=str(user_id_raw))
                 if self._local_user_sync:
                     try:
                         await self._local_user_sync(result)
@@ -110,15 +109,18 @@ class AuthDependencies:
     ) -> str:
         if credentials is None:
             raise HTTPException(status_code=401, detail="Not authenticated")
-        result: Optional[dict[str, Any]] = await self.validate_token(
+        sdk: Optional[object] = await self.get_sdk()
+        if sdk is None:
+            raise HTTPException(status_code=503, detail="认证服务不可用")
+        result: Optional[dict[str, object]] = await self.validate_token(
             credentials.credentials
         )
         if result is None:
             raise HTTPException(status_code=401, detail="Invalid or expired token")
-        user_id: Optional[str] = result.get("user_id")
-        if not user_id:
+        user_id_raw: object = result.get("user_id")
+        if not user_id_raw:
             raise HTTPException(status_code=401, detail="Invalid token payload")
-        return user_id
+        return str(user_id_raw)
 
     async def get_user_id_optional(
         self,
@@ -126,20 +128,24 @@ class AuthDependencies:
     ) -> Optional[str]:
         if credentials is None:
             return None
-        result: Optional[dict[str, Any]] = await self.validate_token(
+        result: Optional[dict[str, object]] = await self.validate_token(
             credentials.credentials
         )
         if result is None:
             return None
-        return result.get("user_id")
+        user_id_raw: object = result.get("user_id")
+        return str(user_id_raw) if user_id_raw is not None else None
 
     async def get_user_full(
         self,
         credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
-    ) -> dict[str, Any]:
+    ) -> dict[str, object]:
         if credentials is None:
             raise HTTPException(status_code=401, detail="Not authenticated")
-        result: Optional[dict[str, Any]] = await self.validate_token(
+        sdk: Optional[object] = await self.get_sdk()
+        if sdk is None:
+            raise HTTPException(status_code=503, detail="认证服务不可用")
+        result: Optional[dict[str, object]] = await self.validate_token(
             credentials.credentials
         )
         if result is None:
@@ -173,6 +179,6 @@ async def get_current_user_id_optional(
 
 async def get_current_user_full(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
-) -> dict[str, Any]:
+) -> dict[str, object]:
     deps: AuthDependencies = get_auth_deps()
     return await deps.get_user_full(credentials)

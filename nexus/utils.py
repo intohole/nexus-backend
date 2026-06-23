@@ -6,11 +6,13 @@ import hashlib
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone, timedelta
-from typing import Any, Awaitable, Callable, Optional, TypeVar
+from typing import Any, Awaitable, Callable, Optional, TypeVar, cast
 
 import httpx
 
 T = TypeVar("T")
+
+_MISSING: object = object()
 
 
 class TimeUtils:
@@ -56,14 +58,14 @@ class MemoryCache:
         self._max_size: int = max_size
         self._lock: asyncio.Lock = asyncio.Lock()
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> object:
         async with self._lock:
             if key not in self._cache:
-                return None
+                return _MISSING
             value, expire_at = self._cache[key]
             if expire_at > 0 and time.time() > expire_at:
                 del self._cache[key]
-                return None
+                return _MISSING
             self._cache.move_to_end(key)
             return value
 
@@ -111,9 +113,9 @@ def cached(ttl: int = 300) -> Callable[[Callable[..., Awaitable[T]]], Callable[.
                 key_parts.append(f"{k}={v}")
             key: str = hashlib.md5("|".join(key_parts).encode()).hexdigest()
 
-            result: Optional[Any] = await _cache.get(key)
-            if result is not None:
-                return result
+            cached_result: object = await _cache.get(key)
+            if cached_result is not _MISSING:
+                return cast(T, cached_result)
 
             result = await func(*args, **kwargs)
             await _cache.set(key, result, ttl)
