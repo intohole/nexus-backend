@@ -68,8 +68,19 @@ from nexus.fastapi_setup import (
     setup_health_check,
     AppLifecycle,
 )
+from nexus.llm_utils import (
+    parse_llm_json,
+    with_retry,
+    strip_code_fence,
+    LLMTimeoutError,
+)
+from nexus.llm import (
+    LLMService,
+    get_llm_service,
+    configure_ironman,
+)
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 __all__ = [
     "__version__",
@@ -135,4 +146,11 @@ __all__ = [
     "setup_static_files",
     "setup_health_check",
     "AppLifecycle",
+    "parse_llm_json",
+    "with_retry",
+    "strip_code_fence",
+    "LLMTimeoutError",
+    "LLMService",
+    "get_llm_service",
+    "configure_ironman",
 ]
