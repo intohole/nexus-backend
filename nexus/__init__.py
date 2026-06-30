@@ -44,6 +44,8 @@ from nexus.middleware import (
     LoggingMiddleware,
     ErrorHandlerMiddleware,
     ServiceAuthMiddleware,
+    setup_exception_handlers,
+    REQUEST_ID_HEADER,
 )
 from nexus.rate_limit import RateLimitMiddleware
 from nexus.config import RateLimitConfig as RateLimitConfig
@@ -60,6 +62,7 @@ from nexus.lion import (
     get_chat_config,
     get_embed_config,
     get_image_config,
+    get_infra_config,
     clear_lion_cache,
 )
 from nexus.fastapi_setup import (
@@ -80,7 +83,7 @@ from nexus.llm import (
     configure_ironman,
 )
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 
 __all__ = [
     "__version__",
@@ -129,6 +132,8 @@ __all__ = [
     "LoggingMiddleware",
     "ErrorHandlerMiddleware",
     "ServiceAuthMiddleware",
+    "setup_exception_handlers",
+    "REQUEST_ID_HEADER",
     "RateLimitMiddleware",
     "RateLimitConfig",
     "AuthDependencies",
@@ -141,6 +146,7 @@ __all__ = [
     "get_chat_config",
     "get_embed_config",
     "get_image_config",
+    "get_infra_config",
     "clear_lion_cache",
     "create_app",
     "setup_static_files",

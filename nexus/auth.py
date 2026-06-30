@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from typing import Awaitable, Callable, Optional
 
+from cachetools import TTLCache
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -16,6 +18,8 @@ logger = get_logger("nexus.auth")
 
 _security: HTTPBearer = HTTPBearer(auto_error=False)
 _uc_sdk_ready: bool = False
+_TOKEN_CACHE_TTL: int = 60
+_TOKEN_CACHE_MAXSIZE: int = 500
 
 
 class AuthDependencies:
@@ -27,6 +31,7 @@ class AuthDependencies:
         self._public_paths: set[str] = set()
         self._public_prefixes: list[str] = []
         self._local_user_sync: Optional[Callable[[dict[str, object]], Awaitable[None]]] = None
+        self._token_cache: TTLCache = TTLCache(maxsize=_TOKEN_CACHE_MAXSIZE, ttl=_TOKEN_CACHE_TTL)
 
     def add_public_path(self, path: str) -> None:
         self._public_paths.add(path)
@@ -84,6 +89,18 @@ class AuthDependencies:
             logger.warning("UC SDK bootstrap error: %s", str(exc))
 
     async def validate_token(self, token: str) -> Optional[dict[str, object]]:
+        cached: Optional[dict[str, object]] = self._token_cache.get(token)
+        if cached is not None:
+            user_id_raw: object = cached.get("user_id")
+            if user_id_raw is not None:
+                set_request_context(user_id=str(user_id_raw))
+            if self._local_user_sync:
+                try:
+                    await self._local_user_sync(cached)
+                except Exception as exc:
+                    logger.warning("Local user sync failed: %s", str(exc))
+            return cached
+
         sdk: Optional[object] = await self.get_sdk()
         if sdk is None:
             return None
@@ -98,10 +115,17 @@ class AuthDependencies:
                         await self._local_user_sync(result)
                     except Exception as exc:
                         logger.warning("Local user sync failed: %s", str(exc))
+                self._token_cache[token] = result
             return result
         except Exception as exc:
             logger.warning("Token validation failed: %s", str(exc))
             return None
+
+    def invalidate_token_cache(self, token: Optional[str] = None) -> None:
+        if token is None:
+            self._token_cache.clear()
+        else:
+            self._token_cache.pop(token, None)
 
     async def get_user_id_required(
         self,

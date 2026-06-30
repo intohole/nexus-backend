@@ -67,6 +67,38 @@ class LionIntegration:
             logger.warning("Lion config fetch failed (key=%s): %s", key, str(exc))
             return {}
 
+    async def get_infra_config(self, key: str, use_cache: bool = True) -> dict[str, Any]:
+        if use_cache and self._is_cache_valid(key):
+            return self._cache[key]
+
+        async with self._lock:
+            if use_cache and self._is_cache_valid(key):
+                return self._cache[key]
+
+            config: dict[str, Any] = await self._fetch_infra_config(key)
+            if config and config.get("success") is not False:
+                self._cache[key] = config
+                self._cache_ts[key] = time.monotonic()
+            return config
+
+    async def _fetch_infra_config(self, key: str) -> dict[str, Any]:
+        try:
+            from lion_sdk import LionSDK
+
+            lion_cfg = self._config.lion
+            async with LionSDK(
+                base_url=lion_cfg.base_url,
+                namespace=lion_cfg.namespace,
+                fallback_namespace="default",
+            ) as lion:
+                return await lion.get_infra_config(key)
+        except ImportError:
+            logger.warning("lion_sdk not installed, Lion integration disabled")
+            return {}
+        except Exception as exc:
+            logger.warning("Lion infra config fetch failed (key=%s): %s", key, str(exc))
+            return {}
+
     async def get_chat_config(self, prefer_gateway: bool = True) -> dict[str, Any]:
         return await self.get_config("chat", prefer_gateway=prefer_gateway)
 
@@ -102,6 +134,10 @@ async def get_embed_config(prefer_gateway: bool = True) -> dict[str, Any]:
 
 async def get_image_config(prefer_gateway: bool = True) -> dict[str, Any]:
     return await get_lion().get_image_config(prefer_gateway=prefer_gateway)
+
+
+async def get_infra_config(key: str, use_cache: bool = True) -> dict[str, Any]:
+    return await get_lion().get_infra_config(key, use_cache=use_cache)
 
 
 def clear_lion_cache() -> None:

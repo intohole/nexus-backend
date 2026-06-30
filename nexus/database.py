@@ -102,6 +102,32 @@ class DatabaseManager:
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
+    async def add_missing_columns(self) -> None:
+        if self._engine is None:
+            await self.init()
+        assert self._engine is not None
+        async with self._engine.begin() as conn:
+            from sqlalchemy import inspect, text
+
+            def _sync_add_columns(sync_conn) -> None:
+                insp = inspect(sync_conn)
+                for table_name, table_obj in Base.metadata.tables.items():
+                    if not insp.has_table(table_name):
+                        continue
+                    existing_cols: set[str] = {col["name"] for col in insp.get_columns(table_name)}
+                    for col in table_obj.columns:
+                        if col.name in existing_cols:
+                            continue
+                        col_type: str = str(col.type.compile(dialect=sync_conn.dialect))
+                        null_clause: str = "" if col.nullable else " NOT NULL"
+                        default_clause: str = ""
+                        if col.server_default is not None:
+                            default_clause = f" DEFAULT {col.server_default.arg}"
+                        sql: str = f'ALTER TABLE "{table_name}" ADD COLUMN "{col.name}" {col_type}{null_clause}{default_clause}'
+                        sync_conn.execute(text(sql))
+
+            await conn.run_sync(_sync_add_columns)
+
     @asynccontextmanager
     async def session(self) -> AsyncGenerator[AsyncSession, None]:
         if self._session_factory is None:
