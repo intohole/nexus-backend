@@ -78,6 +78,11 @@ class AuthDependencies:
             return self._sdk if self._ready else None
 
     async def _bootstrap_sdk(self, sdk: object) -> None:
+        uc_cfg = self._config.uc
+        if not uc_cfg.app_key:
+            self._ready = True
+            logger.info("UC SDK ready without bootstrap (no app_key, remote verification only)")
+            return
         try:
             ok: bool = await sdk.bootstrap()
             if ok:
