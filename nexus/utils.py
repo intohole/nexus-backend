@@ -6,7 +6,7 @@ import hashlib
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone, timedelta
-from typing import Any, Awaitable, Callable, Optional, TypeVar, cast
+from typing import Awaitable, Callable, Optional, TypeVar, cast
 
 import httpx
 
@@ -54,7 +54,7 @@ class TimeUtils:
 
 class MemoryCache:
     def __init__(self, max_size: int = 1000) -> None:
-        self._cache: OrderedDict[str, tuple[Any, float]] = OrderedDict()
+        self._cache: OrderedDict[str, tuple[object, float]] = OrderedDict()
         self._max_size: int = max_size
         self._lock: asyncio.Lock = asyncio.Lock()
 
@@ -69,7 +69,7 @@ class MemoryCache:
             self._cache.move_to_end(key)
             return value
 
-    async def set(self, key: str, value: Any, ttl: int = 0) -> None:
+    async def set(self, key: str, value: object, ttl: int = 0) -> None:
         async with self._lock:
             expire_at: float = time.time() + ttl if ttl > 0 else 0
             self._cache[key] = (value, expire_at)
@@ -105,7 +105,7 @@ _cache: MemoryCache = MemoryCache()
 def cached(ttl: int = 300) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
     def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         @functools.wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> T:
+        async def wrapper(*args: object, **kwargs: object) -> T:
             key_parts: list[str] = [func.__name__]
             for arg in args:
                 key_parts.append(str(arg))
@@ -161,23 +161,24 @@ class HttpClient:
         self,
         method: str,
         url: str,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> httpx.Response:
         if self._client is None:
             await self.init()
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("HttpClient initialization failed.")
         return await self._client.request(method, url, **kwargs)
 
-    async def get(self, url: str, **kwargs: Any) -> httpx.Response:
+    async def get(self, url: str, **kwargs: object) -> httpx.Response:
         return await self.request("GET", url, **kwargs)
 
-    async def post(self, url: str, **kwargs: Any) -> httpx.Response:
+    async def post(self, url: str, **kwargs: object) -> httpx.Response:
         return await self.request("POST", url, **kwargs)
 
-    async def put(self, url: str, **kwargs: Any) -> httpx.Response:
+    async def put(self, url: str, **kwargs: object) -> httpx.Response:
         return await self.request("PUT", url, **kwargs)
 
-    async def delete(self, url: str, **kwargs: Any) -> httpx.Response:
+    async def delete(self, url: str, **kwargs: object) -> httpx.Response:
         return await self.request("DELETE", url, **kwargs)
 
 
@@ -200,12 +201,12 @@ class HealthRegistry:
     async def run_all(self) -> dict[str, bool]:
         if not self._checks:
             return {}
-        tasks: list = [
+        tasks: list[Awaitable[tuple[str, bool]]] = [
             self._run_check(name, func)
             for name, func in self._checks.items()
         ]
-        results_list: list[tuple[str, bool]] = await asyncio.gather(*tasks)
-        return dict(results_list)
+        resultsList: list[tuple[str, bool]] = await asyncio.gather(*tasks)
+        return dict(resultsList)
 
     async def is_healthy(self) -> bool:
         results: dict[str, bool] = await self.run_all()

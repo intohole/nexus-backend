@@ -98,14 +98,16 @@ class DatabaseManager:
     async def create_tables(self) -> None:
         if self._engine is None:
             await self.init()
-        assert self._engine is not None
+        if self._engine is None:
+            raise DatabaseError("Database engine initialization failed.")
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
     async def add_missing_columns(self) -> None:
         if self._engine is None:
             await self.init()
-        assert self._engine is not None
+        if self._engine is None:
+            raise DatabaseError("Database engine initialization failed.")
         async with self._engine.begin() as conn:
             from sqlalchemy import inspect, text
 
@@ -132,7 +134,8 @@ class DatabaseManager:
     async def session(self) -> AsyncGenerator[AsyncSession, None]:
         if self._session_factory is None:
             await self.init()
-        assert self._session_factory is not None
+        if self._session_factory is None:
+            raise DatabaseError("Database session factory initialization failed.")
         async with self._session_factory() as session:
             try:
                 yield session

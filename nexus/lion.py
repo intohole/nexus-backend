@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Optional
+from typing import Optional
 
 from nexus.config import NexusConfig, get_settings
 from nexus.logging import get_logger
@@ -17,7 +17,7 @@ _CACHE_TTL: int = 300
 class LionIntegration:
     def __init__(self, config: Optional[NexusConfig] = None) -> None:
         self._config: NexusConfig = config or get_settings()
-        self._cache: dict[str, dict[str, Any]] = {}
+        self._cache: dict[str, dict[str, object]] = {}
         self._cache_ts: dict[str, float] = {}
         self._lock: asyncio.Lock = asyncio.Lock()
 
@@ -26,7 +26,7 @@ class LionIntegration:
         key: str,
         prefer_gateway: bool = True,
         use_cache: bool = True,
-    ) -> dict[str, Any]:
+    ) -> dict[str, object]:
         if use_cache and self._is_cache_valid(key):
             return self._cache[key]
 
@@ -34,7 +34,7 @@ class LionIntegration:
             if use_cache and self._is_cache_valid(key):
                 return self._cache[key]
 
-            config: dict[str, Any] = await self._fetch_config(key, prefer_gateway)
+            config: dict[str, object] = await self._fetch_config(key, prefer_gateway)
             if config:
                 self._cache[key] = config
                 self._cache_ts[key] = time.monotonic()
@@ -49,7 +49,7 @@ class LionIntegration:
         self,
         key: str,
         prefer_gateway: bool,
-    ) -> dict[str, Any]:
+    ) -> dict[str, object]:
         try:
             from lion_sdk import LionSDK
 
@@ -67,7 +67,7 @@ class LionIntegration:
             logger.warning("Lion config fetch failed (key=%s): %s", key, str(exc))
             return {}
 
-    async def get_infra_config(self, key: str, use_cache: bool = True) -> dict[str, Any]:
+    async def get_infra_config(self, key: str, use_cache: bool = True) -> dict[str, object]:
         if use_cache and self._is_cache_valid(key):
             return self._cache[key]
 
@@ -75,13 +75,13 @@ class LionIntegration:
             if use_cache and self._is_cache_valid(key):
                 return self._cache[key]
 
-            config: dict[str, Any] = await self._fetch_infra_config(key)
+            config: dict[str, object] = await self._fetch_infra_config(key)
             if config and config.get("success") is not False:
                 self._cache[key] = config
                 self._cache_ts[key] = time.monotonic()
             return config
 
-    async def _fetch_infra_config(self, key: str) -> dict[str, Any]:
+    async def _fetch_infra_config(self, key: str) -> dict[str, object]:
         try:
             from lion_sdk import LionSDK
 
@@ -99,13 +99,13 @@ class LionIntegration:
             logger.warning("Lion infra config fetch failed (key=%s): %s", key, str(exc))
             return {}
 
-    async def get_chat_config(self, prefer_gateway: bool = True) -> dict[str, Any]:
+    async def get_chat_config(self, prefer_gateway: bool = True) -> dict[str, object]:
         return await self.get_config("chat", prefer_gateway=prefer_gateway)
 
-    async def get_embed_config(self, prefer_gateway: bool = True) -> dict[str, Any]:
+    async def get_embed_config(self, prefer_gateway: bool = True) -> dict[str, object]:
         return await self.get_config("embed", prefer_gateway=prefer_gateway)
 
-    async def get_image_config(self, prefer_gateway: bool = True) -> dict[str, Any]:
+    async def get_image_config(self, prefer_gateway: bool = True) -> dict[str, object]:
         return await self.get_config("image", prefer_gateway=prefer_gateway)
 
     def clear_cache(self) -> None:
@@ -124,19 +124,19 @@ def get_lion() -> LionIntegration:
     return _lion_instance
 
 
-async def get_chat_config(prefer_gateway: bool = True) -> dict[str, Any]:
+async def get_chat_config(prefer_gateway: bool = True) -> dict[str, object]:
     return await get_lion().get_chat_config(prefer_gateway=prefer_gateway)
 
 
-async def get_embed_config(prefer_gateway: bool = True) -> dict[str, Any]:
+async def get_embed_config(prefer_gateway: bool = True) -> dict[str, object]:
     return await get_lion().get_embed_config(prefer_gateway=prefer_gateway)
 
 
-async def get_image_config(prefer_gateway: bool = True) -> dict[str, Any]:
+async def get_image_config(prefer_gateway: bool = True) -> dict[str, object]:
     return await get_lion().get_image_config(prefer_gateway=prefer_gateway)
 
 
-async def get_infra_config(key: str, use_cache: bool = True) -> dict[str, Any]:
+async def get_infra_config(key: str, use_cache: bool = True) -> dict[str, object]:
     return await get_lion().get_infra_config(key, use_cache=use_cache)
 
 

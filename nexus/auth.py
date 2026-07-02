@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import time
 from typing import Awaitable, Callable, Optional
@@ -20,6 +21,10 @@ _security: HTTPBearer = HTTPBearer(auto_error=False)
 _uc_sdk_ready: bool = False
 _TOKEN_CACHE_TTL: int = 60
 _TOKEN_CACHE_MAXSIZE: int = 500
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 class AuthDependencies:
@@ -94,7 +99,8 @@ class AuthDependencies:
         self._ready = True
 
     async def validate_token(self, token: str) -> Optional[dict[str, object]]:
-        cached: Optional[dict[str, object]] = self._token_cache.get(token)
+        token_key: str = _hash_token(token)
+        cached: Optional[dict[str, object]] = self._token_cache.get(token_key)
         if cached is not None:
             user_id_raw: object = cached.get("user_id")
             if user_id_raw is not None:
@@ -120,7 +126,7 @@ class AuthDependencies:
                         await self._local_user_sync(result)
                     except Exception as exc:
                         logger.warning("Local user sync failed: %s", str(exc))
-                self._token_cache[token] = result
+                self._token_cache[token_key] = result
             return result
         except Exception as exc:
             logger.warning("Token validation failed: %s", str(exc))
@@ -130,7 +136,7 @@ class AuthDependencies:
         if token is None:
             self._token_cache.clear()
         else:
-            self._token_cache.pop(token, None)
+            self._token_cache.pop(_hash_token(token), None)
 
     async def get_user_id_required(
         self,

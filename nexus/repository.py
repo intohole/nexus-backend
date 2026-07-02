@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Generic, Optional, Type, TypeVar
+from typing import Generic, Optional, Type, TypeVar
 
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, literal, select
@@ -24,11 +24,11 @@ class BaseRepository(Generic[ModelT]):
     def model(self) -> Type[ModelT]:
         return self._model
 
-    async def _scalar_one_or_none(self, stmt: Any) -> Optional[ModelT]:
+    async def _scalar_one_or_none(self, stmt: object) -> Optional[ModelT]:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def _scalars_all(self, stmt: Any) -> list[ModelT]:
+    async def _scalars_all(self, stmt: object) -> list[ModelT]:
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
@@ -44,7 +44,7 @@ class BaseRepository(Generic[ModelT]):
 
     async def create(
         self,
-        obj_in: dict[str, Any] | ModelT,
+        obj_in: dict[str, object] | ModelT,
         auto_commit: bool = False,
     ) -> ModelT:
         if isinstance(obj_in, dict):
@@ -62,7 +62,7 @@ class BaseRepository(Generic[ModelT]):
     async def update(
         self,
         id: int | str,
-        obj_in: dict[str, Any],
+        obj_in: dict[str, object],
         auto_commit: bool = False,
     ) -> Optional[ModelT]:
         obj: Optional[ModelT] = await self.get_by_id(id)
@@ -92,7 +92,7 @@ class BaseRepository(Generic[ModelT]):
         self,
         skip: int = 0,
         limit: int = 20,
-        order_by: Optional[Any] = None,
+        order_by: Optional[object] = None,
     ) -> list[ModelT]:
         stmt = select(self._model)
         if order_by is not None:
@@ -104,40 +104,40 @@ class BaseRepository(Generic[ModelT]):
         self,
         page: int = 1,
         page_size: int = 20,
-        filters: Optional[dict[str, Any]] = None,
+        filters: Optional[dict[str, object]] = None,
         order_by: str = "id",
         order_desc: bool = True,
-    ) -> dict[str, Any]:
+    ) -> dict[str, object]:
         stmt = select(self._model)
-        count_stmt = select(func.count()).select_from(self._model)  # type: ignore[arg-type]
+        countStmt = select(func.count()).select_from(self._model)  # type: ignore[arg-type]
 
         if filters:
             for key, value in filters.items():
                 if hasattr(self._model, key):
                     col = getattr(self._model, key)
                     stmt = stmt.where(col == value)
-                    count_stmt = count_stmt.where(col == value)
+                    countStmt = countStmt.where(col == value)
 
-        total: int = await self._session.scalar(count_stmt) or 0
+        total: int = await self._session.scalar(countStmt) or 0
 
         if hasattr(self._model, order_by):
             col = getattr(self._model, order_by)
             stmt = stmt.order_by(col.desc() if order_desc else col.asc())
 
-        offset: int = (page - 1) * page_size
-        stmt = stmt.offset(offset).limit(page_size)
+        offsetVal: int = (page - 1) * page_size
+        stmt = stmt.offset(offsetVal).limit(page_size)
         items: list[ModelT] = await self._scalars_all(stmt)
 
-        total_pages: int = (total + page_size - 1) // page_size if page_size > 0 else 0
+        totalPages: int = (total + page_size - 1) // page_size if page_size > 0 else 0
         return {
             "items": items,
             "total": total,
             "page": page,
             "page_size": page_size,
-            "total_pages": total_pages,
+            "total_pages": totalPages,
         }
 
-    async def count(self, filters: Optional[dict[str, Any]] = None) -> int:
+    async def count(self, filters: Optional[dict[str, object]] = None) -> int:
         stmt = select(func.count()).select_from(self._model)  # type: ignore[arg-type]
         if filters:
             for key, value in filters.items():
@@ -154,7 +154,7 @@ class BaseRepository(Generic[ModelT]):
         result: Optional[int] = await self._session.scalar(stmt)
         return result is not None
 
-    async def find_one_by(self, **kwargs: Any) -> Optional[ModelT]:
+    async def find_one_by(self, **kwargs: object) -> Optional[ModelT]:
         stmt = select(self._model)
         for key, value in kwargs.items():
             if hasattr(self._model, key):
@@ -167,7 +167,7 @@ class BaseRepository(Generic[ModelT]):
         limit: int = 20,
         order_by_attr: str = "id",
         descending: bool = True,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> list[ModelT]:
         stmt = select(self._model)
         for key, value in kwargs.items():
@@ -179,7 +179,7 @@ class BaseRepository(Generic[ModelT]):
         stmt = stmt.offset(skip).limit(limit)
         return await self._scalars_all(stmt)
 
-    async def bulk_create(self, objs_in: list[dict[str, Any]]) -> list[ModelT]:
+    async def bulk_create(self, objs_in: list[dict[str, object]]) -> list[ModelT]:
         objs: list[ModelT] = [self._model(**data) for data in objs_in]  # type: ignore[call-arg]
         self._session.add_all(objs)
         await self._session.flush()
