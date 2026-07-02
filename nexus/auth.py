@@ -60,7 +60,7 @@ class AuthDependencies:
                 return self._sdk
             if self._sdk is None:
                 try:
-                    from usercenter.sdk.python.uc_sdk.client import UserCenterSDK
+                    from uc_sdk import UserCenterSDK
 
                     uc_cfg = self._config.uc
                     self._sdk = UserCenterSDK(
@@ -105,7 +105,7 @@ class AuthDependencies:
         if sdk is None:
             return None
         try:
-            result: dict[str, object] = await sdk.validate_token(token)
+            result: dict[str, object] = await sdk.verify_token(token)
             if result:
                 user_id_raw: object = result.get("user_id")
                 if user_id_raw is not None:
