@@ -79,19 +79,19 @@ class AuthDependencies:
 
     async def _bootstrap_sdk(self, sdk: object) -> None:
         uc_cfg = self._config.uc
-        if not uc_cfg.app_key:
+        if not uc_cfg.app_key or not uc_cfg.app_secret:
             self._ready = True
-            logger.info("UC SDK ready without bootstrap (no app_key, remote verification only)")
+            logger.info("UC SDK ready without bootstrap (no app_key/app_secret)")
             return
         try:
             ok: bool = await sdk.bootstrap()
             if ok:
-                self._ready = True
                 logger.info("UC SDK service token bootstrap success")
             else:
-                logger.warning("UC SDK service token bootstrap failed")
+                logger.warning("UC SDK bootstrap failed, verify_token will use local/remote verification")
         except Exception as exc:
-            logger.warning("UC SDK bootstrap error: %s", str(exc))
+            logger.warning("UC SDK bootstrap error: %s, verify_token will use local/remote verification", str(exc))
+        self._ready = True
 
     async def validate_token(self, token: str) -> Optional[dict[str, object]]:
         cached: Optional[dict[str, object]] = self._token_cache.get(token)
