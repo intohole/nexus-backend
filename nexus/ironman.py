@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from typing import Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from nexus.lion import get_chat_config, get_embed_config
 from nexus.logging import get_logger
@@ -21,6 +21,11 @@ _BOOTSTRAP_TTL: float = 300.0
 _bootstrap_ts: float = 0.0
 # P2: 网关模式标志（由 default_config_loader 写入，is_gateway_mode() 读取）
 _via_gateway: bool = False
+
+# A4: ironman 插桩状态（避免重复包装）
+_instrumented: bool = False
+_original_chat: Optional[Callable[..., Awaitable[Any]]] = None
+_original_embed: Optional[Callable[..., Awaitable[Any]]] = None
 
 
 def _is_placeholder(value: str) -> bool:
@@ -88,6 +93,109 @@ async def default_config_loader(app_name: str) -> dict[str, object]:
     }
 
 
+def _instrument_ironman() -> None:
+    """A4: 包装 ironman.chat 和 ironman.embed，注入 metrics/circuit_breaker/req_id。
+
+    所有业务应用直接调用 ironman.chat()/ironman.embed()，不经过 nexus.llm.LLMClient。
+    因此在 init_ironman() 完成后包装 ironman 模块级函数，确保 A4 插桩对所有应用生效。
+    """
+    global _instrumented, _original_chat, _original_embed
+    if _instrumented:
+        return
+
+    import ironman as _ironman_mod
+
+    _original_chat = _ironman_mod.chat
+    _original_embed = _ironman_mod.embed
+
+    async def _wrapped_chat(messages: Any, llm: Any = None, tools: Any = None) -> Any:
+        from nexus.context import get_request_id
+        from nexus.llm_metrics import get_llm_metrics
+        from nexus.circuit_breaker import get_llm_circuit
+
+        request_id: str = get_request_id() or "-"
+        app_name: str = _init_app_name or "unknown"
+        circuit = get_llm_circuit()
+        metrics = get_llm_metrics()
+        start: float = time.monotonic()
+
+        async def _do() -> Any:
+            return await _original_chat(messages, llm=llm, tools=tools)  # type: ignore[misc]
+
+        try:
+            result: Any = await circuit.call(_do)
+            latency: float = time.monotonic() - start
+            tokens: int = 0
+            model: str = "unknown"
+            usage = getattr(result, "usage", None)
+            if usage:
+                tokens = (getattr(usage, "prompt_tokens", 0) or 0) + (
+                    getattr(usage, "completion_tokens", 0) or 0
+                )
+            resp_model = getattr(result, "model", None)
+            if resp_model:
+                model = resp_model
+            metrics.record(app_name, model, latency, tokens=tokens, error=None)
+            logger.info(
+                "LLM chat [req_id=%s, app=%s, model=%s, latency=%.2fs, tokens=%d]",
+                request_id, app_name, model, latency, tokens,
+            )
+            return result
+        except Exception as e:
+            latency = time.monotonic() - start
+            error_type: str = type(e).__name__
+            metrics.record(app_name, "unknown", latency, tokens=0, error=error_type)
+            if error_type == "CircuitBreakerOpenError":
+                logger.warning(
+                    "LLM chat blocked by open circuit [req_id=%s, app=%s, latency=%.2fs]: %s",
+                    request_id, app_name, latency, e,
+                )
+            else:
+                logger.error(
+                    "LLM chat failed [req_id=%s, app=%s, latency=%.2fs]: %s",
+                    request_id, app_name, latency, e,
+                )
+            raise
+
+    async def _wrapped_embed(
+        text: Any, model: Any = None, provider: Any = None,
+        dimensions: Any = None, encoding_format: Any = None,
+    ) -> Any:
+        from nexus.context import get_request_id
+        from nexus.llm_metrics import get_llm_metrics
+
+        request_id: str = get_request_id() or "-"
+        app_name: str = _init_app_name or "unknown"
+        metrics = get_llm_metrics()
+        start: float = time.monotonic()
+        try:
+            result: Any = await _original_embed(  # type: ignore[misc]
+                text, model=model, provider=provider,
+                dimensions=dimensions, encoding_format=encoding_format,
+            )
+            latency: float = time.monotonic() - start
+            emb_model: str = model or "unknown"
+            metrics.record(app_name, f"embed:{emb_model}", latency, tokens=0, error=None)
+            logger.info(
+                "LLM embed [req_id=%s, app=%s, model=%s, latency=%.2fs]",
+                request_id, app_name, emb_model, latency,
+            )
+            return result
+        except Exception as e:
+            latency = time.monotonic() - start
+            metrics.record(app_name, "embed:unknown", latency, tokens=0, error=type(e).__name__)
+            logger.error(
+                "LLM embed failed [req_id=%s, app=%s, latency=%.2fs]: %s",
+                request_id, app_name, latency, e,
+            )
+            raise
+
+    _ironman_mod.chat = _wrapped_chat
+    _ironman_mod.embed = _wrapped_embed
+    _instrumented = True
+    logger.info("ironman instrumented (chat + embed wrapped with metrics/circuit/req_id)")
+
+
 async def init_ironman(
     app_name: str,
     config_loader: Optional[ConfigLoader] = None,
@@ -118,6 +226,9 @@ async def init_ironman(
         )
         _init_app_name = app_name
         _bootstrap_ts = time.monotonic()
+
+        # A4: Bootstrap 创建后立即插桩（包装 ironman.chat/embed）
+        _instrument_ironman()
 
         if _bootstrap.is_available():
             logger.info(

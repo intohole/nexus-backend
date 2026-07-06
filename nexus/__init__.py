@@ -88,6 +88,7 @@ from nexus.fastapi_setup import (
     create_app,
     setup_static_files,
     setup_health_check,
+    register_internal_endpoints,
     AppLifecycle,
 )
 from nexus.llm_utils import (
@@ -194,6 +195,7 @@ __all__ = [
     "create_app",
     "setup_static_files",
     "setup_health_check",
+    "register_internal_endpoints",
     "AppLifecycle",
     "parse_llm_json",
     "with_retry",
