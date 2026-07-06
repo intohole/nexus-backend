@@ -101,6 +101,13 @@ from nexus.llm import (
     get_llm_service,
     configure_ironman,
 )
+from nexus.ironman import (
+    init_ironman,
+    default_config_loader,
+    get_bootstrap,
+    is_ironman_available,
+    get_init_app_name,
+)
 
 __version__ = "1.5.0"
 
@@ -195,4 +202,9 @@ __all__ = [
     "LLMService",
     "get_llm_service",
     "configure_ironman",
+    "init_ironman",
+    "default_config_loader",
+    "get_bootstrap",
+    "is_ironman_available",
+    "get_init_app_name",
 ]
