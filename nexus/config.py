@@ -14,6 +14,11 @@ for _suffix in ("BASE_URL", "APP_KEY", "APP_SECRET", "JWT_SECRET"):
     if _old_key in os.environ and _new_key not in os.environ:
         os.environ[_new_key] = os.environ[_old_key]
 
+for _suffix in ("BASE_URL", "NAMESPACE"):
+    _old_key, _new_key = f"LION_{_suffix}", f"LION__{_suffix}"
+    if _old_key in os.environ and _new_key not in os.environ:
+        os.environ[_new_key] = os.environ[_old_key]
+
 
 class DatabaseConfig(BaseSettings):
     url: str = Field(default="sqlite:///./app.db", description="数据库连接URL")
