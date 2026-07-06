@@ -26,11 +26,17 @@ def is_retryable_error(exc: Exception) -> bool:
     """P1: 判断异常是否值得重试。
 
     策略：
+    - 熔断器 OPEN：不可重试（重试只会被熔断器再次拒绝）
     - 超时/连接错误：可重试（瞬时故障）
     - 4xx 客户端错误（除 429）：不可重试（请求本身有问题，重试无用）
     - 429 限流、5xx 服务端错误：可重试
     - 未知错误：保守重试（宁可多重试也不漏重试）
     """
+    # A4.2: 熔断器 OPEN 状态：不可重试（用字符串匹配避免循环导入）
+    exc_type_name: str = type(exc).__name__
+    if exc_type_name == "CircuitBreakerOpenError":
+        return False
+
     # 超时错误：可重试
     if isinstance(exc, (asyncio.TimeoutError, LLMTimeoutError)):
         return True
