@@ -99,6 +99,39 @@ class LionIntegration:
             logger.warning("Lion infra config fetch failed (key=%s): %s", key, str(exc))
             return {}
 
+    async def get_business_config(self, key: str, use_cache: bool = True) -> dict[str, object]:
+        cache_key = f"business::{key}"
+        if use_cache and self._is_cache_valid(cache_key):
+            return self._cache[cache_key]
+
+        async with self._lock:
+            if use_cache and self._is_cache_valid(cache_key):
+                return self._cache[cache_key]
+
+            config: dict[str, object] = await self._fetch_business_config(key)
+            if config and config.get("success") is not False:
+                self._cache[cache_key] = config
+                self._cache_ts[cache_key] = time.monotonic()
+            return config
+
+    async def _fetch_business_config(self, key: str) -> dict[str, object]:
+        try:
+            from lion_sdk import LionSDK
+
+            lion_cfg = self._config.lion
+            async with LionSDK(
+                base_url=lion_cfg.base_url,
+                namespace=lion_cfg.namespace,
+                fallback_namespace="default",
+            ) as lion:
+                return await lion.get_business_config(key)
+        except ImportError:
+            logger.warning("lion_sdk not installed, Lion integration disabled")
+            return {}
+        except Exception as exc:
+            logger.warning("Lion business config fetch failed (key=%s): %s", key, str(exc))
+            return {}
+
     async def get_chat_config(self, prefer_gateway: bool = True) -> dict[str, object]:
         return await self.get_config("chat", prefer_gateway=prefer_gateway)
 
@@ -138,6 +171,10 @@ async def get_image_config(prefer_gateway: bool = True) -> dict[str, object]:
 
 async def get_infra_config(key: str, use_cache: bool = True) -> dict[str, object]:
     return await get_lion().get_infra_config(key, use_cache=use_cache)
+
+
+async def get_business_config(key: str, use_cache: bool = True) -> dict[str, object]:
+    return await get_lion().get_business_config(key, use_cache=use_cache)
 
 
 def clear_lion_cache() -> None:
