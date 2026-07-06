@@ -167,6 +167,8 @@ DEFAULT_PUBLIC_API_PREFIXES: Tuple[str, ...] = (
     "/.well-known",
     # P6: 公开网关健康检查端点，供 Prometheus/Uptime Kuma 等监控工具无鉴权访问
     "/api/gateway/healthz",
+    # A4: 内部监控端点（metrics/circuit/reload），仅 localhost 访问，无需 service token
+    "/api/_internal",
 )
 
 DEFAULT_STATIC_EXTENSIONS: Tuple[str, ...] = (
