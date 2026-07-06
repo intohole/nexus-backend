@@ -217,3 +217,33 @@ async def get_current_user_full(
 ) -> dict[str, object]:
     deps: AuthDependencies = get_auth_deps()
     return await deps.get_user_full(credentials)
+
+
+def normalize_user_dict(user: dict[str, object]) -> dict[str, object]:
+    return {
+        "user_id": str(user.get("user_id", "")),
+        "app_id": user.get("app_id"),
+        "role": user.get("role", "user"),
+        "vip_level": user.get("vip_level", 0),
+    }
+
+
+async def get_current_user_full_normalized(
+    user: dict[str, object] = Depends(get_current_user_full),
+) -> dict[str, object]:
+    return normalize_user_dict(user)
+
+
+def get_user_string_id(user_id: Optional[str]) -> str:
+    if user_id is None:
+        return "guest_none"
+    return f"user_{user_id}"
+
+
+def parse_user_id(user_id: str | int) -> int:
+    if isinstance(user_id, int):
+        return user_id
+    try:
+        return int(user_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid user_id format")

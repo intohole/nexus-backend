@@ -54,6 +54,10 @@ from nexus.auth import (
     get_current_user_id_required,
     get_current_user_id_optional,
     get_current_user_full,
+    get_current_user_full_normalized,
+    normalize_user_dict,
+    get_user_string_id,
+    parse_user_id,
 )
 from nexus.repository import BaseRepository
 from nexus.lion import (
@@ -155,6 +159,10 @@ __all__ = [
     "get_current_user_id_required",
     "get_current_user_id_optional",
     "get_current_user_full",
+    "get_current_user_full_normalized",
+    "normalize_user_dict",
+    "get_user_string_id",
+    "parse_user_id",
     "BaseRepository",
     "LionIntegration",
     "get_lion",
