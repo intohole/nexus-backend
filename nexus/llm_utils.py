@@ -11,6 +11,76 @@ logger = logging.getLogger("nexus.llm_utils")
 T = TypeVar("T")
 
 
+# P1: 不可重试的 HTTP 状态码（4xx 客户端错误，除 429 限流）
+_NON_RETRYABLE_STATUS_CODES: tuple[str, ...] = ("400", "401", "403", "404", "422")
+# P1: 可重试的 HTTP 状态码（429 限流、5xx 服务端错误）
+_RETRYABLE_STATUS_CODES: tuple[str, ...] = ("429", "500", "502", "503", "504")
+
+
+class LLMTimeoutError(Exception):
+    """LLM 调用超时异常。"""
+    pass
+
+
+def is_retryable_error(exc: Exception) -> bool:
+    """P1: 判断异常是否值得重试。
+
+    策略：
+    - 超时/连接错误：可重试（瞬时故障）
+    - 4xx 客户端错误（除 429）：不可重试（请求本身有问题，重试无用）
+    - 429 限流、5xx 服务端错误：可重试
+    - 未知错误：保守重试（宁可多重试也不漏重试）
+    """
+    # 超时错误：可重试
+    if isinstance(exc, (asyncio.TimeoutError, LLMTimeoutError)):
+        return True
+    # 连接错误：可重试
+    if isinstance(exc, (ConnectionError, OSError)):
+        return True
+    # httpx 连接/超时错误：可重试
+    try:
+        import httpx
+        if isinstance(exc, (httpx.ConnectError, httpx.TimeoutException, httpx.PoolTimeout)):
+            return True
+    except ImportError:
+        pass
+
+    msg = str(exc).lower()
+    # 不可重试：4xx 客户端错误（除 429）
+    for code in _NON_RETRYABLE_STATUS_CODES:
+        # 匹配 "status_code=401"、"returned 401"、" 401:" 等模式
+        if f"status_code={code}" in msg or f"returned {code}" in msg or f" {code}:" in msg:
+            return False
+    # 可重试：429 限流、5xx 服务端错误
+    for code in _RETRYABLE_STATUS_CODES:
+        if code in msg:
+            return True
+    # 默认：未知错误重试（保守策略）
+    return True
+
+
+def _extract_retry_after(exc: Exception) -> float | None:
+    """P3: 从异常消息中提取 retry_after（秒）。
+
+    匹配 "retry_after": 5、retry_after=5、Retry-After: 5 等格式。
+    返回 None 表示未找到。
+    """
+    msg = str(exc)
+    patterns = [
+        r'"retry_after"[:\s]+(\d+(?:\.\d+)?)',
+        r"retry_after[=\s:]+(\d+(?:\.\d+)?)",
+        r"Retry-After[=\s:]+(\d+(?:\.\d+)?)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, msg, re.IGNORECASE)
+        if match:
+            try:
+                return float(match.group(1))
+            except (ValueError, IndexError):
+                pass
+    return None
+
+
 def parse_llm_json(raw: str) -> dict[str, object]:
     text = raw.strip()
 
@@ -71,10 +141,6 @@ def parse_llm_json(raw: str) -> dict[str, object]:
     return {"raw_response": text}
 
 
-class LLMTimeoutError(Exception):
-    pass
-
-
 async def with_retry(
     coro_fn: Callable[[], Awaitable[T]],
     timeout: float = 60.0,
@@ -95,10 +161,21 @@ async def with_retry(
             await asyncio.sleep(2.0 * (attempt + 1))
         except Exception as e:
             last_error = e
+            # P1: 不可重试错误（400/401/403/404/422）立即抛出，避免无效重试
+            if not is_retryable_error(e):
+                logger.error("LLM non-retryable error (no retry): %s", e)
+                raise
             logger.error("LLM error, attempt %d/%d: %s", attempt + 1, max_retries, e)
             if attempt == max_retries - 1:
                 raise
-            await asyncio.sleep(1.0 * (attempt + 1))
+            # P3: 遵从 retry_after（429 限流时按服务器要求等待）
+            retry_after = _extract_retry_after(e)
+            if retry_after is not None:
+                wait_time = min(retry_after, 60.0)  # 上限 60s，避免过长等待
+                logger.info("LLM rate limited, waiting %ss (retry_after)", wait_time)
+                await asyncio.sleep(wait_time)
+            else:
+                await asyncio.sleep(1.0 * (attempt + 1))
     raise last_error  # type: ignore[misc]
 
 

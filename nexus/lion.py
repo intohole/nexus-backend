@@ -11,7 +11,8 @@ logger = get_logger("nexus.lion")
 
 _lion_instance: Optional["LionIntegration"] = None
 
-_CACHE_TTL: int = 300
+# P0: 配置热更新 - 降低缓存 TTL（300s → 60s），让用户改完配置 60s 内生效
+_CACHE_TTL: int = 60
 
 
 class LionIntegration:

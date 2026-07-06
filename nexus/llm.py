@@ -33,6 +33,22 @@ async def configure_ironman(yaml_path: Optional[str] = None) -> None:
             logger.warning("Ironman config not found, using env vars")
 
 
+def _effective_retries(max_retries: int) -> int:
+    """P2: 网关模式下重试降为 1（网关已有 3 次 failover）。
+
+    三层重试链路：goldenFish(3) × nexus-backend(max_retries) × gateway(3)
+    - 非网关模式：3 × 3 × 3 = 27 次（过多）
+    - 网关模式：3 × 1 × 3 = 9 次（合理）
+    """
+    try:
+        from nexus.ironman import is_gateway_mode
+        if is_gateway_mode():
+            return 1
+    except ImportError:
+        pass
+    return max_retries
+
+
 class LLMService:
     _instance: Optional["LLMService"] = None
 
@@ -73,7 +89,8 @@ class LLMService:
             response = await _chat(messages=ironman_messages, llm=llm_opts)
             return response.content
 
-        return await with_retry(_do, timeout, max_retries)
+        # P2: 网关模式下重试降为 1（网关已有 failover）
+        return await with_retry(_do, timeout, _effective_retries(max_retries))
 
     async def ask(
         self,
@@ -93,7 +110,8 @@ class LLMService:
         async def _do() -> str:
             return await _ask(prompt=prompt, system=system, llm=llm_opts)
 
-        return await with_retry(_do, timeout, max_retries)
+        # P2: 网关模式下重试降为 1（网关已有 failover）
+        return await with_retry(_do, timeout, _effective_retries(max_retries))
 
     async def ask_json(
         self,
@@ -153,7 +171,8 @@ class LLMService:
             )
 
         try:
-            return await with_retry(_do, timeout, max_retries)
+            # P2: 网关模式下重试降为 1
+            return await with_retry(_do, timeout, _effective_retries(max_retries))
         except Exception as e:
             logger.error("Extraction failed: %s", e)
             return None

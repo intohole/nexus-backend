@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator, Callable, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -135,6 +135,25 @@ def setup_health_check(
                 "checks": checks,
             },
         )
+
+    @app.post("/api/_internal/reload-llm")
+    async def reload_llm(request: Request) -> JSONResponse:
+        """P0: 触发 ironman 配置热重载（内部端点，由 ServiceTokenMiddleware 保护）。
+
+        lion 配置变更后，调用此端点立即重置 ironman Bootstrap，
+        下次 LLM 调用时会用新配置重建。无需重启应用。
+        """
+        try:
+            from nexus.ironman import reload_ironman
+            await reload_ironman()
+            return JSONResponse(
+                content={"status": "ok", "message": "ironman Bootstrap reloaded"}
+            )
+        except Exception as exc:
+            return JSONResponse(
+                status_code=500,
+                content={"status": "error", "message": str(exc)},
+            )
 
 
 def setup_static_files(
