@@ -165,6 +165,8 @@ DEFAULT_PUBLIC_API_PREFIXES: Tuple[str, ...] = (
     "/api/auth/config", "/api/auth/login-page-config", "/api/auth/uc/config",
     "/api/vip/levels", "/api/invite-codes/validate", "/api/discovery",
     "/.well-known",
+    # P6: 公开网关健康检查端点，供 Prometheus/Uptime Kuma 等监控工具无鉴权访问
+    "/api/gateway/healthz",
 )
 
 DEFAULT_STATIC_EXTENSIONS: Tuple[str, ...] = (
