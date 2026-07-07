@@ -251,8 +251,10 @@ async def reload_ironman() -> None:
     用于配置热更新：lion 配置变更后，调用此函数重置 Bootstrap，
     下次 LLM 调用时会用新配置重建 Bootstrap。也可通过
     /api/_internal/reload-llm 端点手动触发。
+
+    注意：_init_app_name 不重置——应用名是静态属性，不随配置变更。
     """
-    global _bootstrap, _init_app_name, _bootstrap_ts
+    global _bootstrap, _bootstrap_ts
     async with _lock:
         if _bootstrap is not None:
             try:
@@ -264,7 +266,6 @@ async def reload_ironman() -> None:
             except Exception as exc:
                 logger.warning("ironman Bootstrap close error: %s", exc)
         _bootstrap = None
-        _init_app_name = None
         _bootstrap_ts = 0.0
         logger.info("ironman Bootstrap reset, will reload on next call")
 
