@@ -100,6 +100,20 @@ class LLMService:
                 ironman_messages.append(Message(role=Role.SYSTEM, content=content))
         return ironman_messages
 
+    @staticmethod
+    def _extract_content(response: object, request_id: str = "-") -> str:
+        if response.content:
+            return response.content
+        if getattr(response, "reasoning", None):
+            logger.warning(
+                "LLM returned empty content, using reasoning as fallback [req_id=%s, tokens=%s]",
+                request_id,
+                getattr(response.usage, "completion_tokens", "?"),
+            )
+            return response.reasoning
+        logger.warning("LLM returned empty content and no reasoning [req_id=%s]", request_id)
+        return ""
+
     async def chat(
         self,
         messages: list[dict[str, str]],
@@ -120,7 +134,7 @@ class LLMService:
 
         async def _do() -> str:
             response = await _chat(messages=ironman_messages, llm=llm_opts)
-            return response.content
+            return self._extract_content(response, request_id)
 
         circuit = get_llm_circuit()
         metrics = get_llm_metrics()
@@ -159,15 +173,21 @@ class LLMService:
         max_retries: int = 3,
     ) -> str:
         await configure_ironman()
-        from ironman import ask as _ask
-        from ironman.types import LLMOptions
+        from ironman import chat as _chat
+        from ironman.types import LLMOptions, Message, Role
 
         request_id: str = get_request_id() or "-"
         app_name: str = _resolve_app_name()
         llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens)
 
+        msgs: list = []
+        if system:
+            msgs.append(Message(role=Role.SYSTEM, content=system))
+        msgs.append(Message(role=Role.USER, content=prompt))
+
         async def _do() -> str:
-            return await _ask(prompt=prompt, system=system, llm=llm_opts)
+            response = await _chat(messages=msgs, llm=llm_opts)
+            return self._extract_content(response, request_id)
 
         circuit = get_llm_circuit()
         metrics = get_llm_metrics()
@@ -303,9 +323,17 @@ class LLMService:
 
         ironman_messages = self._convert_messages(messages, system)
         llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens)
+        has_content: bool = False
+        reasoning_buffer: list[str] = []
         async for chunk in _chat_stream(messages=ironman_messages, llm=llm_opts):
             if chunk.content:
+                has_content = True
                 yield chunk.content
+            elif chunk.reasoning:
+                reasoning_buffer.append(chunk.reasoning)
+        if not has_content and reasoning_buffer:
+            logger.warning("stream_chat: no content, yielding reasoning fallback")
+            yield "".join(reasoning_buffer)
 
     async def stream_ask(
         self,
@@ -315,13 +343,25 @@ class LLMService:
         max_tokens: Optional[int] = None,
     ) -> AsyncGenerator[str, None]:
         await configure_ironman()
-        from ironman import stream as _stream
-        from ironman.types import LLMOptions
+        from ironman import chat_stream as _chat_stream
+        from ironman.types import LLMOptions, Message, Role
 
         llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens)
-        async for chunk in _stream(prompt=prompt, system=system, llm=llm_opts):
+        msgs: list = []
+        if system:
+            msgs.append(Message(role=Role.SYSTEM, content=system))
+        msgs.append(Message(role=Role.USER, content=prompt))
+        has_content: bool = False
+        reasoning_buffer: list[str] = []
+        async for chunk in _chat_stream(messages=msgs, llm=llm_opts):
             if chunk.content:
+                has_content = True
                 yield chunk.content
+            elif chunk.reasoning:
+                reasoning_buffer.append(chunk.reasoning)
+        if not has_content and reasoning_buffer:
+            logger.warning("stream_ask: no content, yielding reasoning fallback")
+            yield "".join(reasoning_buffer)
 
     async def embed(
         self,
