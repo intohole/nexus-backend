@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
 from nexus.context import get_request_id
 from nexus.logging import get_logger
@@ -31,10 +31,15 @@ async def configure_ironman(yaml_path: Optional[str] = None) -> None:
         path = yaml_path or os.environ.get("IRONMAN_CONFIG", "")
         if path and os.path.exists(path):
             await ironman.configure(config_path=path)
-            _ironman_configured = True
             logger.info("Ironman configured from %s", path)
         else:
-            logger.warning("Ironman config not found, using env vars")
+            logger.warning("Ironman config not found, assuming externally configured")
+        _ironman_configured = True
+
+
+def mark_ironman_configured() -> None:
+    global _ironman_configured
+    _ironman_configured = True
 
 
 def _effective_retries(max_retries: int) -> int:
@@ -283,6 +288,57 @@ class LLMService:
                 "LLM extract failed [req_id=%s, app=%s, latency=%.2fs]: %s",
                 request_id, app_name, latency, e,
             )
+            return None
+
+    async def stream_chat(
+        self,
+        messages: list[dict[str, str]],
+        system: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+    ) -> AsyncGenerator[str, None]:
+        await configure_ironman()
+        from ironman import chat_stream as _chat_stream
+        from ironman.types import LLMOptions
+
+        ironman_messages = self._convert_messages(messages, system)
+        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens)
+        async for chunk in _chat_stream(messages=ironman_messages, llm=llm_opts):
+            if chunk.content:
+                yield chunk.content
+
+    async def stream_ask(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+    ) -> AsyncGenerator[str, None]:
+        await configure_ironman()
+        from ironman import stream as _stream
+        from ironman.types import LLMOptions
+
+        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens)
+        async for chunk in _stream(prompt=prompt, system=system, llm=llm_opts):
+            if chunk.content:
+                yield chunk.content
+
+    async def embed(
+        self,
+        texts: list[str],
+        timeout: float = 60.0,
+        max_retries: int = 3,
+    ) -> Optional[list[list[float]]]:
+        await configure_ironman()
+        from ironman import embed as _embed
+
+        async def _do() -> list[list[float]]:
+            return await _embed(text=texts)
+
+        try:
+            return await with_retry(_do, timeout, max_retries)
+        except Exception as e:
+            logger.error("Embed failed: %s", e)
             return None
 
 

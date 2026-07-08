@@ -101,6 +101,7 @@ from nexus.llm import (
     LLMService,
     get_llm_service,
     configure_ironman,
+    mark_ironman_configured,
 )
 from nexus.ironman import (
     init_ironman,
@@ -109,8 +110,10 @@ from nexus.ironman import (
     is_ironman_available,
     get_init_app_name,
 )
+from nexus.web_search import WebSearchService, get_web_search_service
+from nexus.deep_research import DeepResearchService, get_deep_research_service
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 __all__ = [
     "__version__",
@@ -204,9 +207,14 @@ __all__ = [
     "LLMService",
     "get_llm_service",
     "configure_ironman",
+    "mark_ironman_configured",
     "init_ironman",
     "default_config_loader",
     "get_bootstrap",
     "is_ironman_available",
     "get_init_app_name",
+    "WebSearchService",
+    "get_web_search_service",
+    "DeepResearchService",
+    "get_deep_research_service",
 ]
