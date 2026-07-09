@@ -122,6 +122,7 @@ class LLMService:
         max_tokens: Optional[int] = None,
         timeout: float = 60.0,
         max_retries: int = 3,
+        json_mode: bool = False,
     ) -> str:
         await configure_ironman()
         from ironman import chat as _chat
@@ -130,7 +131,10 @@ class LLMService:
         request_id: str = get_request_id() or "-"
         app_name: str = _resolve_app_name()
         ironman_messages = self._convert_messages(messages, system)
-        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens)
+        extra: dict[str, object] | None = None
+        if json_mode:
+            extra = {"response_format": {"type": "json_object"}}
+        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
 
         async def _do() -> str:
             response = await _chat(messages=ironman_messages, llm=llm_opts)
@@ -171,6 +175,7 @@ class LLMService:
         max_tokens: Optional[int] = None,
         timeout: float = 60.0,
         max_retries: int = 3,
+        json_mode: bool = False,
     ) -> str:
         await configure_ironman()
         from ironman import chat as _chat
@@ -178,7 +183,10 @@ class LLMService:
 
         request_id: str = get_request_id() or "-"
         app_name: str = _resolve_app_name()
-        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens)
+        extra: dict[str, object] | None = None
+        if json_mode:
+            extra = {"response_format": {"type": "json_object"}}
+        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
 
         msgs: list = []
         if system:
