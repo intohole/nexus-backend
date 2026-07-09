@@ -96,3 +96,79 @@ def setup_logging(
 
 def get_logger(name: str = "app") -> logging.Logger:
     return logging.getLogger(name)
+
+
+class _StdlibToLoguruHandler(logging.Handler):
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            from loguru import logger as _loguru_logger
+            level: str = record.levelname
+            try:
+                level = _loguru_logger.level(record.levelname).name
+            except (ValueError, TypeError):
+                pass
+            frame, depth = logging.currentframe(), 2
+            while frame and frame.f_code.co_filename == logging.__file__:
+                frame = frame.f_back
+                depth += 1
+            _loguru_logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+        except ImportError:
+            pass
+
+
+def setup_loguru(
+    app_name: str = "app",
+    log_level: str = "INFO",
+    log_dir: str = "logs",
+    retention_days: int = 3,
+    bridge_stdlib: bool = True,
+) -> None:
+    try:
+        from loguru import logger
+    except ImportError:
+        setup_logging()
+        return
+
+    import os as _os
+    from pathlib import Path as _Path
+
+    _Path(log_dir).mkdir(parents=True, exist_ok=True)
+    logger.remove()
+
+    logger.add(
+        _os.sys.stdout,
+        colorize=True,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        level=log_level,
+        enqueue=True,
+    )
+
+    logger.add(
+        f"{log_dir}/{app_name}-{{time:YYYY-MM-DD}}.log",
+        rotation="00:00",
+        retention=f"{retention_days} days",
+        compression="gz",
+        encoding="utf-8",
+        level=log_level,
+        enqueue=True,
+        filter=lambda record: record["level"].no < 40,
+    )
+
+    logger.add(
+        f"{log_dir}/{app_name}-error-{{time:YYYY-MM-DD}}.log",
+        rotation="00:00",
+        retention=f"{retention_days} days",
+        compression="gz",
+        encoding="utf-8",
+        level="ERROR",
+        enqueue=True,
+    )
+
+    if bridge_stdlib:
+        logging.basicConfig(handlers=[_StdlibToLoguruHandler()], level=logging.INFO, force=True)
+        for _name in ("uvicorn", "uvicorn.access", "uvicorn.error", "fastapi", "sqlalchemy", "ironman"):
+            _log = logging.getLogger(_name)
+            _log.handlers = [_StdlibToLoguruHandler()]
+            _log.propagate = False
+
+    logger.info(f"Loguru logging initialized: app={app_name}, level={log_level}, dir={log_dir}")

@@ -21,7 +21,7 @@ from nexus.context import (
     RequestContext,
 )
 from nexus.database import DatabaseManager, get_db, db_manager, Base, init_db, close_db
-from nexus.logging import setup_logging, get_logger
+from nexus.logging import setup_logging, setup_loguru, get_logger
 from nexus.response import (
     ApiResponse,
     PaginatedResponse,
@@ -144,6 +144,7 @@ __all__ = [
     "init_db",
     "close_db",
     "setup_logging",
+    "setup_loguru",
     "get_logger",
     "ApiResponse",
     "PaginatedResponse",
