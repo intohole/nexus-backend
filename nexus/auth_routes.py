@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable, Optional
+from typing import Callable, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,9 +13,9 @@ from nexus.logging import get_logger
 logger = get_logger("nexus.auth_routes")
 _security: HTTPBearer = HTTPBearer(auto_error=False)
 
-UcSdkProvider = Callable[[], Any]
-OkWrapper = Callable[[Any, str], Any]
-ErrWrapper = Callable[[str, int], Any]
+UcSdkProvider = Callable[[], object]
+OkWrapper = Callable[[object, str], object]
+ErrWrapper = Callable[[str, int], object]
 
 
 class LoginRequest(BaseModel):
@@ -31,7 +31,7 @@ class RegisterRequest(BaseModel):
 
     @field_validator("phone", mode="before")
     @classmethod
-    def _empty_phone_to_none(cls, v: Any) -> Any:
+    def _empty_phone_to_none(cls, v: object) -> object:
         if isinstance(v, str) and not v.strip():
             return None
         return v
@@ -54,7 +54,7 @@ class UpdateUserRequest(BaseModel):
 
     @field_validator("phone", mode="before")
     @classmethod
-    def _empty_phone_to_none(cls, v: Any) -> Any:
+    def _empty_phone_to_none(cls, v: object) -> object:
         if isinstance(v, str) and not v.strip():
             return None
         return v
@@ -66,29 +66,19 @@ class UpdateUserRequest(BaseModel):
         return self
 
 
-def _default_ok(data: Any, message: str = "") -> Any:
+def _default_ok(data: object, message: str = "") -> object:
     return data
 
 
-def _default_err(message: str, status_code: int) -> Any:
+def _default_err(message: str, status_code: int) -> object:
     raise HTTPException(status_code=status_code, detail=message)
 
 
-def _map_uc_detail(result: dict[str, Any], default_msg: str) -> str:
-    detail: Any = result.get("detail", result.get("message", default_msg))
+def _map_uc_detail(result: dict[str, object], default_msg: str) -> str:
+    detail: object = result.get("detail", result.get("message", default_msg))
     if isinstance(detail, dict):
         return str(detail.get("message", detail.get("detail", default_msg)))
     return str(detail)
-
-
-def _translate_exception(exc: Exception) -> Any:
-    if isinstance(exc, HTTPException):
-        raise exc
-    if isinstance(exc, httpx.ConnectError):
-        raise HTTPException(status_code=502, detail="认证服务暂时不可用，请稍后重试")
-    if isinstance(exc, httpx.TimeoutException):
-        raise HTTPException(status_code=502, detail="认证服务响应超时，请稍后重试")
-    raise HTTPException(status_code=502, detail=f"认证服务异常: {exc}")
 
 
 def create_auth_router(
@@ -120,7 +110,7 @@ def create_auth_router(
     wrap_err: ErrWrapper = err or _default_err
     router = APIRouter(prefix=prefix, tags=tags or ["Auth"])
 
-    def _handle(exc: Exception) -> Any:
+    def _handle(exc: Exception) -> object:
         if isinstance(exc, HTTPException):
             return wrap_err(str(exc.detail), exc.status_code)
         if isinstance(exc, httpx.ConnectError):
@@ -130,14 +120,14 @@ def create_auth_router(
         return wrap_err(f"认证服务异常: {exc}", 502)
 
     @router.post("/login")
-    async def login(request: LoginRequest) -> Any:
+    async def login(request: LoginRequest) -> object:
         try:
-            result: dict[str, Any] = await uc_sdk_provider().login(
+            result: dict[str, object] = await uc_sdk_provider().login(
                 username=request.username, password=request.password
             )
             if not result.get("success"):
                 return wrap_err(_map_uc_detail(result, "登录失败"), 401)
-            data: dict[str, Any] = result.get("data", {})
+            data: dict[str, object] = result.get("data", {})
             return wrap_ok(
                 {
                     "access_token": data.get("access_token"),
@@ -153,9 +143,9 @@ def create_auth_router(
             return _handle(exc)
 
     @router.post("/register")
-    async def register(request: RegisterRequest) -> Any:
+    async def register(request: RegisterRequest) -> object:
         try:
-            result: dict[str, Any] = await uc_sdk_provider().register(
+            result: dict[str, object] = await uc_sdk_provider().register(
                 username=request.username,
                 password=request.password,
                 email=request.email or "",
@@ -163,7 +153,7 @@ def create_auth_router(
             )
             if not result.get("success"):
                 return wrap_err(_map_uc_detail(result, "注册失败"), 400)
-            data: dict[str, Any] = result.get("data", {})
+            data: dict[str, object] = result.get("data", {})
             return wrap_ok(
                 {
                     "access_token": data.get("access_token"),
@@ -178,9 +168,9 @@ def create_auth_router(
             return _handle(exc)
 
     @router.post("/refresh")
-    async def refresh_token(request: RefreshTokenRequest) -> Any:
+    async def refresh_token(request: RefreshTokenRequest) -> object:
         try:
-            result: dict[str, Any] = await uc_sdk_provider().refresh_with_token(
+            result: dict[str, object] = await uc_sdk_provider().refresh_with_token(
                 request.refresh_token
             )
             if not result:
@@ -191,17 +181,17 @@ def create_auth_router(
 
     @router.get("/me")
     async def get_me(
-        user_info: dict[str, Any] = Depends(get_current_user_full),
+        user_info: dict[str, object] = Depends(get_current_user_full),
         credentials: HTTPAuthorizationCredentials = Depends(_security),
-    ) -> Any:
-        user_id: Any = user_info.get("user_id")
+    ) -> object:
+        user_id: object = user_info.get("user_id")
         username: str = str(user_id) if user_id else ""
         try:
-            uc_resp: dict[str, Any] = await uc_sdk_provider().get_current_user(
+            uc_resp: dict[str, object] = await uc_sdk_provider().get_current_user(
                 token=credentials.credentials
             )
             if isinstance(uc_resp, dict) and uc_resp.get("success"):
-                uc_user: dict[str, Any] = uc_resp.get("data") or {}
+                uc_user: dict[str, object] = uc_resp.get("data") or {}
                 username = str(uc_user.get("username") or uc_user.get("id") or user_id)
         except Exception as exc:
             logger.warning("获取用户名失败(user_id=%s): %s", user_id, exc)
@@ -216,7 +206,7 @@ def create_auth_router(
         )
 
     @router.post("/logout")
-    async def logout(credentials: HTTPAuthorizationCredentials = Depends(_security)) -> Any:
+    async def logout(credentials: HTTPAuthorizationCredentials = Depends(_security)) -> object:
         try:
             await uc_sdk_provider().logout(token=credentials.credentials)
         except Exception:
@@ -224,8 +214,8 @@ def create_auth_router(
         return wrap_ok({"success": True}, "登出成功")
 
     @router.get("/config")
-    async def uc_config() -> Any:
-        sdk: Any = uc_sdk_provider()
+    async def uc_config() -> object:
+        sdk: object = uc_sdk_provider()
         configured: bool = bool(getattr(sdk, "is_configured", lambda: False)())
         return wrap_ok(
             {
@@ -242,9 +232,9 @@ def create_auth_router(
         async def change_password(
             request: ChangePasswordRequest,
             credentials: HTTPAuthorizationCredentials = Depends(_security),
-        ) -> Any:
+        ) -> object:
             try:
-                result: dict[str, Any] = await uc_sdk_provider().update_current_user(
+                result: dict[str, object] = await uc_sdk_provider().update_current_user(
                     {"old_password": request.old_password, "new_password": request.new_password},
                     token=credentials.credentials,
                 )
@@ -258,8 +248,8 @@ def create_auth_router(
         async def update_current_user(
             request: UpdateUserRequest,
             credentials: HTTPAuthorizationCredentials = Depends(_security),
-        ) -> Any:
-            update_data: dict[str, Any] = {}
+        ) -> object:
+            update_data: dict[str, object] = {}
             if request.email:
                 update_data["email"] = request.email
             if request.phone:
@@ -268,7 +258,7 @@ def create_auth_router(
                 update_data["old_password"] = request.old_password
                 update_data["new_password"] = request.new_password
             try:
-                result: dict[str, Any] = await uc_sdk_provider().update_current_user(
+                result: dict[str, object] = await uc_sdk_provider().update_current_user(
                     update_data, token=credentials.credentials
                 )
                 if result.get("success"):
@@ -278,10 +268,10 @@ def create_auth_router(
                 return _handle(exc)
 
     @router.get("/login-page-config")
-    async def login_page_config() -> Any:
+    async def login_page_config() -> object:
         try:
-            result: dict[str, Any] = await uc_sdk_provider().get_login_page_config()
-            data: dict[str, Any] = result.get("data") or {}
+            result: dict[str, object] = await uc_sdk_provider().get_login_page_config()
+            data: dict[str, object] = result.get("data") or {}
             if app_title:
                 data["title"] = app_title
             if app_subtitle:
