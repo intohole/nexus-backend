@@ -117,7 +117,7 @@ class AuthDependencies:
             return None
         try:
             result: dict[str, object] = await sdk.verify_token(token)
-            if result:
+            if result and result.get("success", True) is not False:
                 user_id_raw: object = result.get("user_id")
                 if user_id_raw is not None:
                     set_request_context(user_id=str(user_id_raw))
@@ -127,7 +127,8 @@ class AuthDependencies:
                     except Exception as exc:
                         logger.warning("Local user sync failed: %s", str(exc))
                 self._token_cache[token_key] = result
-            return result
+                return result
+            return None
         except Exception as exc:
             logger.warning("Token validation failed: %s", str(exc))
             return None

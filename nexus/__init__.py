@@ -59,6 +59,7 @@ from nexus.auth import (
     get_user_string_id,
     parse_user_id,
 )
+from nexus.auth_routes import create_auth_router
 from nexus.repository import BaseRepository
 from nexus.lion import (
     LionIntegration,
