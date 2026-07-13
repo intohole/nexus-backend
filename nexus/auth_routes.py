@@ -1,12 +1,9 @@
 from __future__ import annotations
-
 from typing import Callable, Optional
-
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, field_validator, model_validator
-
 from nexus.auth import get_current_user_full
 from nexus.logging import get_logger
 
@@ -19,15 +16,28 @@ ErrWrapper = Callable[[str, int], object]
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(..., min_length=1, max_length=50)
+    username: Optional[str] = Field(None, min_length=1, max_length=50)
     password: str = Field(..., min_length=1, max_length=128)
+    phone: Optional[str] = None
+    login_type: str = Field("username", pattern=r"^(username|phone)$")
+
+    @model_validator(mode="after")
+    def _validate_identifier(self) -> "LoginRequest":
+        if self.login_type == "phone":
+            if not self.phone:
+                raise ValueError("login_type=phone 时必须提供 phone")
+        else:
+            if not self.username:
+                raise ValueError("login_type=username 时必须提供 username")
+        return self
 
 
 class RegisterRequest(BaseModel):
-    username: str = Field(..., min_length=3, max_length=50)
+    username: Optional[str] = Field(None, min_length=3, max_length=50)
     password: str = Field(..., min_length=8, max_length=128)
     email: Optional[str] = None
     phone: Optional[str] = None
+    name: Optional[str] = None
 
     @field_validator("phone", mode="before")
     @classmethod
@@ -35,6 +45,17 @@ class RegisterRequest(BaseModel):
         if isinstance(v, str) and not v.strip():
             return None
         return v
+
+    @model_validator(mode="after")
+    def _ensure_username(self) -> "RegisterRequest":
+        if not self.username:
+            if self.name:
+                self.username = self.name
+            elif self.phone:
+                self.username = f"用户{self.phone[-4:]}"
+        if not self.username or len(self.username) < 3:
+            raise ValueError("用户名至少3个字符（可通过 username、name 或 phone 自动生成）")
+        return self
 
 
 class RefreshTokenRequest(BaseModel):
@@ -69,17 +90,14 @@ class UpdateUserRequest(BaseModel):
 def _default_ok(data: object, message: str = "") -> object:
     return data
 
-
 def _default_err(message: str, status_code: int) -> object:
     raise HTTPException(status_code=status_code, detail=message)
-
 
 def _map_uc_detail(result: dict[str, object], default_msg: str) -> str:
     detail: object = result.get("detail", result.get("message", default_msg))
     if isinstance(detail, dict):
         return str(detail.get("message", detail.get("detail", default_msg)))
     return str(detail)
-
 
 def create_auth_router(
     prefix: str,
@@ -105,7 +123,6 @@ def create_auth_router(
     """
     if uc_sdk_provider is None:
         raise ValueError("uc_sdk_provider is required")
-
     wrap_ok: OkWrapper = ok or _default_ok
     wrap_err: ErrWrapper = err or _default_err
     router = APIRouter(prefix=prefix, tags=tags or ["Auth"])
@@ -122,9 +139,8 @@ def create_auth_router(
     @router.post("/login")
     async def login(request: LoginRequest) -> object:
         try:
-            result: dict[str, object] = await uc_sdk_provider().login(
-                username=request.username, password=request.password
-            )
+            login_kwargs = {"phone": request.phone, "password": request.password} if request.login_type == "phone" else {"username": request.username, "password": request.password}
+            result: dict[str, object] = await uc_sdk_provider().login(**login_kwargs)
             if not result.get("success"):
                 return wrap_err(_map_uc_detail(result, "登录失败"), 401)
             data: dict[str, object] = result.get("data", {})
