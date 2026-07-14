@@ -60,6 +60,14 @@ from nexus.auth import (
     parse_user_id,
 )
 from nexus.auth_routes import create_auth_router
+from nexus.uc_sdk_helper import (
+    init_uc_sdk,
+    init_uc_sdk_from_lion,
+    get_uc_sdk,
+    close_uc_sdk,
+    standard_ok,
+    standard_err,
+)
 from nexus.repository import BaseRepository
 from nexus.lion import (
     LionIntegration,
@@ -176,6 +184,13 @@ __all__ = [
     "normalize_user_dict",
     "get_user_string_id",
     "parse_user_id",
+    "create_auth_router",
+    "init_uc_sdk",
+    "init_uc_sdk_from_lion",
+    "get_uc_sdk",
+    "close_uc_sdk",
+    "standard_ok",
+    "standard_err",
     "BaseRepository",
     "LionIntegration",
     "get_lion",
