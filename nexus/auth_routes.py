@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Optional
+from typing import Callable, Optional, Awaitable
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -22,6 +22,8 @@ _security: HTTPBearer = HTTPBearer(auto_error=False)
 UcSdkProvider = Callable[[], object]
 OkWrapper = Callable[[object, str], object]
 ErrWrapper = Callable[[str, int], object]
+PostActionHook = Callable[[dict[str, object]], Awaitable[None]]
+MeTransformer = Callable[[dict[str, object], str], Awaitable[dict[str, object]]]
 
 _DEFAULT_ENDPOINTS: frozenset[str] = frozenset(
     {"login", "register", "refresh", "me", "logout", "config", "login-page-config"}
@@ -54,6 +56,9 @@ def create_auth_router(
     include_profile_endpoints: bool = False,
     app_title: str = "",
     app_subtitle: str = "",
+    post_login_hook: Optional[PostActionHook] = None,
+    post_register_hook: Optional[PostActionHook] = None,
+    me_transformer: Optional[MeTransformer] = None,
 ) -> APIRouter:
     """创建统一认证路由。
 
@@ -68,6 +73,9 @@ def create_auth_router(
         include_profile_endpoints: 是否包含 change-password 和 PUT /me
         app_title: 登录页配置中的应用名
         app_subtitle: 登录页配置中的副标题
+        post_login_hook: 登录成功后异步回调，接收 UC data dict
+        post_register_hook: 注册成功后异步回调，接收 UC data dict
+        me_transformer: /me 响应转换器 (user_info, user_id_str) -> dict
     """
     if uc_sdk_provider is None:
         raise ValueError("uc_sdk_provider is required")
@@ -99,6 +107,11 @@ def create_auth_router(
                 if not result.get("success"):
                     return wrap_err(_map_uc_detail(result, "登录失败"), 401)
                 data: dict[str, object] = result.get("data", {})
+                if post_login_hook:
+                    try:
+                        await post_login_hook(data)
+                    except Exception as exc:
+                        logger.warning("post_login_hook failed: %s", exc)
                 return wrap_ok(
                     {
                         "access_token": data.get("access_token"),
@@ -127,6 +140,11 @@ def create_auth_router(
                 if not result.get("success"):
                     return wrap_err(_map_uc_detail(result, "注册失败"), 400)
                 data: dict[str, object] = result.get("data", {})
+                if post_register_hook:
+                    try:
+                        await post_register_hook(data)
+                    except Exception as exc:
+                        logger.warning("post_register_hook failed: %s", exc)
                 return wrap_ok(
                     {
                         "access_token": data.get("access_token"),
@@ -182,6 +200,13 @@ def create_auth_router(
                     username = str(uc_user.get("username") or uc_user.get("id") or user_id)
             except Exception as exc:
                 logger.warning("获取用户名失败(user_id=%s): %s", user_id, exc)
+            if me_transformer:
+                try:
+                    user_id_str = str(user_id) if user_id else ""
+                    transformed = await me_transformer(user_info, user_id_str)
+                    return wrap_ok(transformed, "获取成功")
+                except Exception as exc:
+                    logger.warning("me_transformer failed: %s", exc)
             return wrap_ok(
                 {
                     "id": user_id,
