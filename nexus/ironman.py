@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Awaitable, Callable, Optional
+from typing import Awaitable, Callable, Optional
 
 from nexus.lion import get_chat_config, get_embed_config
 from nexus.logging import get_logger
@@ -23,8 +23,8 @@ _via_gateway: bool = False
 
 # A4: ironman 插桩状态（避免重复包装）
 _instrumented: bool = False
-_original_chat: Optional[Callable[..., Awaitable[Any]]] = None
-_original_embed: Optional[Callable[..., Awaitable[Any]]] = None
+_original_chat: Optional[Callable[..., Awaitable[object]]] = None
+_original_embed: Optional[Callable[..., Awaitable[object]]] = None
 
 
 def _is_placeholder(value: str) -> bool:
@@ -92,7 +92,7 @@ def _instrument_ironman() -> None:
     _original_chat = _ironman_mod.chat
     _original_embed = _ironman_mod.embed
 
-    async def _wrapped_chat(messages: Any, llm: Any = None, tools: Any = None) -> Any:
+    async def _wrapped_chat(messages: object, llm: object = None, tools: object = None) -> object:
         from nexus.context import get_request_id
         from nexus.llm_metrics import get_llm_metrics
         from nexus.circuit_breaker import get_llm_circuit
@@ -103,11 +103,11 @@ def _instrument_ironman() -> None:
         metrics = get_llm_metrics()
         start: float = time.monotonic()
 
-        async def _do() -> Any:
+        async def _do() -> object:
             return await _original_chat(messages, llm=llm, tools=tools)  # type: ignore[misc]
 
         try:
-            result: Any = await circuit.call(_do)
+            result: object = await circuit.call(_do)
             latency: float = time.monotonic() - start
             tokens: int = 0
             model: str = "unknown"
@@ -142,9 +142,9 @@ def _instrument_ironman() -> None:
             raise
 
     async def _wrapped_embed(
-        text: Any, model: Any = None, provider: Any = None,
-        dimensions: Any = None, encoding_format: Any = None,
-    ) -> Any:
+        text: object, model: object = None, provider: object = None,
+        dimensions: object = None, encoding_format: object = None,
+    ) -> object:
         from nexus.context import get_request_id
         from nexus.llm_metrics import get_llm_metrics
 
@@ -153,7 +153,7 @@ def _instrument_ironman() -> None:
         metrics = get_llm_metrics()
         start: float = time.monotonic()
         try:
-            result: Any = await _original_embed(  # type: ignore[misc]
+            result: object = await _original_embed(  # type: ignore[misc]
                 text, model=model, provider=provider,
                 dimensions=dimensions, encoding_format=encoding_format,
             )
