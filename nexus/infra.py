@@ -34,9 +34,9 @@ async def get_spider_config() -> dict[str, str]:
 
 async def get_promptmanager_config() -> dict[str, str]:
     config = await get_infra_config("promptmanager")
-    base_url = str(config.get("base_url") or "") or os.getenv("PROMPTFORGE_GATEWAY_URL", "http://localhost:8400")
-    api_key = str(config.get("api_key") or "") or os.getenv("PROMPTFORGE_API_KEY", "")
-    gateway_url = str(config.get("gateway_url") or "") or os.getenv("PROMPTFORGE_GATEWAY_URL", "http://localhost:8400/api/gateway/v1")
+    base_url = str(config.get("base_url") or "")
+    api_key = str(config.get("api_key") or "")
+    gateway_url = str(config.get("gateway_url") or "")
     return {"base_url": base_url, "api_key": api_key, "gateway_url": gateway_url}
 
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from typing import Any, Awaitable, Callable, Optional
 
@@ -42,43 +41,28 @@ def _clean(value: str, *fallbacks: str) -> str:
 
 
 async def default_config_loader(app_name: str) -> dict[str, object]:
+    """ironman Bootstrap 默认配置加载器。
+
+    配置唯一来源：Lion（nexus.lion.get_chat_config / get_embed_config）。
+    不再从环境变量兜底（PROMPTFORGE_API_KEY / LLM_API_KEY 等），
+    避免配置散落在环境变量中难以管控。配置缺失时返回空字段，
+    ironman 进入降级模式（is_available() 返回 False）。
+    """
     global _via_gateway
     chat_cfg = await get_chat_config(prefer_gateway=True)
-    # P2: 记录是否通过网关模式（由 is_gateway_mode() 读取，用于重试降级）
     _via_gateway = bool(chat_cfg.get("via_gateway", False))
     embed_cfg = await get_embed_config(prefer_gateway=True)
 
-    api_key = _clean(
-        str(chat_cfg.get("api_key", "")),
-        os.getenv("PROMPTFORGE_API_KEY", ""),
-        os.getenv("LLM_API_KEY", ""),
-    )
-    base_url = _clean(
-        str(chat_cfg.get("base_url", "")),
-        os.getenv("PROMPTFORGE_GATEWAY_URL", ""),
-        os.getenv("LLM_BASE_URL", ""),
-    )
-    model = _clean(
-        str(chat_cfg.get("model", "")),
-        os.getenv("LLM_MODEL", ""),
-        "glm-4-flash",
-    )
+    api_key = _clean(str(chat_cfg.get("api_key", "")))
+    base_url = _clean(str(chat_cfg.get("base_url", "")))
+    model = _clean(str(chat_cfg.get("model", "")))
     provider = str(chat_cfg.get("provider", "") or "openai")
 
-    emb_api_key = _clean(
-        str(embed_cfg.get("api_key", "")),
-        api_key,
-    )
-    emb_base_url = _clean(
-        str(embed_cfg.get("base_url", "")),
-        base_url,
-    )
-    emb_model = _clean(
-        str(embed_cfg.get("model", "")),
-        "embedding-3",
-    )
+    emb_api_key = _clean(str(embed_cfg.get("api_key", ""))) or api_key
+    emb_base_url = _clean(str(embed_cfg.get("base_url", ""))) or base_url
+    emb_model = _clean(str(embed_cfg.get("model", "")))
     emb_provider = str(embed_cfg.get("provider", "") or provider)
-    emb_dim = embed_cfg.get("dimensions") or embed_cfg.get("dimension") or 1024
+    emb_dim = embed_cfg.get("dimensions") or embed_cfg.get("dimension") or 0
 
     return {
         "api_key": api_key,
