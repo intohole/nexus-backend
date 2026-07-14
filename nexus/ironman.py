@@ -25,6 +25,7 @@ _via_gateway: bool = False
 _instrumented: bool = False
 _original_chat: Optional[Callable[..., Awaitable[object]]] = None
 _original_embed: Optional[Callable[..., Awaitable[object]]] = None
+_original_ask: Optional[Callable[..., Awaitable[object]]] = None
 
 
 def _is_placeholder(value: str) -> bool:
@@ -83,7 +84,7 @@ def _instrument_ironman() -> None:
     所有业务应用直接调用 ironman.chat()/ironman.embed()，不经过 nexus.llm.LLMClient。
     因此在 init_ironman() 完成后包装 ironman 模块级函数，确保 A4 插桩对所有应用生效。
     """
-    global _instrumented, _original_chat, _original_embed
+    global _instrumented, _original_chat, _original_embed, _original_ask
     if _instrumented:
         return
 
@@ -91,6 +92,7 @@ def _instrument_ironman() -> None:
 
     _original_chat = _ironman_mod.chat
     _original_embed = _ironman_mod.embed
+    _original_ask = getattr(_ironman_mod, "ask", None)
 
     async def _wrapped_chat(messages: object, llm: object = None, tools: object = None) -> object:
         from nexus.context import get_request_id
@@ -174,10 +176,61 @@ def _instrument_ironman() -> None:
             )
             raise
 
+    async def _wrapped_ask(*args: object, **kwargs: object) -> object:
+        from nexus.context import get_request_id
+        from nexus.llm_metrics import get_llm_metrics
+        from nexus.circuit_breaker import get_llm_circuit
+
+        request_id: str = get_request_id() or "-"
+        app_name: str = _init_app_name or "unknown"
+        circuit = get_llm_circuit()
+        metrics = get_llm_metrics()
+        start: float = time.monotonic()
+
+        async def _do() -> object:
+            return await _original_ask(*args, **kwargs)  # type: ignore[misc]
+
+        try:
+            result: object = await circuit.call(_do)
+            latency: float = time.monotonic() - start
+            tokens: int = 0
+            model: str = "unknown"
+            usage = getattr(result, "usage", None)
+            if usage:
+                tokens = (getattr(usage, "prompt_tokens", 0) or 0) + (
+                    getattr(usage, "completion_tokens", 0) or 0
+                )
+            resp_model = getattr(result, "model", None)
+            if resp_model:
+                model = resp_model
+            metrics.record(app_name, model, latency, tokens=tokens, error=None)
+            logger.info(
+                "LLM ask [req_id=%s, app=%s, model=%s, latency=%.2fs, tokens=%d]",
+                request_id, app_name, model, latency, tokens,
+            )
+            return result
+        except Exception as e:
+            latency = time.monotonic() - start
+            error_type: str = type(e).__name__
+            metrics.record(app_name, "unknown", latency, tokens=0, error=error_type)
+            if error_type == "CircuitBreakerOpenError":
+                logger.warning(
+                    "LLM ask blocked by open circuit [req_id=%s, app=%s, latency=%.2fs]: %s",
+                    request_id, app_name, latency, e,
+                )
+            else:
+                logger.error(
+                    "LLM ask failed [req_id=%s, app=%s, latency=%.2fs]: %s",
+                    request_id, app_name, latency, e,
+                )
+            raise
+
     _ironman_mod.chat = _wrapped_chat
     _ironman_mod.embed = _wrapped_embed
+    if _original_ask is not None:
+        _ironman_mod.ask = _wrapped_ask
     _instrumented = True
-    logger.info("ironman instrumented (chat + embed wrapped with metrics/circuit/req_id)")
+    logger.info("ironman instrumented (chat + embed + ask wrapped with metrics/circuit/req_id)")
 
 
 async def init_ironman(
