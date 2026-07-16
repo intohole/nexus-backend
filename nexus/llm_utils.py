@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import re
-from typing import Awaitable, Callable, TypeVar
+from typing import Awaitable, Callable, Optional, TypeVar
 
 logger = logging.getLogger("nexus.llm_utils")
 
@@ -104,6 +104,31 @@ def _extract_retry_after(exc: Exception) -> float | None:
     return None
 
 
+def find_balanced_json(content: str) -> Optional[str]:
+    """从文本中提取第一个平衡的JSON对象（括号匹配法）。
+
+    比regex \\{[\\s\\S]*\\} 更健壮：正确处理嵌套JSON，
+    遇到非法JSON自动跳过继续寻找下一个候选。
+    """
+    depth = 0
+    start = -1
+    for i, c in enumerate(content):
+        if c == '{':
+            if depth == 0:
+                start = i
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0 and start >= 0:
+                candidate = content[start:i + 1]
+                try:
+                    json.loads(candidate)
+                    return candidate
+                except json.JSONDecodeError:
+                    start = -1
+    return None
+
+
 def parse_llm_json(raw: str) -> dict[str, object]:
     text = raw.strip()
 
@@ -120,6 +145,15 @@ def parse_llm_json(raw: str) -> dict[str, object]:
             return result
     except json.JSONDecodeError:
         pass
+
+    candidate = find_balanced_json(text)
+    if candidate:
+        try:
+            result = json.loads(candidate)
+            if isinstance(result, dict):
+                return result
+        except json.JSONDecodeError:
+            pass
 
     m = re.search(r"\{[\s\S]*\}", text)
     if m:

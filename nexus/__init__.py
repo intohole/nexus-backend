@@ -102,6 +102,7 @@ from nexus.fastapi_setup import (
 )
 from nexus.llm_utils import (
     parse_llm_json,
+    find_balanced_json,
     with_retry,
     strip_code_fence,
     LLMTimeoutError,
@@ -218,6 +219,7 @@ __all__ = [
     "register_internal_endpoints",
     "AppLifecycle",
     "parse_llm_json",
+    "find_balanced_json",
     "with_retry",
     "strip_code_fence",
     "LLMTimeoutError",
