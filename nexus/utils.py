@@ -51,6 +51,52 @@ class TimeUtils:
     def format(cls, dt: datetime, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
         return cls.to_cn(dt).strftime(fmt)
 
+    @classmethod
+    def now_naive(cls) -> datetime:
+        return cls.now().replace(tzinfo=None)
+
+    @classmethod
+    def ensure_naive(cls, dt: datetime) -> datetime:
+        if dt.tzinfo is not None:
+            return dt.replace(tzinfo=None)
+        return dt
+
+    @classmethod
+    def parse(cls, dt_str: str, fmt: str = "%Y-%m-%d %H:%M:%S") -> datetime:
+        dt = datetime.strptime(dt_str, fmt)
+        return dt.replace(tzinfo=cls.CHINA_TZ)
+
+
+def clamp(value: float, min_val: float = 0.0, max_val: float = 1.0) -> float:
+    return min(max(value, min_val), max_val)
+
+
+def safe_float(value: object, default: float = 0.0, min_val: float = -float("inf"), max_val: float = float("inf")) -> float:
+    try:
+        result = float(value)
+    except (ValueError, TypeError):
+        return default
+    if result != result:
+        return default
+    return clamp(result, min_val, max_val)
+
+
+def safe_int(value: object, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def safe_bool(value: object, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ("true", "1", "yes")
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return default
+
 
 class MemoryCache:
     def __init__(self, max_size: int = 1000) -> None:

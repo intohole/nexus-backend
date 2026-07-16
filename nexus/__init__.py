@@ -38,6 +38,10 @@ from nexus.utils import (
     HealthRegistry,
     cosine_similarity,
     batch_cosine_similarity,
+    clamp,
+    safe_float,
+    safe_int,
+    safe_bool,
 )
 from nexus.middleware import (
     setup_cors,
@@ -171,6 +175,10 @@ __all__ = [
     "HealthRegistry",
     "cosine_similarity",
     "batch_cosine_similarity",
+    "clamp",
+    "safe_float",
+    "safe_int",
+    "safe_bool",
     "setup_cors",
     "RequestIdMiddleware",
     "NoCacheMiddleware",
