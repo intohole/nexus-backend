@@ -48,21 +48,38 @@ def is_retryable_error(exc: Exception) -> bool:
         import httpx
         if isinstance(exc, (httpx.ConnectError, httpx.TimeoutException, httpx.PoolTimeout)):
             return True
+        # httpx HTTPStatusError：直接读取 status_code 属性，避免字符串匹配遗漏
+        if isinstance(exc, httpx.HTTPStatusError):
+            code = str(exc.response.status_code)
+            if code in _NON_RETRYABLE_STATUS_CODES:
+                return False
+            if code in _RETRYABLE_STATUS_CODES:
+                return True
     except ImportError:
         pass
 
     msg = str(exc).lower()
-    # 不可重试：4xx 客户端错误（除 429）
-    for code in _NON_RETRYABLE_STATUS_CODES:
-        # 匹配 "status_code=401"、"returned 401"、" 401:" 等模式
-        if f"status_code={code}" in msg or f"returned {code}" in msg or f" {code}:" in msg:
+    # 不可重试：4xx 客户端错误（除 429），匹配多种格式：
+    #   "status_code=401" / "returned 401" / " 401:" / "'401 unauthorized'" / "error 401"
+    code = _extract_status_code(msg)
+    if code:
+        if code in _NON_RETRYABLE_STATUS_CODES:
             return False
-    # 可重试：429 限流、5xx 服务端错误
-    for code in _RETRYABLE_STATUS_CODES:
-        if code in msg:
+        if code in _RETRYABLE_STATUS_CODES:
             return True
     # 默认：未知错误重试（保守策略）
     return True
+
+
+_STATUS_CODE_RE = re.compile(
+    r"(?:status_code[=\s]+|returned\s+|error\s+['\"]?|http\s+|['\"])(\d{3})\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_status_code(msg: str) -> str | None:
+    m = _STATUS_CODE_RE.search(msg)
+    return m.group(1) if m else None
 
 
 def _extract_retry_after(exc: Exception) -> float | None:
