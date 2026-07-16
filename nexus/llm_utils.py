@@ -151,6 +151,7 @@ async def with_retry(
     coro_fn: Callable[[], Awaitable[T]],
     timeout: float = 60.0,
     max_retries: int = 3,
+    non_retryable: tuple = (),
 ) -> T:
     last_error: Exception | None = None
     for attempt in range(max_retries):
@@ -167,17 +168,18 @@ async def with_retry(
             await asyncio.sleep(2.0 * (attempt + 1))
         except Exception as e:
             last_error = e
-            # P1: 不可重试错误（400/401/403/404/422）立即抛出，避免无效重试
+            if non_retryable and isinstance(e, non_retryable):
+                logger.error("LLM non-retryable (business error): %s", e)
+                raise
             if not is_retryable_error(e):
                 logger.error("LLM non-retryable error (no retry): %s", e)
                 raise
             logger.error("LLM error, attempt %d/%d: %s", attempt + 1, max_retries, e)
             if attempt == max_retries - 1:
                 raise
-            # P3: 遵从 retry_after（429 限流时按服务器要求等待）
             retry_after = _extract_retry_after(e)
             if retry_after is not None:
-                wait_time = min(retry_after, 60.0)  # 上限 60s，避免过长等待
+                wait_time = min(retry_after, 60.0)
                 logger.info("LLM rate limited, waiting %ss (retry_after)", wait_time)
                 await asyncio.sleep(wait_time)
             else:
