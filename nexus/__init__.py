@@ -36,6 +36,8 @@ from nexus.utils import (
     cached,
     HttpClient,
     HealthRegistry,
+    cosine_similarity,
+    batch_cosine_similarity,
 )
 from nexus.middleware import (
     setup_cors,
@@ -167,6 +169,8 @@ __all__ = [
     "cached",
     "HttpClient",
     "HealthRegistry",
+    "cosine_similarity",
+    "batch_cosine_similarity",
     "setup_cors",
     "RequestIdMiddleware",
     "NoCacheMiddleware",
