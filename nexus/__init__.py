@@ -128,6 +128,20 @@ from nexus.ironman import (
 )
 from nexus.web_search import WebSearchService, get_web_search_service
 from nexus.deep_research import DeepResearchService, get_deep_research_service
+from nexus.dialogue_history import (
+    HistoryStrategy,
+    HistoryStore,
+    InMemoryStore,
+    SQLiteStore,
+    ConversationHistory,
+    get_history,
+    clear_history_cache,
+)
+from nexus.streaming import (
+    sse_event,
+    sse_chat_stream,
+    chunked_text_stream,
+)
 
 __version__ = "1.6.0"
 
@@ -248,4 +262,14 @@ __all__ = [
     "get_web_search_service",
     "DeepResearchService",
     "get_deep_research_service",
+    "HistoryStrategy",
+    "HistoryStore",
+    "InMemoryStore",
+    "SQLiteStore",
+    "ConversationHistory",
+    "get_history",
+    "clear_history_cache",
+    "sse_event",
+    "sse_chat_stream",
+    "chunked_text_stream",
 ]
