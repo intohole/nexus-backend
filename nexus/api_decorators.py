@@ -6,6 +6,7 @@ from typing import Awaitable, Callable, TypeVar
 from fastapi import HTTPException
 
 from nexus.context import get_request_id
+from nexus.errors import NexusError
 from nexus.logging import get_logger
 from nexus.uc_sdk_helper import standard_err
 
@@ -24,6 +25,16 @@ def handle_api_errors(operation_name: str = "operation") -> Callable[[Callable[.
                 return await func(*args, **kwargs)
             except HTTPException:
                 raise
+            except NexusError as e:
+                request_id: str = get_request_id() or "-"
+                logger.warning(
+                    "API %s in '%s' [req_id=%s]: %s",
+                    e.error_code,
+                    operation_name,
+                    request_id,
+                    e.message,
+                )
+                standard_err(message=e.message, status_code=e.status_code)
             except ValueError as e:
                 request_id: str = get_request_id() or "-"
                 logger.warning(

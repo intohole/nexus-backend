@@ -27,6 +27,7 @@ _original_chat: Optional[Callable[..., Awaitable[object]]] = None
 _original_embed: Optional[Callable[..., Awaitable[object]]] = None
 _original_ask: Optional[Callable[..., Awaitable[object]]] = None
 _original_extract: Optional[Callable[..., Awaitable[object]]] = None
+_original_stream: Optional[Callable[..., object]] = None
 
 
 def _is_placeholder(value: str) -> bool:
@@ -86,6 +87,7 @@ def _instrument_ironman() -> None:
     因此在 init_ironman() 完成后包装 ironman 模块级函数，确保 A4 插桩对所有应用生效。
     """
     global _instrumented, _original_chat, _original_embed, _original_ask
+    global _original_extract, _original_stream
     if _instrumented:
         return
 
@@ -95,180 +97,137 @@ def _instrument_ironman() -> None:
     _original_embed = _ironman_mod.embed
     _original_ask = getattr(_ironman_mod, "ask", None)
     _original_extract = getattr(_ironman_mod, "extract", None)
+    _original_stream = getattr(_ironman_mod, "stream", None)
 
-    async def _wrapped_chat(messages: object, llm: object = None, tools: object = None) -> object:
+    def _ctx() -> tuple:
         from nexus.context import get_request_id
         from nexus.llm_metrics import get_llm_metrics
         from nexus.circuit_breaker import get_llm_circuit
+        return (
+            get_request_id() or "-",
+            _init_app_name or "unknown",
+            get_llm_circuit(),
+            get_llm_metrics(),
+            time.monotonic(),
+        )
 
-        request_id: str = get_request_id() or "-"
-        app_name: str = _init_app_name or "unknown"
-        circuit = get_llm_circuit()
-        metrics = get_llm_metrics()
-        start: float = time.monotonic()
+    def _usage(result: object) -> tuple:
+        tokens: int = 0
+        usage = getattr(result, "usage", None)
+        if usage:
+            tokens = (getattr(usage, "prompt_tokens", 0) or 0) + (
+                getattr(usage, "completion_tokens", 0) or 0
+            )
+        model: str = getattr(result, "model", None) or "unknown"
+        return model, tokens
+
+    def _ok(op: str, req_id: str, app_name: str, metrics: object, model: str, start: float, tokens: int = 0) -> float:
+        latency: float = time.monotonic() - start
+        metrics.record(app_name, model, latency, tokens=tokens, error=None)
+        logger.info(
+            "LLM %s [req_id=%s, app=%s, model=%s, latency=%.2fs, tokens=%d]",
+            op, req_id, app_name, model, latency, tokens,
+        )
+        return latency
+
+    def _fail(op: str, req_id: str, app_name: str, metrics: object, start: float, e: Exception, model: str = "unknown") -> None:
+        latency: float = time.monotonic() - start
+        error_type: str = type(e).__name__
+        metrics.record(app_name, model, latency, tokens=0, error=error_type)
+        log_fn = logger.warning if error_type == "CircuitBreakerOpenError" else logger.error
+        log_fn(
+            "LLM %s failed [req_id=%s, app=%s, latency=%.2fs]: %s",
+            op, req_id, app_name, latency, e,
+        )
+
+    async def _wrapped_chat(messages: object, llm: object = None, tools: object = None) -> object:
+        request_id, app_name, circuit, metrics, start = _ctx()
 
         async def _do() -> object:
             return await _original_chat(messages, llm=llm, tools=tools)  # type: ignore[misc]
 
         try:
             result: object = await circuit.call(_do)
-            latency: float = time.monotonic() - start
-            tokens: int = 0
-            model: str = "unknown"
-            usage = getattr(result, "usage", None)
-            if usage:
-                tokens = (getattr(usage, "prompt_tokens", 0) or 0) + (
-                    getattr(usage, "completion_tokens", 0) or 0
-                )
-            resp_model = getattr(result, "model", None)
-            if resp_model:
-                model = resp_model
-            metrics.record(app_name, model, latency, tokens=tokens, error=None)
-            logger.info(
-                "LLM chat [req_id=%s, app=%s, model=%s, latency=%.2fs, tokens=%d]",
-                request_id, app_name, model, latency, tokens,
-            )
+            model, tokens = _usage(result)
+            _ok("chat", request_id, app_name, metrics, model, start, tokens)
             return result
         except Exception as e:
-            latency = time.monotonic() - start
-            error_type: str = type(e).__name__
-            metrics.record(app_name, "unknown", latency, tokens=0, error=error_type)
-            if error_type == "CircuitBreakerOpenError":
-                logger.warning(
-                    "LLM chat blocked by open circuit [req_id=%s, app=%s, latency=%.2fs]: %s",
-                    request_id, app_name, latency, e,
-                )
-            else:
-                logger.error(
-                    "LLM chat failed [req_id=%s, app=%s, latency=%.2fs]: %s",
-                    request_id, app_name, latency, e,
-                )
+            _fail("chat", request_id, app_name, metrics, start, e)
             raise
 
     async def _wrapped_embed(
         text: object, model: object = None, provider: object = None,
         dimensions: object = None, encoding_format: object = None,
     ) -> object:
-        from nexus.context import get_request_id
-        from nexus.llm_metrics import get_llm_metrics
-
-        request_id: str = get_request_id() or "-"
-        app_name: str = _init_app_name or "unknown"
-        metrics = get_llm_metrics()
-        start: float = time.monotonic()
+        request_id, app_name, _circuit, metrics, start = _ctx()
         try:
             result: object = await _original_embed(  # type: ignore[misc]
                 text, model=model, provider=provider,
                 dimensions=dimensions, encoding_format=encoding_format,
             )
-            latency: float = time.monotonic() - start
             emb_model: str = model or "unknown"
-            metrics.record(app_name, f"embed:{emb_model}", latency, tokens=0, error=None)
-            logger.info(
-                "LLM embed [req_id=%s, app=%s, model=%s, latency=%.2fs]",
-                request_id, app_name, emb_model, latency,
-            )
+            _ok("embed", request_id, app_name, metrics, f"embed:{emb_model}", start)
             return result
         except Exception as e:
-            latency = time.monotonic() - start
-            metrics.record(app_name, "embed:unknown", latency, tokens=0, error=type(e).__name__)
-            logger.error(
-                "LLM embed failed [req_id=%s, app=%s, latency=%.2fs]: %s",
-                request_id, app_name, latency, e,
-            )
+            _fail("embed", request_id, app_name, metrics, start, e, model="embed:unknown")
             raise
 
     async def _wrapped_ask(*args: object, **kwargs: object) -> object:
-        from nexus.context import get_request_id
-        from nexus.llm_metrics import get_llm_metrics
-        from nexus.circuit_breaker import get_llm_circuit
-
-        request_id: str = get_request_id() or "-"
-        app_name: str = _init_app_name or "unknown"
-        circuit = get_llm_circuit()
-        metrics = get_llm_metrics()
-        start: float = time.monotonic()
+        request_id, app_name, circuit, metrics, start = _ctx()
 
         async def _do() -> object:
             return await _original_ask(*args, **kwargs)  # type: ignore[misc]
 
         try:
             result: object = await circuit.call(_do)
-            latency: float = time.monotonic() - start
-            tokens: int = 0
-            model: str = "unknown"
-            usage = getattr(result, "usage", None)
-            if usage:
-                tokens = (getattr(usage, "prompt_tokens", 0) or 0) + (
-                    getattr(usage, "completion_tokens", 0) or 0
-                )
-            resp_model = getattr(result, "model", None)
-            if resp_model:
-                model = resp_model
-            metrics.record(app_name, model, latency, tokens=tokens, error=None)
-            logger.info(
-                "LLM ask [req_id=%s, app=%s, model=%s, latency=%.2fs, tokens=%d]",
-                request_id, app_name, model, latency, tokens,
-            )
+            model, tokens = _usage(result)
+            _ok("ask", request_id, app_name, metrics, model, start, tokens)
             return result
         except Exception as e:
-            latency = time.monotonic() - start
-            error_type: str = type(e).__name__
-            metrics.record(app_name, "unknown", latency, tokens=0, error=error_type)
-            if error_type == "CircuitBreakerOpenError":
-                logger.warning(
-                    "LLM ask blocked by open circuit [req_id=%s, app=%s, latency=%.2fs]: %s",
-                    request_id, app_name, latency, e,
-                )
-            else:
-                logger.error(
-                    "LLM ask failed [req_id=%s, app=%s, latency=%.2fs]: %s",
-                    request_id, app_name, latency, e,
-                )
+            _fail("ask", request_id, app_name, metrics, start, e)
             raise
 
     async def _wrapped_extract(*args: object, **kwargs: object) -> object:
-        from nexus.context import get_request_id
-        from nexus.llm_metrics import get_llm_metrics
-        from nexus.circuit_breaker import get_llm_circuit
-
-        request_id: str = get_request_id() or "-"
-        app_name: str = _init_app_name or "unknown"
-        circuit = get_llm_circuit()
-        metrics = get_llm_metrics()
-        start: float = time.monotonic()
+        request_id, app_name, circuit, metrics, start = _ctx()
 
         async def _do() -> object:
             return await _original_extract(*args, **kwargs)  # type: ignore[misc]
 
         try:
             result: object = await circuit.call(_do)
-            latency: float = time.monotonic() - start
             schema_obj = kwargs.get("schema") if kwargs else None
             schema_name: str = "raw"
             if schema_obj is not None:
                 schema_name = getattr(schema_obj, "__name__", None) or "extract"
-            metrics.record(app_name, f"extract:{schema_name}", latency, tokens=0, error=None)
-            logger.info(
-                "LLM extract [req_id=%s, app=%s, schema=%s, latency=%.2fs]",
-                request_id, app_name, schema_name, latency,
-            )
+            _ok("extract", request_id, app_name, metrics, f"extract:{schema_name}", start)
             return result
         except Exception as e:
-            latency = time.monotonic() - start
-            error_type: str = type(e).__name__
-            metrics.record(app_name, "extract:unknown", latency, tokens=0, error=error_type)
-            if error_type == "CircuitBreakerOpenError":
-                logger.warning(
-                    "LLM extract blocked by open circuit [req_id=%s, app=%s, latency=%.2fs]: %s",
-                    request_id, app_name, latency, e,
-                )
-            else:
-                logger.error(
-                    "LLM extract failed [req_id=%s, app=%s, latency=%.2fs]: %s",
-                    request_id, app_name, latency, e,
-                )
+            _fail("extract", request_id, app_name, metrics, start, e, model="extract:unknown")
             raise
+
+    def _wrapped_stream(*args: object, **kwargs: object) -> object:
+        async def _gen() -> object:
+            from nexus.circuit_breaker import CircuitBreakerOpenError, CircuitState
+
+            request_id, app_name, circuit, metrics, start = _ctx()
+
+            if circuit.state == CircuitState.OPEN:
+                metrics.record(app_name, "stream", 0.0, tokens=0, error="CircuitBreakerOpenError")
+                logger.warning(
+                    "LLM stream blocked by open circuit [req_id=%s, app=%s]",
+                    request_id, app_name,
+                )
+                raise CircuitBreakerOpenError("Circuit 'llm_gateway' is OPEN")
+
+            try:
+                async for chunk in _original_stream(*args, **kwargs):  # type: ignore[misc]
+                    yield chunk
+                _ok("stream", request_id, app_name, metrics, "stream", start)
+            except Exception as e:
+                _fail("stream", request_id, app_name, metrics, start, e, model="stream")
+                raise
+
+        return _gen()
 
     _ironman_mod.chat = _wrapped_chat
     _ironman_mod.embed = _wrapped_embed
@@ -276,8 +235,10 @@ def _instrument_ironman() -> None:
         _ironman_mod.ask = _wrapped_ask
     if _original_extract is not None:
         _ironman_mod.extract = _wrapped_extract
+    if _original_stream is not None:
+        _ironman_mod.stream = _wrapped_stream
     _instrumented = True
-    logger.info("ironman instrumented (chat + embed + ask + extract wrapped with metrics/circuit/req_id)")
+    logger.info("ironman instrumented (chat + embed + ask + extract + stream wrapped with metrics/circuit/req_id)")
 
 
 async def init_ironman(
