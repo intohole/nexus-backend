@@ -40,12 +40,25 @@ def _resolved_signature(func: Callable[..., Awaitable[T]]) -> Optional[inspect.S
     )
 
 
+def preserve_resolved_signature(
+    wrapper: Callable[..., Awaitable[T]], func: Callable[..., Awaitable[T]]
+) -> Callable[..., Awaitable[T]]:
+    """将 func 的已解析签名挂到 wrapper，供各类路由装饰器复用。
+
+    functools.wraps 只复制元数据不复制 __globals__，FastAPI 会在装饰器模块
+    命名空间解析 ForwardRef 导致失败；凡包装 FastAPI 路由的装饰器都应调用
+    本函数，而不是各自重复实现签名修复逻辑。
+    """
+    resolved_sig = _resolved_signature(func)
+    if resolved_sig is not None:
+        wrapper.__signature__ = resolved_sig  # type: ignore[attr-defined]
+    return wrapper
+
+
 def handle_api_errors(operation_name: str = "operation") -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
     """API错误处理装饰器，统一处理异常并返回标准错误响应"""
 
     def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
-        resolved_sig = _resolved_signature(func)
-
         @functools.wraps(func)
         async def wrapper(*args: object, **kwargs: object) -> T:
             try:
@@ -82,8 +95,6 @@ def handle_api_errors(operation_name: str = "operation") -> Callable[[Callable[.
                 )
                 standard_err(message=f"{operation_name}失败: {e}", status_code=500)
 
-        if resolved_sig is not None:
-            wrapper.__signature__ = resolved_sig  # type: ignore[attr-defined]
-        return wrapper
+        return preserve_resolved_signature(wrapper, func)
 
     return decorator
