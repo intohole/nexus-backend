@@ -26,6 +26,7 @@ _instrumented: bool = False
 _original_chat: Optional[Callable[..., Awaitable[object]]] = None
 _original_embed: Optional[Callable[..., Awaitable[object]]] = None
 _original_ask: Optional[Callable[..., Awaitable[object]]] = None
+_original_extract: Optional[Callable[..., Awaitable[object]]] = None
 
 
 def _is_placeholder(value: str) -> bool:
@@ -93,6 +94,7 @@ def _instrument_ironman() -> None:
     _original_chat = _ironman_mod.chat
     _original_embed = _ironman_mod.embed
     _original_ask = getattr(_ironman_mod, "ask", None)
+    _original_extract = getattr(_ironman_mod, "extract", None)
 
     async def _wrapped_chat(messages: object, llm: object = None, tools: object = None) -> object:
         from nexus.context import get_request_id
@@ -225,12 +227,57 @@ def _instrument_ironman() -> None:
                 )
             raise
 
+    async def _wrapped_extract(*args: object, **kwargs: object) -> object:
+        from nexus.context import get_request_id
+        from nexus.llm_metrics import get_llm_metrics
+        from nexus.circuit_breaker import get_llm_circuit
+
+        request_id: str = get_request_id() or "-"
+        app_name: str = _init_app_name or "unknown"
+        circuit = get_llm_circuit()
+        metrics = get_llm_metrics()
+        start: float = time.monotonic()
+
+        async def _do() -> object:
+            return await _original_extract(*args, **kwargs)  # type: ignore[misc]
+
+        try:
+            result: object = await circuit.call(_do)
+            latency: float = time.monotonic() - start
+            schema_obj = kwargs.get("schema") if kwargs else None
+            schema_name: str = "raw"
+            if schema_obj is not None:
+                schema_name = getattr(schema_obj, "__name__", None) or "extract"
+            metrics.record(app_name, f"extract:{schema_name}", latency, tokens=0, error=None)
+            logger.info(
+                "LLM extract [req_id=%s, app=%s, schema=%s, latency=%.2fs]",
+                request_id, app_name, schema_name, latency,
+            )
+            return result
+        except Exception as e:
+            latency = time.monotonic() - start
+            error_type: str = type(e).__name__
+            metrics.record(app_name, "extract:unknown", latency, tokens=0, error=error_type)
+            if error_type == "CircuitBreakerOpenError":
+                logger.warning(
+                    "LLM extract blocked by open circuit [req_id=%s, app=%s, latency=%.2fs]: %s",
+                    request_id, app_name, latency, e,
+                )
+            else:
+                logger.error(
+                    "LLM extract failed [req_id=%s, app=%s, latency=%.2fs]: %s",
+                    request_id, app_name, latency, e,
+                )
+            raise
+
     _ironman_mod.chat = _wrapped_chat
     _ironman_mod.embed = _wrapped_embed
     if _original_ask is not None:
         _ironman_mod.ask = _wrapped_ask
+    if _original_extract is not None:
+        _ironman_mod.extract = _wrapped_extract
     _instrumented = True
-    logger.info("ironman instrumented (chat + embed + ask wrapped with metrics/circuit/req_id)")
+    logger.info("ironman instrumented (chat + embed + ask + extract wrapped with metrics/circuit/req_id)")
 
 
 async def init_ironman(
@@ -266,6 +313,13 @@ async def init_ironman(
 
         # A4: Bootstrap 创建后立即插桩（包装 ironman.chat/embed）
         _instrument_ironman()
+
+        # 统一标记 ironman 已配置，避免各项目重复调用 mark_ironman_configured()
+        try:
+            from nexus.llm import mark_ironman_configured
+            mark_ironman_configured()
+        except ImportError:
+            pass
 
         if _bootstrap.is_available():
             logger.info(
