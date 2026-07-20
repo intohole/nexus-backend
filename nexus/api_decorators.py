@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import functools
-from typing import Awaitable, Callable, TypeVar
+import inspect
+import typing
+from typing import Awaitable, Callable, Optional, TypeVar
 
 from fastapi import HTTPException
 
@@ -15,10 +17,35 @@ T = TypeVar("T")
 logger = get_logger("nexus.api_decorators")
 
 
+def _resolved_signature(func: Callable[..., Awaitable[T]]) -> Optional[inspect.Signature]:
+    """在函数原始命名空间解析 PEP 563 字符串注解，返回解析后的签名。
+
+    被装饰的路由函数若使用 `from __future__ import annotations`，FastAPI 默认
+    会在本装饰器模块的命名空间解析 ForwardRef（functools.wraps 不复制
+    __globals__），导致 Pydantic 模型解析失败：OpenAPI 生成 500、请求体被
+    误判为查询参数。提前解析并挂到 wrapper.__signature__ 可根治。
+    """
+    try:
+        hints = typing.get_type_hints(func)
+    except Exception:
+        return None
+    sig = inspect.signature(func)
+    params = [
+        param.replace(annotation=hints.get(param.name, param.annotation))
+        for param in sig.parameters.values()
+    ]
+    return sig.replace(
+        parameters=params,
+        return_annotation=hints.get("return", sig.return_annotation),
+    )
+
+
 def handle_api_errors(operation_name: str = "operation") -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
     """API错误处理装饰器，统一处理异常并返回标准错误响应"""
 
     def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+        resolved_sig = _resolved_signature(func)
+
         @functools.wraps(func)
         async def wrapper(*args: object, **kwargs: object) -> T:
             try:
@@ -55,6 +82,8 @@ def handle_api_errors(operation_name: str = "operation") -> Callable[[Callable[.
                 )
                 standard_err(message=f"{operation_name}失败: {e}", status_code=500)
 
+        if resolved_sig is not None:
+            wrapper.__signature__ = resolved_sig  # type: ignore[attr-defined]
         return wrapper
 
     return decorator
