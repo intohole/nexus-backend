@@ -142,8 +142,31 @@ from nexus.streaming import (
     sse_chat_stream,
     chunked_text_stream,
 )
+from nexus.circuit_breaker import (
+    CircuitBreaker,
+    CircuitBreakerConfig,
+    CircuitState,
+    CircuitMetrics,
+    CircuitBreakerOpenError,
+    get_circuit_breaker,
+    get_llm_circuit,
+)
+from nexus.cost_guard import (
+    CostGuard,
+    CostBudget,
+    BudgetPeriod,
+    TokenUsage,
+    CostBudgetExceededError,
+    get_cost_guard,
+    configure_pricing,
+)
+from nexus.llm_rate_limiter import (
+    LLMRateLimiter,
+    get_llm_rate_limiter,
+)
+from nexus.resilient_llm import resilient_ask
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
 __all__ = [
     "__version__",
@@ -272,4 +295,21 @@ __all__ = [
     "sse_event",
     "sse_chat_stream",
     "chunked_text_stream",
+    "CircuitBreaker",
+    "CircuitBreakerConfig",
+    "CircuitState",
+    "CircuitMetrics",
+    "CircuitBreakerOpenError",
+    "get_circuit_breaker",
+    "get_llm_circuit",
+    "CostGuard",
+    "CostBudget",
+    "BudgetPeriod",
+    "TokenUsage",
+    "CostBudgetExceededError",
+    "get_cost_guard",
+    "configure_pricing",
+    "LLMRateLimiter",
+    "get_llm_rate_limiter",
+    "resilient_ask",
 ]

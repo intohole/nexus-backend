@@ -1,20 +1,15 @@
-"""LLM 熔断器（A4.2）。
+"""熔断器 — 防止级联故障的标准模式。
 
-当 prompt-manager 网关持续失败时，业务 App 快速失败而非重试 180s。
-单例熔断器，所有 LLM 调用共用（因为都走同一个网关）。
-
-状态机：
-- CLOSED：正常调用，连续 5 次失败 → OPEN
-- OPEN：快速失败（抛 CircuitBreakerOpenError），30s 后 → HALF_OPEN
-- HALF_OPEN：允许试探调用，连续 2 次成功 → CLOSED；任意失败 → OPEN
+状态机: CLOSED(正常) -> OPEN(熔断) -> HALF_OPEN(探测) -> CLOSED
+源自 goldenFish 生产实践，上移为通用中间件能力。
 """
 from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Awaitable, Callable, Optional
+from typing import Awaitable, Callable, Dict, List, Optional
 
 from nexus.logging import get_logger
 
@@ -28,150 +23,177 @@ class CircuitState(str, Enum):
 
 
 @dataclass
-class CircuitConfig:
-    """熔断器配置。"""
+class CircuitBreakerConfig:
+    failure_threshold: int = 5          # 连续失败达到该值后熔断
+    recovery_timeout: float = 30.0      # OPEN 后经过该秒数进入 HALF_OPEN 探测
+    half_open_max_calls: int = 3        # HALF_OPEN 状态允许的最大探测调用数
+    success_threshold: int = 2          # HALF_OPEN 连续成功该次数后恢复 CLOSED
+    excluded_exceptions: tuple = (TimeoutError,)  # 不计入失败的异常类型
 
-    failure_threshold: int = 5        # 连续 N 次失败 → OPEN
-    recovery_timeout: float = 30.0    # OPEN 持续 N 秒后 → HALF_OPEN
-    success_threshold: int = 2        # HALF_OPEN 连续 N 次成功 → CLOSED
+
+@dataclass
+class CircuitMetrics:
+    total_calls: int = 0
+    total_failures: int = 0
+    total_successes: int = 0
+    consecutive_failures: int = 0
+    consecutive_successes: int = 0
+    last_failure_time: float = 0.0
+    last_success_time: float = 0.0
+    state_changes: List[Dict[str, object]] = field(default_factory=list)
+
+    @property
+    def failure_rate(self) -> float:
+        if self.total_calls == 0:
+            return 0.0
+        return self.total_failures / self.total_calls
 
 
 class CircuitBreakerOpenError(Exception):
-    """熔断器 OPEN 状态时抛出，应被视为不可重试错误。"""
-
-    pass
+    """熔断器处于 OPEN 状态时抛出。"""
 
 
 class CircuitBreaker:
-    """异步熔断器（参考 goldenFish 实现，简化为 nexus 层共用）。"""
-
     def __init__(
         self,
         name: str,
-        config: Optional[CircuitConfig] = None,
-    ) -> None:
-        self._name: str = name
-        self._config: CircuitConfig = config or CircuitConfig()
-        self._state: CircuitState = CircuitState.CLOSED
-        self._consecutive_failures: int = 0
-        self._consecutive_successes: int = 0
-        self._last_failure_time: float = 0.0
-        self._lock: asyncio.Lock = asyncio.Lock()
-
-    @property
-    def name(self) -> str:
-        return self._name
+        config: Optional[CircuitBreakerConfig] = None,
+        on_state_change: Optional[Callable[[CircuitState, CircuitState], None]] = None,
+    ):
+        self._name = name
+        self._config = config or CircuitBreakerConfig()
+        self._state = CircuitState.CLOSED
+        self._metrics = CircuitMetrics()
+        self._half_open_calls = 0
+        self._lock = asyncio.Lock()
+        self._on_state_change = on_state_change
 
     @property
     def state(self) -> CircuitState:
         return self._state
 
     @property
-    def consecutive_failures(self) -> int:
-        return self._consecutive_failures
+    def metrics(self) -> CircuitMetrics:
+        return self._metrics
 
-    @property
-    def consecutive_successes(self) -> int:
-        return self._consecutive_successes
-
-    async def call(
-        self,
-        func: Callable[..., Awaitable[Any]],
-        *args: Any,
-        **kwargs: Any,
-    ) -> Any:
-        """通过熔断器调用异步函数。
-
-        - CLOSED/HALF_OPEN：允许调用，根据结果更新状态
-        - OPEN：直接抛 CircuitBreakerOpenError，不调用 func
-        """
+    async def call(self, func: Callable[..., Awaitable[object]], *args: object, **kwargs: object) -> object:
         async with self._lock:
-            await self._maybe_recover()
+            await self._update_state()
             if self._state == CircuitState.OPEN:
                 raise CircuitBreakerOpenError(
-                    f"Circuit '{self._name}' OPEN "
-                    f"(failures={self._consecutive_failures}), "
-                    f"retry after {self._config.recovery_timeout}s"
+                    f"Circuit '{self._name}' is OPEN. Retry after {self._config.recovery_timeout}s"
                 )
+            if self._state == CircuitState.HALF_OPEN:
+                if self._half_open_calls >= self._config.half_open_max_calls:
+                    raise CircuitBreakerOpenError(f"Circuit '{self._name}' HALF_OPEN limit reached")
+                self._half_open_calls += 1
+        return await self._execute(func, *args, **kwargs)
 
+    async def _execute(self, func: Callable[..., Awaitable[object]], *args: object, **kwargs: object) -> object:
         try:
-            result: Any = await func(*args, **kwargs)
+            if asyncio.iscoroutinefunction(func):
+                result = await func(*args, **kwargs)
+            else:
+                result = func(*args, **kwargs)
             await self._on_success()
             return result
-        except Exception as exc:
-            await self._on_failure()
+        except self._config.excluded_exceptions:
             raise
-
-    async def _maybe_recover(self) -> None:
-        """OPEN 状态超时后转为 HALF_OPEN（在锁内调用）。"""
-        if self._state == CircuitState.OPEN:
-            elapsed: float = time.monotonic() - self._last_failure_time
-            if elapsed >= self._config.recovery_timeout:
-                self._state = CircuitState.HALF_OPEN
-                self._consecutive_successes = 0
-                logger.warning(
-                    "Circuit '%s' OPEN -> HALF_OPEN (after %.1fs)",
-                    self._name,
-                    elapsed,
-                )
+        except Exception as e:
+            await self._on_failure(e)
+            raise
 
     async def _on_success(self) -> None:
         async with self._lock:
-            self._consecutive_failures = 0
-            self._consecutive_successes += 1
-            if (
-                self._state == CircuitState.HALF_OPEN
-                and self._consecutive_successes >= self._config.success_threshold
-            ):
-                self._state = CircuitState.CLOSED
-                logger.info(
-                    "Circuit '%s' HALF_OPEN -> CLOSED (successes=%d)",
-                    self._name,
-                    self._consecutive_successes,
-                )
+            self._metrics.total_calls += 1
+            self._metrics.total_successes += 1
+            self._metrics.consecutive_successes += 1
+            self._metrics.consecutive_failures = 0
+            self._metrics.last_success_time = time.time()
+            if self._state == CircuitState.HALF_OPEN:
+                if self._metrics.consecutive_successes >= self._config.success_threshold:
+                    await self._transition_to(CircuitState.CLOSED)
 
-    async def _on_failure(self) -> None:
+    async def _on_failure(self, error: Exception) -> None:
         async with self._lock:
-            self._consecutive_failures += 1
-            self._consecutive_successes = 0
-            self._last_failure_time = time.monotonic()
-            if (
-                self._consecutive_failures >= self._config.failure_threshold
-                and self._state != CircuitState.OPEN
-            ):
-                self._state = CircuitState.OPEN
-                logger.warning(
-                    "Circuit '%s' -> OPEN (consecutive_failures=%d)",
-                    self._name,
-                    self._consecutive_failures,
-                )
+            self._metrics.total_calls += 1
+            self._metrics.total_failures += 1
+            self._metrics.consecutive_failures += 1
+            self._metrics.consecutive_successes = 0
+            self._metrics.last_failure_time = time.time()
+            if self._state == CircuitState.HALF_OPEN:
+                await self._transition_to(CircuitState.OPEN)
+                return
+            if self._metrics.consecutive_failures >= self._config.failure_threshold:
+                await self._transition_to(CircuitState.OPEN)
 
-    def to_dict(self) -> dict[str, Any]:
-        """返回熔断器状态快照（供 /api/_internal/llm-circuit 端点）。"""
+    async def _update_state(self) -> None:
+        if self._state == CircuitState.OPEN:
+            elapsed = time.time() - self._metrics.last_failure_time
+            if elapsed >= self._config.recovery_timeout:
+                await self._transition_to(CircuitState.HALF_OPEN)
+                self._half_open_calls = 0
+
+    async def _transition_to(self, new_state: CircuitState) -> None:
+        if self._state == new_state:
+            return
+        old_state = self._state
+        self._state = new_state
+        self._metrics.state_changes.append({"from": old_state.value, "to": new_state.value, "timestamp": time.time()})
+        logger.warning("Circuit '%s' state: %s -> %s", self._name, old_state.value, new_state.value)
+        if self._on_state_change:
+            try:
+                if asyncio.iscoroutinefunction(self._on_state_change):
+                    await self._on_state_change(old_state, new_state)
+                else:
+                    self._on_state_change(old_state, new_state)
+            except Exception as e:
+                logger.error("Circuit state change callback error: %s", e)
+
+    def reset(self) -> None:
+        self._state = CircuitState.CLOSED
+        self._metrics = CircuitMetrics()
+        self._half_open_calls = 0
+        logger.info("Circuit '%s' manually reset to CLOSED", self._name)
+
+    def to_dict(self) -> Dict[str, object]:
         return {
             "name": self._name,
             "state": self._state.value,
-            "consecutive_failures": self._consecutive_failures,
-            "consecutive_successes": self._consecutive_successes,
+            "metrics": {
+                "total_calls": self._metrics.total_calls,
+                "total_failures": self._metrics.total_failures,
+                "total_successes": self._metrics.total_successes,
+                "failure_rate": round(self._metrics.failure_rate, 4),
+                "consecutive_failures": self._metrics.consecutive_failures,
+                "consecutive_successes": self._metrics.consecutive_successes,
+            },
             "config": {
                 "failure_threshold": self._config.failure_threshold,
                 "recovery_timeout": self._config.recovery_timeout,
+                "half_open_max_calls": self._config.half_open_max_calls,
                 "success_threshold": self._config.success_threshold,
             },
         }
 
 
-# 单例熔断器：所有 LLM 调用共用（针对 prompt-manager 网关）
-_llm_circuit: Optional[CircuitBreaker] = None
+_circuit_breakers: Dict[str, CircuitBreaker] = {}
+
+
+def get_circuit_breaker(name: str, config: Optional[CircuitBreakerConfig] = None) -> CircuitBreaker:
+    if name not in _circuit_breakers:
+        _circuit_breakers[name] = CircuitBreaker(name=name, config=config)
+    return _circuit_breakers[name]
 
 
 def get_llm_circuit() -> CircuitBreaker:
-    """获取 LLM 熔断器单例。
-
-    同步函数：单例创建无需异步锁（Python GIL 保证赋值原子性，
-    CircuitBreaker 内部的 asyncio.Lock 负责状态管理）。
-    """
-    global _llm_circuit
-    if _llm_circuit is None:
-        _llm_circuit = CircuitBreaker("llm_gateway")
-    return _llm_circuit
+    """LLM 网关专用熔断器单例（兼容 llm.py / ironman.py / fastapi_setup.py）。"""
+    return get_circuit_breaker(
+        "llm_gateway",
+        config=CircuitBreakerConfig(
+            failure_threshold=5,
+            recovery_timeout=30.0,
+            half_open_max_calls=3,
+            success_threshold=2,
+        ),
+    )
