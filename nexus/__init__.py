@@ -42,6 +42,7 @@ from nexus.utils import (
     safe_float,
     safe_int,
     safe_bool,
+    paginate_from_skip,
 )
 from nexus.middleware import (
     setup_cors,
@@ -59,6 +60,7 @@ from nexus.auth import (
     AuthDependencies,
     get_current_user_id_required,
     get_current_user_id_optional,
+    get_current_user_id_int,
     get_current_user_full,
     get_current_user_full_normalized,
     normalize_user_dict,
@@ -74,7 +76,9 @@ from nexus.uc_sdk_helper import (
     standard_ok,
     standard_err,
 )
-from nexus.repository import BaseRepository
+from nexus.repository import BaseRepository, StatelessRepository
+from nexus.service import BaseService
+from nexus.api_decorators import handle_api_errors
 from nexus.lion import (
     LionIntegration,
     get_lion,
@@ -216,6 +220,7 @@ __all__ = [
     "safe_float",
     "safe_int",
     "safe_bool",
+    "paginate_from_skip",
     "setup_cors",
     "RequestIdMiddleware",
     "NoCacheMiddleware",
@@ -229,6 +234,7 @@ __all__ = [
     "AuthDependencies",
     "get_current_user_id_required",
     "get_current_user_id_optional",
+    "get_current_user_id_int",
     "get_current_user_full",
     "get_current_user_full_normalized",
     "normalize_user_dict",
@@ -242,6 +248,9 @@ __all__ = [
     "standard_ok",
     "standard_err",
     "BaseRepository",
+    "StatelessRepository",
+    "BaseService",
+    "handle_api_errors",
     "LionIntegration",
     "get_lion",
     "get_chat_config",

@@ -144,6 +144,23 @@ class MemoryCache:
                 return False
             return True
 
+    async def get_or_set(
+        self,
+        key: str,
+        factory: Callable[[], Awaitable[object]] | Callable[[], object],
+        ttl: int = 0,
+    ) -> object:
+        """获取缓存，如果不存在则调用factory生成并缓存"""
+        cached: object = await self.get(key)
+        if cached is not _MISSING:
+            return cached
+        if asyncio.iscoroutinefunction(factory):
+            value: object = await factory()
+        else:
+            value = factory()
+        await self.set(key, value, ttl=ttl)
+        return value
+
 
 _cache: MemoryCache = MemoryCache()
 
@@ -274,3 +291,16 @@ class HealthRegistry:
     async def is_healthy(self) -> bool:
         results: dict[str, bool] = await self.run_all()
         return all(results.values())
+
+
+def paginate_from_skip(items: list[object], skip: int, limit: int) -> dict[str, object]:
+    """从skip/limit参数生成分页响应"""
+    total: int = len(items)
+    page_items: list[object] = items[skip:skip + limit]
+    return {
+        "items": page_items,
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "has_more": skip + limit < total,
+    }

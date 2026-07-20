@@ -296,3 +296,19 @@ def setup_exception_handlers(app: FastAPI) -> None:
                 "errors": exc.errors(),
             },
         )
+
+    @app.exception_handler(ValueError)
+    async def _value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
+        request_id: str = get_request_id() or getattr(request.state, "request_id", "-")
+        logger.info(
+            "ValueError [req_id=%s]: %s %s -> 400: %s",
+            request_id, request.method, request.url.path, str(exc)[:200],
+        )
+        return JSONResponse(
+            status_code=400,
+            content={
+                "code": 400,
+                "message": str(exc),
+                "trace_id": request_id,
+            },
+        )

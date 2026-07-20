@@ -248,3 +248,9 @@ def parse_user_id(user_id: str | int) -> int:
         return int(user_id)
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid user_id format")
+
+
+async def get_current_user_id_int(
+    user_id: str = Depends(get_current_user_id_required),
+) -> int:
+    return parse_user_id(user_id)
