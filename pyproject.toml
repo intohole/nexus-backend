@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nexus-backend"
-version = "1.9.0"
+version = "1.9.1"
 description = "通用后端中间件框架 - 与ironman平行的非LLM后端能力集"
 requires-python = ">=3.10"
 dependencies = [
