@@ -223,8 +223,8 @@ def create_auth_router(
         async def logout(credentials: HTTPAuthorizationCredentials = Depends(_security)) -> object:
             try:
                 await uc_sdk_provider().logout(token=credentials.credentials)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("UC logout failed (client-side logout still succeeds): %s", exc)
             return wrap_ok({"success": True}, "登出成功")
 
     if "config" in eps:
@@ -237,7 +237,6 @@ def create_auth_router(
                 {
                     "enabled": configured,
                     "base_url": getattr(sdk, "base_url", None) if configured else None,
-                    "app_key": getattr(sdk, "app_key", None) if configured else None,
                 },
                 "获取成功",
             )
@@ -271,6 +270,8 @@ def create_auth_router(
             if request.phone:
                 update_data["phone"] = request.phone
             if request.new_password:
+                if not request.old_password:
+                    return wrap_err("修改密码时必须提供原密码", 400)
                 update_data["old_password"] = request.old_password
                 update_data["new_password"] = request.new_password
             try:

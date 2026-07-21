@@ -268,6 +268,7 @@ class LLMService:
         schema: Optional[type] = None,
         timeout: float = 60.0,
         max_retries: int = 3,
+        raise_on_error: bool = False,
     ) -> Optional[object]:
         await configure_ironman()
         from ironman import extract as _extract
@@ -281,7 +282,6 @@ class LLMService:
                 prompt=prompt,
                 schema=schema,
                 llm=LLMOptions(),
-                max_retries=0,
             )
 
         circuit = get_llm_circuit()
@@ -290,7 +290,6 @@ class LLMService:
         try:
             async def _do_with_circuit() -> object:
                 return await circuit.call(_do)
-            # P2: 网关模式下重试降为 1
             result: object = await with_retry(
                 _do_with_circuit, timeout, _effective_retries(max_retries)
             )
@@ -305,7 +304,6 @@ class LLMService:
             latency = time.monotonic() - start
             error_type: str = type(e).__name__
             metrics.record(app_name, "unknown", latency, tokens=0, error=error_type)
-            # A4.2: 熔断器 OPEN 时向上抛出，让调用方感知网关故障（不吞掉）
             if error_type == "CircuitBreakerOpenError":
                 logger.warning(
                     "LLM extract blocked by open circuit [req_id=%s, app=%s, latency=%.2fs]: %s",
@@ -316,6 +314,8 @@ class LLMService:
                 "LLM extract failed [req_id=%s, app=%s, latency=%.2fs]: %s",
                 request_id, app_name, latency, e,
             )
+            if raise_on_error:
+                raise
             return None
 
     async def stream_chat(
@@ -376,6 +376,7 @@ class LLMService:
         texts: list[str],
         timeout: float = 60.0,
         max_retries: int = 3,
+        raise_on_error: bool = False,
     ) -> Optional[list[list[float]]]:
         await configure_ironman()
         from ironman import embed as _embed
@@ -387,6 +388,8 @@ class LLMService:
             return await with_retry(_do, timeout, max_retries)
         except Exception as e:
             logger.error("Embed failed: %s", e)
+            if raise_on_error:
+                raise
             return None
 
 
