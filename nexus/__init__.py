@@ -172,7 +172,7 @@ from nexus.llm_rate_limiter import (
 )
 from nexus.resilient_llm import resilient_ask
 
-__version__ = "1.7.0"
+__version__ = "1.9.0"
 
 __all__ = [
     "__version__",
