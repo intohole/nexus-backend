@@ -26,7 +26,10 @@ def _resolved_signature(func: Callable[..., Awaitable[T]]) -> Optional[inspect.S
     误判为查询参数。提前解析并挂到 wrapper.__signature__ 可根治。
     """
     try:
-        hints = typing.get_type_hints(func)
+        # include_extras=True 保留 Annotated 元数据（如 Annotated[AsyncSession, Depends(get_db)]）。
+        # 默认 False 会把 Annotated[T, ...] 降级为 T，导致 FastAPI 路由参数丢失 Depends，
+        # 进而把 AsyncSession 当成普通 Pydantic 字段报 "Invalid args for response field"。
+        hints = typing.get_type_hints(func, include_extras=True)
     except Exception:
         return None
     sig = inspect.signature(func)
