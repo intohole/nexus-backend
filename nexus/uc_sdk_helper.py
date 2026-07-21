@@ -40,6 +40,14 @@ def init_uc_sdk(
         loop.create_task(_bootstrap(_sdk))
     except RuntimeError:
         pass
+
+    # 自动注入到 AuthDependencies，替代各应用 _ensure_nexus_configured()
+    try:
+        from nexus.auth import configure_uc_sdk
+        configure_uc_sdk(_sdk)
+    except Exception as exc:
+        logger.debug(f"Auto-inject into AuthDependencies skipped: {exc}")
+
     return _sdk
 
 

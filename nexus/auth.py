@@ -57,6 +57,15 @@ class AuthDependencies:
                 return True
         return False
 
+    def set_sdk(self, sdk: object) -> None:
+        """注入外部创建的 UC SDK，跳过 AuthDependencies 内部的懒创建。
+
+        替代各应用中的 _ensure_nexus_configured() env 黑科技。
+        """
+        self._sdk = sdk
+        self._ready = True
+        logger.info("UC SDK injected externally, env-var bootstrap skipped")
+
     async def get_sdk(self) -> Optional[object]:
         if self._sdk is not None and self._ready:
             return self._sdk
@@ -197,6 +206,27 @@ def get_auth_deps() -> AuthDependencies:
     if _auth_deps is None:
         _auth_deps = AuthDependencies()
     return _auth_deps
+
+
+def configure_uc_sdk(sdk: object) -> None:
+    """将外部创建的 UC SDK 注入 AuthDependencies 单例。
+
+    替代各应用中 _ensure_nexus_configured() 的 env-var 黑科技，
+    消除 AuthDependencies 与 app 各自创建 SDK 的双重实例问题。
+    """
+    get_auth_deps().set_sdk(sdk)
+
+
+def extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
+    """从 Authorization 头提取 Bearer token。"""
+    if not authorization:
+        return None
+    if authorization.startswith("Bearer "):
+        return authorization[7:]
+    if authorization.startswith("bearer "):
+        return authorization[7:]
+    token = authorization.strip()
+    return token or None
 
 
 async def get_current_user_id_required(

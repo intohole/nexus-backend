@@ -66,6 +66,8 @@ from nexus.auth import (
     normalize_user_dict,
     get_user_string_id,
     parse_user_id,
+    configure_uc_sdk,
+    extract_bearer_token,
 )
 from nexus.auth_routes import create_auth_router
 from nexus.uc_sdk_helper import (
@@ -245,6 +247,8 @@ __all__ = [
     "init_uc_sdk_from_lion",
     "get_uc_sdk",
     "close_uc_sdk",
+    "configure_uc_sdk",
+    "extract_bearer_token",
     "standard_ok",
     "standard_err",
     "BaseRepository",
