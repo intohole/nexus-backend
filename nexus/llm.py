@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import os
 import time
 from typing import AsyncGenerator, Optional
 
@@ -10,64 +8,14 @@ from nexus.logging import get_logger
 from nexus.llm_metrics import get_llm_metrics
 from nexus.circuit_breaker import get_llm_circuit
 from nexus.llm_utils import parse_llm_json, with_retry, LLMTimeoutError, strip_code_fence
+from nexus.llm_config import (
+    configure_ironman,
+    mark_ironman_configured,
+    _effective_retries,
+    _resolve_app_name,
+)
 
 logger = get_logger("nexus.llm")
-
-_ironman_configured: bool = False
-_ironman_lock: asyncio.Lock = asyncio.Lock()
-
-
-async def configure_ironman(yaml_path: Optional[str] = None) -> None:
-    global _ironman_configured
-    if _ironman_configured:
-        return
-
-    async with _ironman_lock:
-        if _ironman_configured:
-            return
-
-        import ironman
-
-        path = yaml_path or os.environ.get("IRONMAN_CONFIG", "")
-        if path and os.path.exists(path):
-            await ironman.configure(config_path=path)
-            logger.info("Ironman configured from %s", path)
-        else:
-            logger.warning("Ironman config not found, assuming externally configured")
-        _ironman_configured = True
-
-
-def mark_ironman_configured() -> None:
-    global _ironman_configured
-    _ironman_configured = True
-
-
-def _effective_retries(max_retries: int) -> int:
-    """P2: 网关模式下重试降为 1（网关已有 3 次 failover）。
-
-    三层重试链路：goldenFish(3) × nexus-backend(max_retries) × gateway(3)
-    - 非网关模式：3 × 3 × 3 = 27 次（过多）
-    - 网关模式：3 × 1 × 3 = 9 次（合理）
-    """
-    try:
-        from nexus.ironman import is_gateway_mode
-        if is_gateway_mode():
-            return 1
-    except ImportError:
-        pass
-    return max_retries
-
-
-def _resolve_app_name() -> str:
-    """获取当前 App 名（用于 metrics 归因）。"""
-    try:
-        from nexus.ironman import get_init_app_name
-        name: Optional[str] = get_init_app_name()
-        if name:
-            return name
-    except ImportError:
-        pass
-    return os.environ.get("APP_NAME", "unknown")
 
 
 class LLMService:
@@ -83,7 +31,6 @@ class LLMService:
         messages: list[dict[str, str]],
         system: Optional[str],
     ) -> list:
-        """将 OpenAI 风格 messages 转为 ironman Message 列表。"""
         from ironman.types import Message, Role
 
         ironman_messages: list = []
@@ -146,7 +93,6 @@ class LLMService:
         try:
             async def _do_with_circuit() -> str:
                 return await circuit.call(_do)
-            # P2: 网关模式下重试降为 1（网关已有 failover）
             result: str = await with_retry(
                 _do_with_circuit, timeout, _effective_retries(max_retries)
             )
@@ -203,7 +149,6 @@ class LLMService:
         try:
             async def _do_with_circuit() -> str:
                 return await circuit.call(_do)
-            # P2: 网关模式下重试降为 1（网关已有 failover）
             result: str = await with_retry(
                 _do_with_circuit, timeout, _effective_retries(max_retries)
             )
