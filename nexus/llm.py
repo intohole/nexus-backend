@@ -9,8 +9,7 @@ from nexus.context import get_request_id
 from nexus.logging import get_logger
 from nexus.llm_metrics import get_llm_metrics
 from nexus.circuit_breaker import get_llm_circuit
-from nexus.llm_utils import parse_llm_json, with_retry
-from nexus.llm_cache import get_prompt_cache, PromptCache
+from nexus.llm_utils import parse_llm_json, with_retry, LLMTimeoutError, strip_code_fence
 
 logger = get_logger("nexus.llm")
 
@@ -22,10 +21,13 @@ async def configure_ironman(yaml_path: Optional[str] = None) -> None:
     global _ironman_configured
     if _ironman_configured:
         return
+
     async with _ironman_lock:
         if _ironman_configured:
             return
+
         import ironman
+
         path = yaml_path or os.environ.get("IRONMAN_CONFIG", "")
         if path and os.path.exists(path):
             await ironman.configure(config_path=path)
@@ -41,7 +43,12 @@ def mark_ironman_configured() -> None:
 
 
 def _effective_retries(max_retries: int) -> int:
-    """Gateway mode reduces retries to 1 (gateway already has 3x failover)."""
+    """P2: 网关模式下重试降为 1（网关已有 3 次 failover）。
+
+    三层重试链路：goldenFish(3) × nexus-backend(max_retries) × gateway(3)
+    - 非网关模式：3 × 3 × 3 = 27 次（过多）
+    - 网关模式：3 × 1 × 3 = 9 次（合理）
+    """
     try:
         from nexus.ironman import is_gateway_mode
         if is_gateway_mode():
@@ -52,6 +59,7 @@ def _effective_retries(max_retries: int) -> int:
 
 
 def _resolve_app_name() -> str:
+    """获取当前 App 名（用于 metrics 归因）。"""
     try:
         from nexus.ironman import get_init_app_name
         name: Optional[str] = get_init_app_name()
@@ -71,218 +79,313 @@ class LLMService:
         return cls._instance
 
     @staticmethod
-    def _convert_messages(messages: list[dict[str, str]], system: Optional[str]) -> list:
+    def _convert_messages(
+        messages: list[dict[str, str]],
+        system: Optional[str],
+    ) -> list:
+        """将 OpenAI 风格 messages 转为 ironman Message 列表。"""
         from ironman.types import Message, Role
-        out: list = []
+
+        ironman_messages: list = []
         if system:
-            out.append(Message(role=Role.SYSTEM, content=system))
+            ironman_messages.append(Message(role=Role.SYSTEM, content=system))
         for msg in messages:
             role_str = msg.get("role", "user")
             content = msg.get("content", "")
-            role = {"user": Role.USER, "assistant": Role.ASSISTANT, "system": Role.SYSTEM}.get(role_str, Role.USER)
-            out.append(Message(role=role, content=content))
-        return out
+            if role_str == "user":
+                ironman_messages.append(Message(role=Role.USER, content=content))
+            elif role_str == "assistant":
+                ironman_messages.append(Message(role=Role.ASSISTANT, content=content))
+            elif role_str == "system":
+                ironman_messages.append(Message(role=Role.SYSTEM, content=content))
+        return ironman_messages
 
     @staticmethod
     def _extract_content(response: object, request_id: str = "-") -> str:
         if response.content:
             return response.content
         if getattr(response, "reasoning", None):
-            logger.warning("LLM empty content, using reasoning fallback [req_id=%s]", request_id)
+            logger.warning(
+                "LLM returned empty content, using reasoning as fallback [req_id=%s, tokens=%s]",
+                request_id,
+                getattr(response.usage, "completion_tokens", "?"),
+            )
             return response.reasoning
-        logger.warning("LLM empty content and no reasoning [req_id=%s]", request_id)
+        logger.warning("LLM returned empty content and no reasoning [req_id=%s]", request_id)
         return ""
 
-    async def _resilient_chat(
-        self, op: str, messages: list, llm_opts, request_id: str, app_name: str,
-        timeout: float, max_retries: int,
+    async def chat(
+        self,
+        messages: list[dict[str, str]],
+        system: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        timeout: float = 60.0,
+        max_retries: int = 3,
+        json_mode: bool = False,
     ) -> str:
-        """Shared circuit + retry + metrics + logging wrapper for chat/ask."""
+        await configure_ironman()
         from ironman import chat as _chat
+        from ironman.types import LLMOptions
+
+        request_id: str = get_request_id() or "-"
+        app_name: str = _resolve_app_name()
+        ironman_messages = self._convert_messages(messages, system)
+        extra: dict[str, object] | None = None
+        if json_mode:
+            extra = {"response_format": {"type": "json_object"}}
+        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
 
         async def _do() -> str:
-            response = await _chat(messages=messages, llm=llm_opts)
+            response = await _chat(messages=ironman_messages, llm=llm_opts)
             return self._extract_content(response, request_id)
 
         circuit = get_llm_circuit()
         metrics = get_llm_metrics()
         start: float = time.monotonic()
         try:
+            async def _do_with_circuit() -> str:
+                return await circuit.call(_do)
+            # P2: 网关模式下重试降为 1（网关已有 failover）
             result: str = await with_retry(
-                lambda: circuit.call(_do), timeout, _effective_retries(max_retries)
+                _do_with_circuit, timeout, _effective_retries(max_retries)
             )
             latency: float = time.monotonic() - start
             metrics.record(app_name, "unknown", latency, tokens=0, error=None)
-            logger.info("LLM %s ok [req_id=%s, app=%s, %.2fs]", op, request_id, app_name, latency)
+            logger.info(
+                "LLM chat completed [req_id=%s, app=%s, latency=%.2fs]",
+                request_id, app_name, latency,
+            )
             return result
         except Exception as e:
             latency = time.monotonic() - start
-            metrics.record(app_name, "unknown", latency, tokens=0, error=type(e).__name__)
-            logger.error("LLM %s fail [req_id=%s, app=%s, %.2fs]: %s", op, request_id, app_name, latency, e)
+            error_type: str = type(e).__name__
+            metrics.record(app_name, "unknown", latency, tokens=0, error=error_type)
+            logger.error(
+                "LLM chat failed [req_id=%s, app=%s, latency=%.2fs]: %s",
+                request_id, app_name, latency, e,
+            )
             raise
 
-    def _cache_lookup(self, key: Optional[str], request_id: str, app_name: str) -> Optional[str]:
-        if key is None:
-            return None
-        cached: Optional[str] = get_prompt_cache().get(key)
-        if cached is not None:
-            logger.info("LLM cache hit [req_id=%s, app=%s]", request_id, app_name)
-        return cached
-
-    def _cache_store(self, key: Optional[str], value: str) -> None:
-        if key is not None and value:
-            get_prompt_cache().set(key, value)
-
-    async def chat(
-        self, messages: list[dict[str, str]], system: Optional[str] = None,
-        temperature: float = 0.7, max_tokens: Optional[int] = None, timeout: float = 60.0,
-        max_retries: int = 3, json_mode: bool = False,
-    ) -> str:
-        await configure_ironman()
-        from ironman.types import LLMOptions
-        request_id: str = get_request_id() or "-"
-        app_name: str = _resolve_app_name()
-        extra: dict[str, object] | None = {"response_format": {"type": "json_object"}} if json_mode else None
-        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
-        cache_key: Optional[str] = None
-        if temperature == 0:
-            cache_key = PromptCache.make_messages_key(system, messages, temperature, max_tokens)
-            cached = self._cache_lookup(cache_key, request_id, app_name)
-            if cached is not None:
-                return cached
-        ironman_messages = self._convert_messages(messages, system)
-        result = await self._resilient_chat("chat", ironman_messages, llm_opts, request_id, app_name, timeout, max_retries)
-        self._cache_store(cache_key, result)
-        return result
-
     async def ask(
-        self, prompt: str, system: Optional[str] = None, temperature: float = 0.7,
-        max_tokens: Optional[int] = None, timeout: float = 60.0, max_retries: int = 3,
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        timeout: float = 60.0,
+        max_retries: int = 3,
         json_mode: bool = False,
     ) -> str:
         await configure_ironman()
+        from ironman import chat as _chat
         from ironman.types import LLMOptions, Message, Role
+
         request_id: str = get_request_id() or "-"
         app_name: str = _resolve_app_name()
-        extra: dict[str, object] | None = {"response_format": {"type": "json_object"}} if json_mode else None
+        extra: dict[str, object] | None = None
+        if json_mode:
+            extra = {"response_format": {"type": "json_object"}}
         llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
-        cache_key: Optional[str] = None
-        if temperature == 0:
-            cache_key = PromptCache.make_key(system, prompt, temperature, max_tokens)
-            cached = self._cache_lookup(cache_key, request_id, app_name)
-            if cached is not None:
-                return cached
+
         msgs: list = []
         if system:
             msgs.append(Message(role=Role.SYSTEM, content=system))
         msgs.append(Message(role=Role.USER, content=prompt))
-        result = await self._resilient_chat("ask", msgs, llm_opts, request_id, app_name, timeout, max_retries)
-        self._cache_store(cache_key, result)
-        return result
 
-    async def ask_json(
-        self, prompt: str, system: Optional[str] = None, temperature: float = 0.2,
-        max_tokens: Optional[int] = 1500, timeout: float = 60.0, max_retries: int = 3,
-    ) -> dict[str, object]:
-        return parse_llm_json(await self.ask(prompt, system, temperature, max_tokens, timeout, max_retries))
-
-    async def chat_json(
-        self, messages: list[dict[str, str]], system: Optional[str] = None,
-        temperature: float = 0.2, max_tokens: Optional[int] = 1500, timeout: float = 60.0,
-        max_retries: int = 3,
-    ) -> dict[str, object]:
-        return parse_llm_json(await self.chat(messages, system, temperature, max_tokens, timeout, max_retries))
-
-    async def extract(
-        self, prompt: str, schema: Optional[type] = None, timeout: float = 60.0,
-        max_retries: int = 3, raise_on_error: bool = False,
-    ) -> Optional[object]:
-        await configure_ironman()
-        from ironman import extract as _extract
-        from ironman.types import LLMOptions
-        request_id: str = get_request_id() or "-"
-        app_name: str = _resolve_app_name()
-
-        async def _do() -> object:
-            return await _extract(prompt=prompt, schema=schema, llm=LLMOptions())
+        async def _do() -> str:
+            response = await _chat(messages=msgs, llm=llm_opts)
+            return self._extract_content(response, request_id)
 
         circuit = get_llm_circuit()
         metrics = get_llm_metrics()
         start: float = time.monotonic()
         try:
-            result: object = await with_retry(
-                lambda: circuit.call(_do), timeout, _effective_retries(max_retries)
+            async def _do_with_circuit() -> str:
+                return await circuit.call(_do)
+            # P2: 网关模式下重试降为 1（网关已有 failover）
+            result: str = await with_retry(
+                _do_with_circuit, timeout, _effective_retries(max_retries)
             )
             latency: float = time.monotonic() - start
             metrics.record(app_name, "unknown", latency, tokens=0, error=None)
-            logger.info("LLM extract ok [req_id=%s, app=%s, %.2fs]", request_id, app_name, latency)
+            logger.info(
+                "LLM ask completed [req_id=%s, app=%s, latency=%.2fs]",
+                request_id, app_name, latency,
+            )
             return result
         except Exception as e:
             latency = time.monotonic() - start
-            metrics.record(app_name, "unknown", latency, tokens=0, error=type(e).__name__)
-            if type(e).__name__ == "CircuitBreakerOpenError":
-                logger.warning("LLM extract blocked by open circuit [req_id=%s, app=%s]: %s", request_id, app_name, e)
+            error_type: str = type(e).__name__
+            metrics.record(app_name, "unknown", latency, tokens=0, error=error_type)
+            logger.error(
+                "LLM ask failed [req_id=%s, app=%s, latency=%.2fs]: %s",
+                request_id, app_name, latency, e,
+            )
+            raise
+
+    async def ask_json(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        temperature: float = 0.2,
+        max_tokens: Optional[int] = 1500,
+        timeout: float = 60.0,
+        max_retries: int = 3,
+    ) -> dict[str, object]:
+        raw = await self.ask(
+            prompt=prompt,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
+        return parse_llm_json(raw)
+
+    async def chat_json(
+        self,
+        messages: list[dict[str, str]],
+        system: Optional[str] = None,
+        temperature: float = 0.2,
+        max_tokens: Optional[int] = 1500,
+        timeout: float = 60.0,
+        max_retries: int = 3,
+    ) -> dict[str, object]:
+        raw = await self.chat(
+            messages=messages,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
+        return parse_llm_json(raw)
+
+    async def extract(
+        self,
+        prompt: str,
+        schema: Optional[type] = None,
+        timeout: float = 60.0,
+        max_retries: int = 3,
+        raise_on_error: bool = False,
+    ) -> Optional[object]:
+        await configure_ironman()
+        from ironman import extract as _extract
+        from ironman.types import LLMOptions
+
+        request_id: str = get_request_id() or "-"
+        app_name: str = _resolve_app_name()
+
+        async def _do() -> object:
+            return await _extract(
+                prompt=prompt,
+                schema=schema,
+                llm=LLMOptions(),
+            )
+
+        circuit = get_llm_circuit()
+        metrics = get_llm_metrics()
+        start: float = time.monotonic()
+        try:
+            async def _do_with_circuit() -> object:
+                return await circuit.call(_do)
+            result: object = await with_retry(
+                _do_with_circuit, timeout, _effective_retries(max_retries)
+            )
+            latency: float = time.monotonic() - start
+            metrics.record(app_name, "unknown", latency, tokens=0, error=None)
+            logger.info(
+                "LLM extract completed [req_id=%s, app=%s, latency=%.2fs]",
+                request_id, app_name, latency,
+            )
+            return result
+        except Exception as e:
+            latency = time.monotonic() - start
+            error_type: str = type(e).__name__
+            metrics.record(app_name, "unknown", latency, tokens=0, error=error_type)
+            if error_type == "CircuitBreakerOpenError":
+                logger.warning(
+                    "LLM extract blocked by open circuit [req_id=%s, app=%s, latency=%.2fs]: %s",
+                    request_id, app_name, latency, e,
+                )
                 raise
-            logger.error("LLM extract fail [req_id=%s, app=%s, %.2fs]: %s", request_id, app_name, latency, e)
+            logger.error(
+                "LLM extract failed [req_id=%s, app=%s, latency=%.2fs]: %s",
+                request_id, app_name, latency, e,
+            )
             if raise_on_error:
                 raise
             return None
 
-    async def _stream(
-        self, op: str, messages: list, llm_opts, request_id: str,
+    async def stream_chat(
+        self,
+        messages: list[dict[str, str]],
+        system: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
     ) -> AsyncGenerator[str, None]:
+        await configure_ironman()
         from ironman import chat_stream as _chat_stream
+        from ironman.types import LLMOptions
+
+        ironman_messages = self._convert_messages(messages, system)
+        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens)
         has_content: bool = False
         reasoning_buffer: list[str] = []
-        async for chunk in _chat_stream(messages=messages, llm=llm_opts):
+        async for chunk in _chat_stream(messages=ironman_messages, llm=llm_opts):
             if chunk.content:
                 has_content = True
                 yield chunk.content
             elif chunk.reasoning:
                 reasoning_buffer.append(chunk.reasoning)
         if not has_content and reasoning_buffer:
-            logger.warning("LLM %s no content, yielding reasoning fallback [req_id=%s]", op, request_id)
+            logger.warning("stream_chat: no content, yielding reasoning fallback")
             yield "".join(reasoning_buffer)
 
-    async def stream_chat(
-        self, messages: list[dict[str, str]], system: Optional[str] = None,
-        temperature: float = 0.7, max_tokens: Optional[int] = None,
-    ) -> AsyncGenerator[str, None]:
-        await configure_ironman()
-        from ironman.types import LLMOptions
-        request_id: str = get_request_id() or "-"
-        ironman_messages = self._convert_messages(messages, system)
-        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens)
-        async for chunk in self._stream("stream_chat", ironman_messages, llm_opts, request_id):
-            yield chunk
-
     async def stream_ask(
-        self, prompt: str, system: Optional[str] = None, temperature: float = 0.7,
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        temperature: float = 0.7,
         max_tokens: Optional[int] = None,
     ) -> AsyncGenerator[str, None]:
         await configure_ironman()
+        from ironman import chat_stream as _chat_stream
         from ironman.types import LLMOptions, Message, Role
-        request_id: str = get_request_id() or "-"
+
         llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens)
         msgs: list = []
         if system:
             msgs.append(Message(role=Role.SYSTEM, content=system))
         msgs.append(Message(role=Role.USER, content=prompt))
-        async for chunk in self._stream("stream_ask", msgs, llm_opts, request_id):
-            yield chunk
+        has_content: bool = False
+        reasoning_buffer: list[str] = []
+        async for chunk in _chat_stream(messages=msgs, llm=llm_opts):
+            if chunk.content:
+                has_content = True
+                yield chunk.content
+            elif chunk.reasoning:
+                reasoning_buffer.append(chunk.reasoning)
+        if not has_content and reasoning_buffer:
+            logger.warning("stream_ask: no content, yielding reasoning fallback")
+            yield "".join(reasoning_buffer)
 
     async def embed(
-        self, texts: list[str], model: str | None = None, dimensions: int | None = None,
-        provider: str | None = None, timeout: float = 60.0, max_retries: int = 3,
+        self,
+        texts: list[str],
+        timeout: float = 60.0,
+        max_retries: int = 3,
         raise_on_error: bool = False,
     ) -> Optional[list[list[float]]]:
         await configure_ironman()
         from ironman import embed as _embed
+
+        async def _do() -> list[list[float]]:
+            return await _embed(text=texts)
+
         try:
-            return await with_retry(
-                lambda: _embed(text=texts, model=model, dimensions=dimensions, provider=provider),
-                timeout, max_retries,
-            )
+            return await with_retry(_do, timeout, max_retries)
         except Exception as e:
             logger.error("Embed failed: %s", e)
             if raise_on_error:

@@ -218,9 +218,6 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
         cookie_token = request.cookies.get("service_token", "")
         if cookie_token:
             return cookie_token
-        query_token = request.query_params.get("token", "")
-        if query_token:
-            return query_token
         return ""
 
     async def dispatch(
