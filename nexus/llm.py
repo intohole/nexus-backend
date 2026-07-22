@@ -272,13 +272,17 @@ class LLMService:
             yield chunk
 
     async def embed(
-        self, texts: list[str], timeout: float = 60.0, max_retries: int = 3,
+        self, texts: list[str], model: str | None = None, dimensions: int | None = None,
+        provider: str | None = None, timeout: float = 60.0, max_retries: int = 3,
         raise_on_error: bool = False,
     ) -> Optional[list[list[float]]]:
         await configure_ironman()
         from ironman import embed as _embed
         try:
-            return await with_retry(lambda: _embed(text=texts), timeout, max_retries)
+            return await with_retry(
+                lambda: _embed(text=texts, model=model, dimensions=dimensions, provider=provider),
+                timeout, max_retries,
+            )
         except Exception as e:
             logger.error("Embed failed: %s", e)
             if raise_on_error:
