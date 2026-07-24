@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Optional
+from typing import Optional
 
 import httpx
 
 from nexus.logging import get_logger
+from nexus.utils import HttpClient
 
 logger = get_logger("nexus.notify")
 
@@ -25,16 +26,15 @@ class NotifyClient:
             "SERVICE_TOKEN", ""
         )
         self._timeout: float = timeout
-        self._client: Optional[httpx.AsyncClient] = None
+        self._http: HttpClient = HttpClient(
+            base_url=self._base_url,
+            timeout=self._timeout,
+            headers={"X-Service-Token": self._service_token},
+        )
 
     @property
     def base_url(self) -> str:
         return self._base_url
-
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=self._timeout)
-        return self._client
 
     async def send(
         self,
@@ -44,11 +44,11 @@ class NotifyClient:
         type: str = "system",
         priority: int = 1,
         app_id: str = "system",
-        data: Optional[dict[str, Any]] = None,
+        data: Optional[dict[str, object]] = None,
         link: str = "",
         channels: Optional[list[str]] = None,
-    ) -> dict[str, Any]:
-        payload: dict[str, Any] = {
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {
             "user_id": user_id,
             "app_id": app_id,
             "type": type,
@@ -59,13 +59,10 @@ class NotifyClient:
             "link": link,
             "channels": channels or ["in_app"],
         }
-        headers: dict[str, str] = {"X-Service-Token": self._service_token}
         try:
-            client: httpx.AsyncClient = await self._get_client()
-            resp: httpx.Response = await client.post(
-                f"{self._base_url}/api/notify/send",
+            resp: httpx.Response = await self._http.post(
+                "/api/notify/send",
                 json=payload,
-                headers=headers,
             )
             resp.raise_for_status()
             return resp.json()
@@ -81,8 +78,7 @@ class NotifyClient:
             return {}
 
     async def close(self) -> None:
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
+        await self._http.close()
 
 
 _notify_client: Optional[NotifyClient] = None
@@ -95,22 +91,20 @@ def get_notify_client() -> NotifyClient:
     return _notify_client
 
 
-def configure_notify_client(
-    base_url: str = "",
-    service_token: str = "",
-) -> NotifyClient:
-    global _notify_client
-    _notify_client = NotifyClient(base_url=base_url, service_token=service_token)
-    return _notify_client
-
-
 async def send_notification(
     user_id: str,
     title: str,
     content: str = "",
-    **kwargs: Any,
-) -> dict[str, Any]:
+    **kwargs: object,
+) -> dict[str, object]:
     client: NotifyClient = get_notify_client()
     return await client.send(
         user_id=user_id, title=title, content=content, **kwargs
     )
+
+
+__all__ = [
+    "NotifyClient",
+    "get_notify_client",
+    "send_notification",
+]

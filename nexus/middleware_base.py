@@ -15,20 +15,38 @@ from nexus.logging import get_logger
 REQUEST_ID_HEADER: str = "X-Request-ID"
 
 
-def setup_cors(app: FastAPI, config: Optional[NexusConfig] = None) -> None:
-    cfg: NexusConfig = config or get_settings()
-    cors_cfg = cfg.cors
-    allow_origins: list[str] = cors_cfg.allow_origins
-    allow_credentials: bool = cors_cfg.allow_credentials
-    if "*" in allow_origins and allow_credentials:
-        allow_credentials = False
+def setup_cors(
+    app: FastAPI,
+    config: Optional[NexusConfig] = None,
+    *,
+    origins: Optional[list[str]] = None,
+    methods: Optional[list[str]] = None,
+    headers: Optional[list[str]] = None,
+    credentials: bool = True,
+) -> None:
+    if origins is not None:
+        allow_origins: list[str] = origins
+        allow_credentials: bool = credentials
+        if "*" in allow_origins and allow_credentials:
+            allow_credentials = False
+        allow_methods: list[str] = methods or ["*"]
+        allow_headers: list[str] = headers or ["*"]
+    else:
+        cfg: NexusConfig = config or get_settings()
+        cors_cfg = cfg.cors
+        allow_origins = cors_cfg.allow_origins
+        allow_credentials = cors_cfg.allow_credentials
+        if "*" in allow_origins and allow_credentials:
+            allow_credentials = False
+        allow_methods = cors_cfg.allow_methods
+        allow_headers = cors_cfg.allow_headers
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allow_origins,
         allow_credentials=allow_credentials,
-        allow_methods=cors_cfg.allow_methods,
-        allow_headers=cors_cfg.allow_headers,
+        allow_methods=allow_methods,
+        allow_headers=allow_headers,
     )
 
 

@@ -172,7 +172,7 @@ from nexus.llm_rate_limiter import (
 )
 from nexus.resilient_llm import resilient_ask
 
-__version__ = "1.9.2"
+__version__ = "1.10.0"
 
 __all__ = [
     "__version__",
@@ -308,6 +308,13 @@ __all__ = [
     "sse_event",
     "sse_chat_stream",
     "chunked_text_stream",
+    "SSEManager",
+    "SSEConnectionError",
+    "sse_event_generator",
+    "NotificationChannel",
+    "VALID_CHANNELS",
+    "WebhookChannel",
+    "ChannelDispatcher",
     "CircuitBreaker",
     "CircuitBreakerConfig",
     "CircuitState",
