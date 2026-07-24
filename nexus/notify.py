@@ -19,7 +19,7 @@ class NotifyClient:
     ) -> None:
         self._base_url: str = (
             base_url
-            or os.environ.get("NOTIFY_CENTER_URL", "http://localhost:8902")
+            or os.environ.get("NOTIFY_CENTER_URL", "http://localhost:8910")
         )
         self._service_token: str = service_token or os.environ.get(
             "SERVICE_TOKEN", ""
