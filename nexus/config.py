@@ -124,6 +124,7 @@ def _resolve_dict(data: dict[str, object]) -> dict[str, object]:
 
 class ConfigFactory:
     _instance: Optional[NexusConfig] = None
+    _raw_yaml: dict[str, object] = {}
     _lock: threading.Lock = threading.Lock()
 
     @classmethod
@@ -143,6 +144,11 @@ class ConfigFactory:
     def reset(cls) -> None:
         with cls._lock:
             cls._instance = None
+            cls._raw_yaml = {}
+
+    @classmethod
+    def get_raw_yaml(cls) -> dict[str, object]:
+        return cls._raw_yaml
 
     @classmethod
     def load_from_yaml(cls, path: str | Path) -> NexusConfig:
@@ -152,8 +158,10 @@ class ConfigFactory:
         with open(path, "r", encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
         resolved = _resolve_dict(raw)
-        config = NexusConfig(**resolved)
-        cls.set(config)
+        with cls._lock:
+            cls._raw_yaml = resolved if isinstance(resolved, dict) else {}
+            config = NexusConfig(**resolved)
+            cls._instance = config
         return config
 
     @classmethod
@@ -183,3 +191,63 @@ def configure(
         ConfigFactory.set(config)
         return config
     return ConfigFactory.get()
+
+
+def load_project_config(config_path: str | Path) -> NexusConfig:
+    path: Path = Path(config_path)
+    if path.exists():
+        return ConfigFactory.load_from_yaml(path)
+    return ConfigFactory.get()
+
+
+def yaml_get(group: str, key: str, default: str = "") -> str:
+    raw: dict[str, object] = ConfigFactory.get_raw_yaml()
+    group_data: object = raw.get(group)
+    if isinstance(group_data, dict):
+        val: object = group_data.get(key)
+        if val is not None:
+            return str(val)
+    return os.getenv(f"{group}_{key}".upper(), default)
+
+
+def yaml_secret(group: str, key: str, default: str = "") -> str:
+    env_val: str | None = os.getenv(f"{group}_{key}".upper())
+    if env_val:
+        return env_val
+    raw: dict[str, object] = ConfigFactory.get_raw_yaml()
+    group_data: object = raw.get(group)
+    if isinstance(group_data, dict):
+        val: object = group_data.get(key)
+        if val is not None:
+            return str(val)
+    return default
+
+
+def yaml_int(group: str, key: str, default: int = 0) -> int:
+    raw: dict[str, object] = ConfigFactory.get_raw_yaml()
+    group_data: object = raw.get(group)
+    if isinstance(group_data, dict):
+        val: object = group_data.get(key)
+        if val is not None:
+            return int(val)
+    return int(os.getenv(f"{group}_{key}".upper(), str(default)))
+
+
+def yaml_float(group: str, key: str, default: float = 0.0) -> float:
+    raw: dict[str, object] = ConfigFactory.get_raw_yaml()
+    group_data: object = raw.get(group)
+    if isinstance(group_data, dict):
+        val: object = group_data.get(key)
+        if val is not None:
+            return float(val)
+    return float(os.getenv(f"{group}_{key}".upper(), str(default)))
+
+
+def yaml_bool(group: str, key: str, default: bool = False) -> bool:
+    raw: dict[str, object] = ConfigFactory.get_raw_yaml()
+    group_data: object = raw.get(group)
+    if isinstance(group_data, dict):
+        val: object = group_data.get(key)
+        if val is not None:
+            return str(val).lower() in ("true", "1", "yes")
+    return os.getenv(f"{group}_{key}".upper(), str(default)).lower() in ("true", "1", "yes")

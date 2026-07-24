@@ -1,4 +1,14 @@
-from nexus.config import NexusConfig, get_settings, configure
+from nexus.config import (
+    NexusConfig,
+    get_settings,
+    configure,
+    load_project_config,
+    yaml_get,
+    yaml_secret,
+    yaml_int,
+    yaml_float,
+    yaml_bool,
+)
 from nexus.errors import (
     NexusError,
     ConfigError,
@@ -179,6 +189,12 @@ __all__ = [
     "NexusConfig",
     "get_settings",
     "configure",
+    "load_project_config",
+    "yaml_get",
+    "yaml_secret",
+    "yaml_int",
+    "yaml_float",
+    "yaml_bool",
     "NexusError",
     "ConfigError",
     "DatabaseError",
