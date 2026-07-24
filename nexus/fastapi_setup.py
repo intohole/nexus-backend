@@ -44,8 +44,7 @@ class AppLifecycle:
     ) -> None:
         self._health_registry.register(name, check_func)
 
-    @asynccontextmanager
-    async def __aenter__(self) -> AsyncGenerator[None, None]:
+    async def __aenter__(self) -> "AppLifecycle":
         logger = get_logger("nexus.lifecycle")
         logger.info("Application starting up...")
         await init_db()
@@ -56,8 +55,9 @@ class AppLifecycle:
             except Exception as exc:
                 logger.error("Startup hook failed: %s", str(exc))
         logger.info("Application started successfully")
+        return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
         logger = get_logger("nexus.lifecycle")
         logger.info("Application shutting down...")
         for hook in self._shutdown_hooks:
