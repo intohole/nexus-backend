@@ -19,6 +19,7 @@ dependencies = [
     "pyyaml>=6.0",
     "cachetools>=5.3.0",
     "ironman-llm>=0.3.2",
+    "apscheduler>=3.10.0",
 ]
 
 [project.optional-dependencies]
