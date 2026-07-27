@@ -2,7 +2,9 @@ from nexus.middleware_base import (
     REQUEST_ID_HEADER,
     LoggingMiddleware,
     NoCacheMiddleware,
+    NotFoundCheckMiddleware,
     RequestIdMiddleware,
+    SecurityHeadersMiddleware,
     setup_cors,
 )
 from nexus.middleware_auth import (
@@ -22,6 +24,8 @@ __all__ = [
     "RequestIdMiddleware",
     "NoCacheMiddleware",
     "LoggingMiddleware",
+    "NotFoundCheckMiddleware",
+    "SecurityHeadersMiddleware",
     "ErrorHandlerMiddleware",
     "ServiceAuthMiddleware",
     "setup_exception_handlers",

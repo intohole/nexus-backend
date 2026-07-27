@@ -341,3 +341,59 @@ def is_gateway_mode() -> bool:
 
 def get_init_app_name() -> Optional[str]:
     return _init_app_name
+
+
+async def startup(
+    app_name: str,
+    config_loader: Optional[ConfigLoader] = None,
+    middleware: str = "production",
+) -> dict[str, object]:
+    """一站式启动 ironman：初始化 + 返回状态字典，自动吞异常进入降级模式。
+
+    消除各项目 main.py 中重复的 try/except + is_ironman_available 检查样板。
+    返回字典字段：
+        app: 应用名
+        available: ironman 是否可用
+        via_gateway: 是否走网关模式
+        degraded: 是否处于降级模式
+        error: 异常信息（仅降级时存在）
+    """
+    try:
+        await init_ironman(
+            app_name=app_name,
+            config_loader=config_loader,
+            middleware=middleware,
+        )
+        return {
+            "app": app_name,
+            "available": is_ironman_available(),
+            "via_gateway": is_gateway_mode(),
+            "degraded": not is_ironman_available(),
+        }
+    except Exception as exc:
+        logger.warning("ironman startup failed for app=%s: %s", app_name, exc)
+        return {
+            "app": app_name,
+            "available": False,
+            "via_gateway": False,
+            "degraded": True,
+            "error": str(exc),
+        }
+
+
+def require_ironman(func: Callable[..., Awaitable[object]]) -> Callable[..., Awaitable[object]]:
+    """装饰器：被装饰的协程函数执行前检查 ironman 是否可用，不可用则抛 RuntimeError。
+
+    消除各项目散落的 `if not is_ironman_available(): raise RuntimeError(...)` 样板。
+    """
+    import functools
+
+    @functools.wraps(func)
+    async def wrapper(*args: object, **kwargs: object) -> object:
+        if not is_ironman_available():
+            raise RuntimeError(
+                "ironman not initialized, call init_ironman() or startup() first"
+            )
+        return await func(*args, **kwargs)
+
+    return wrapper

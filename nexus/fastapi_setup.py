@@ -15,7 +15,9 @@ from nexus.middleware import (
     ErrorHandlerMiddleware,
     LoggingMiddleware,
     NoCacheMiddleware,
+    NotFoundCheckMiddleware,
     RequestIdMiddleware,
+    SecurityHeadersMiddleware,
     setup_cors,
 )
 from nexus.rate_limit import RateLimitMiddleware
@@ -108,6 +110,51 @@ def create_app(
     setup_health_check(app, lifespan._health_registry, cfg)
 
     return app
+
+
+def setup_middleware(
+    app: FastAPI,
+    config: Optional[NexusConfig] = None,
+    *,
+    enable_cors: bool = True,
+    cors_origins: Optional[list[str]] = None,
+    enable_rate_limit: bool = True,
+    enable_logging: bool = True,
+    enable_error_handler: bool = True,
+    enable_no_cache: bool = True,
+    enable_request_id: bool = True,
+    enable_security_headers: bool = False,
+    enable_not_found_check: bool = False,
+    no_cache_prefix: str = "/static",
+) -> None:
+    """在已存在的 FastAPI app 上注册统一中间件栈。
+
+    适用于无法直接替换为 create_app() 的项目（已有自定义 lifespan / 路由 / 异常体系）。
+    消除各项目 main.py 中重复的 add_middleware 样板代码。
+
+    用法：
+        app = FastAPI(lifespan=my_lifespan)
+        setup_middleware(app, config, enable_security_headers=True)
+        app.include_router(my_router)
+    """
+    cfg: NexusConfig = config or get_settings()
+
+    if enable_request_id:
+        app.add_middleware(RequestIdMiddleware)
+    if enable_logging:
+        app.add_middleware(LoggingMiddleware)
+    if enable_rate_limit:
+        app.add_middleware(RateLimitMiddleware, config=cfg)
+    if enable_error_handler:
+        app.add_middleware(ErrorHandlerMiddleware)
+    if enable_no_cache:
+        app.add_middleware(NoCacheMiddleware, path_prefix=no_cache_prefix)
+    if enable_security_headers:
+        app.add_middleware(SecurityHeadersMiddleware)
+    if enable_not_found_check:
+        app.add_middleware(NotFoundCheckMiddleware)
+    if enable_cors:
+        setup_cors(app, cfg, origins=cors_origins)
 
 
 def register_internal_endpoints(app: FastAPI) -> None:

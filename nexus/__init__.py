@@ -59,6 +59,8 @@ from nexus.middleware import (
     RequestIdMiddleware,
     NoCacheMiddleware,
     LoggingMiddleware,
+    NotFoundCheckMiddleware,
+    SecurityHeadersMiddleware,
     ErrorHandlerMiddleware,
     ServiceAuthMiddleware,
     setup_exception_handlers,
@@ -117,6 +119,7 @@ from nexus.infra import (
 )
 from nexus.fastapi_setup import (
     create_app,
+    setup_middleware,
     setup_static_files,
     setup_health_check,
     register_internal_endpoints,
@@ -137,9 +140,13 @@ from nexus.llm import (
 )
 from nexus.ironman import (
     init_ironman,
+    startup as startup_ironman,
+    require_ironman,
     default_config_loader,
     get_bootstrap,
     is_ironman_available,
+    is_gateway_mode,
+    reload_ironman,
     get_init_app_name,
 )
 from nexus.web_search import WebSearchService, get_web_search_service
@@ -154,9 +161,15 @@ from nexus.dialogue_history import (
     clear_history_cache,
 )
 from nexus.streaming import (
+    SSE_HEADERS,
     sse_event,
+    sse_event_dict,
+    sse_response,
     sse_chat_stream,
+    sse_chat_stream_v2,
     chunked_text_stream,
+    with_disconnect_check,
+    queue_wait_stream,
 )
 from nexus.circuit_breaker import (
     CircuitBreaker,
@@ -183,7 +196,7 @@ from nexus.llm_rate_limiter import (
 from nexus.resilient_llm import resilient_ask
 from nexus.scheduler import NexusScheduler, get_scheduler, setup_scheduler
 
-__version__ = "1.11.0"
+__version__ = "1.12.0"
 
 __all__ = [
     "__version__",
@@ -244,6 +257,8 @@ __all__ = [
     "RequestIdMiddleware",
     "NoCacheMiddleware",
     "LoggingMiddleware",
+    "NotFoundCheckMiddleware",
+    "SecurityHeadersMiddleware",
     "ErrorHandlerMiddleware",
     "ServiceAuthMiddleware",
     "setup_exception_handlers",
@@ -293,6 +308,7 @@ __all__ = [
     "get_auth_config",
     "get_llm_quota_config",
     "create_app",
+    "setup_middleware",
     "setup_static_files",
     "setup_health_check",
     "register_internal_endpoints",
@@ -307,9 +323,13 @@ __all__ = [
     "configure_ironman",
     "mark_ironman_configured",
     "init_ironman",
+    "startup_ironman",
+    "require_ironman",
     "default_config_loader",
     "get_bootstrap",
     "is_ironman_available",
+    "is_gateway_mode",
+    "reload_ironman",
     "get_init_app_name",
     "WebSearchService",
     "get_web_search_service",
@@ -323,8 +343,14 @@ __all__ = [
     "get_history",
     "clear_history_cache",
     "sse_event",
+    "sse_event_dict",
+    "sse_response",
     "sse_chat_stream",
+    "sse_chat_stream_v2",
     "chunked_text_stream",
+    "with_disconnect_check",
+    "queue_wait_stream",
+    "SSE_HEADERS",
     "SSEManager",
     "SSEConnectionError",
     "sse_event_generator",

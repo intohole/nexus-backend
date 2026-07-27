@@ -122,3 +122,88 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 str(exc),
             )
             raise
+
+
+class NotFoundCheckMiddleware(BaseHTTPMiddleware):
+    """路径未匹配时返回统一 JSON 404，避免 FastAPI 默认 HTML 404。
+
+    消除 lion / promptManager / usercenter 三项目重复实现的 NotFoundCheck 逻辑。
+    在路由阶段遍历 app.routes 检查路径是否匹配，未匹配则返回 JSONResponse({"detail":"Not Found"})。
+    """
+
+    def __init__(
+        self,
+        app,
+        api_prefix: str = "/api",
+        exclude_prefixes: Optional[list[str]] = None,
+    ) -> None:
+        super().__init__(app)
+        self._api_prefix: str = api_prefix
+        self._exclude_prefixes: list[str] = exclude_prefixes or ["/static", "/health", "/readiness"]
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        path: str = request.url.path
+        if not path.startswith(self._api_prefix):
+            return await call_next(request)
+        if any(path.startswith(p) for p in self._exclude_prefixes):
+            return await call_next(request)
+
+        from starlette.routing import Match, Mount
+
+        scope = request.scope
+        route_found: bool = False
+        for route in request.app.routes:
+            if isinstance(route, Mount):
+                continue
+            if hasattr(route, "path") and "{path:path}" in route.path:
+                continue
+            if not hasattr(route, "matches"):
+                continue
+            match, _ = route.matches(scope)
+            if match in (Match.FULL, Match.PARTIAL):
+                route_found = True
+                break
+
+        if not route_found:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=404,
+                content={"detail": "Not Found", "path": path},
+            )
+        return await call_next(request)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """注入 HTTP 安全响应头，提升 Web 安全防护基线。
+
+    消除 WisePath / fastRPC 各自实现的安全头注入逻辑。
+    默认注入：X-Content-Type-Options / X-Frame-Options / X-XSS-Protection /
+    Referrer-Policy / Strict-Transport-Security。
+    """
+
+    DEFAULT_HEADERS: dict[str, str] = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "1; mode=block",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    }
+
+    def __init__(self, app, headers: Optional[dict[str, str]] = None) -> None:
+        super().__init__(app)
+        self._headers: dict[str, str] = {**self.DEFAULT_HEADERS, **(headers or {})}
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        response: Response = await call_next(request)
+        for key, value in self._headers.items():
+            if key not in response.headers:
+                response.headers[key] = value
+        return response
