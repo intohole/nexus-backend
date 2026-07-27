@@ -108,6 +108,8 @@ class AuthDependencies:
         self._ready = True
 
     async def validate_token(self, token: str) -> Optional[dict[str, object]]:
+        if not token or not token.strip():
+            return None
         token_key: str = _hash_token(token)
         cached: Optional[dict[str, object]] = self._token_cache.get(token_key)
         if cached is not None:
