@@ -77,6 +77,54 @@ class NotifyClient:
             logger.error("Notify send error: %s", str(exc))
             return {}
 
+    async def send_email(
+        self,
+        to: str | list[str],
+        subject: str,
+        body: str,
+        html: str | None = None,
+        from_addr: str = "",
+    ) -> bool:
+        smtp_host: str = os.environ.get("SMTP_HOST", "")
+        if not smtp_host:
+            logger.warning("SMTP_HOST未配置，跳过邮件发送")
+            return False
+        smtp_port: int = int(os.environ.get("SMTP_PORT", "587"))
+        smtp_user: str = os.environ.get("SMTP_USER", "")
+        smtp_password: str = os.environ.get("SMTP_PASSWORD", "")
+        smtp_from: str = from_addr or os.environ.get("SMTP_FROM", smtp_user or "noreply@local")
+        use_tls: bool = os.environ.get("SMTP_USE_TLS", "true").lower() in ("true", "1", "yes")
+        recipients: list[str] = [to] if isinstance(to, str) else list(to)
+        try:
+            import aiosmtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+        except ImportError:
+            logger.warning("aiosmtplib未安装，请安装nexus-backend[email]")
+            return False
+        msg: MIMEMultipart = MIMEMultipart("alternative")
+        msg["From"] = smtp_from
+        msg["To"] = ", ".join(recipients)
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        if html:
+            msg.attach(MIMEText(html, "html", "utf-8"))
+        try:
+            await aiosmtplib.send(
+                msg,
+                hostname=smtp_host,
+                port=smtp_port,
+                username=smtp_user or None,
+                password=smtp_password or None,
+                use_tls=smtp_port == 465,
+                start_tls=smtp_port != 465 and use_tls,
+            )
+            logger.info("邮件发送成功: to=%s subject=%s", msg["To"], subject)
+            return True
+        except Exception as exc:
+            logger.error("邮件发送失败: to=%s error=%s", msg["To"], str(exc))
+            return False
+
     async def close(self) -> None:
         await self._http.close()
 
@@ -103,8 +151,22 @@ async def send_notification(
     )
 
 
+async def send_email(
+    to: str | list[str],
+    subject: str,
+    body: str,
+    html: str | None = None,
+    from_addr: str = "",
+) -> bool:
+    client: NotifyClient = get_notify_client()
+    return await client.send_email(
+        to=to, subject=subject, body=body, html=html, from_addr=from_addr
+    )
+
+
 __all__ = [
     "NotifyClient",
     "get_notify_client",
     "send_notification",
+    "send_email",
 ]

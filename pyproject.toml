@@ -26,7 +26,8 @@ dependencies = [
 redis = ["redis>=4.5.0"]
 loguru = ["loguru>=0.7.0"]
 structlog = ["structlog>=23.0.0"]
-all = ["redis>=4.5.0", "loguru>=0.7.0", "structlog>=23.0.0"]
+email = ["aiosmtplib>=3.0.0"]
+all = ["redis>=4.5.0", "loguru>=0.7.0", "structlog>=23.0.0", "aiosmtplib>=3.0.0"]
 
 [tool.setuptools.packages.find]
 where = ["."]
