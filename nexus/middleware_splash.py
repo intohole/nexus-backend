@@ -73,7 +73,9 @@ class LoadingSplashMiddleware(BaseHTTPMiddleware):
         text: str = body.decode("utf-8", errors="replace")
         if "<body" in text:
             text = _inject_splash(text, self._splash)
-        new_headers: dict[str, str] = dict(response.headers)
+        new_headers: dict[str, str] = {}
+        for key, value in response.headers.items():
+            new_headers[key] = value
         encoded: bytes = text.encode("utf-8")
         new_headers["content-length"] = str(len(encoded))
         return Response(content=encoded, status_code=response.status_code, headers=new_headers)
