@@ -64,10 +64,32 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         return response
 
 
-class NoCacheMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, path_prefix: str = "/static") -> None:
+class StaticAssetsCacheMiddleware(BaseHTTPMiddleware):
+    """静态资源分级缓存，替代旧的强制 no-store 策略。
+
+    修复前端二次加载每次都全量下载的性能问题：
+    - *.html  -> no-cache + ETag 每次强校验(304 只传头)
+    - immutable 标记路径(nexus-ui 自托管/带版本号) -> immutable, max-age=1年
+    - 其余 js/css/img -> public, max-age=1天 + ETag 增量校验
+    """
+
+    def __init__(
+        self,
+        app,
+        path_prefix: str = "/static",
+        immutable_age: int = 31536000,
+        asset_age: int = 86400,
+        immutable_markers: Optional[tuple[str, ...]] = None,
+    ) -> None:
         super().__init__(app)
         self._path_prefix: str = path_prefix
+        self._immutable_age: int = immutable_age
+        self._asset_age: int = asset_age
+        self._immutable_markers: tuple[str, ...] = immutable_markers or (
+            "/nexus-ui/",
+            "/vendor/",
+            "/lib/",
+        )
 
     async def dispatch(
         self,
@@ -75,11 +97,28 @@ class NoCacheMiddleware(BaseHTTPMiddleware):
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         response: Response = await call_next(request)
-        if request.url.path.startswith(self._path_prefix):
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
+        if not request.url.path.startswith(self._path_prefix):
+            return response
+        for header in ("Pragma", "Expires"):
+            if header in response.headers:
+                del response.headers[header]
+        if request.url.path.endswith(".html"):
+            response.headers["Cache-Control"] = "no-cache"
+            return response
+        if any(m in request.url.path for m in self._immutable_markers):
+            response.headers["Cache-Control"] = (
+                f"public, max-age={self._immutable_age}, immutable"
+            )
+        else:
+            response.headers["Cache-Control"] = f"public, max-age={self._asset_age}"
         return response
+
+
+class NoCacheMiddleware(StaticAssetsCacheMiddleware):
+    """兼容旧名：统一走分级缓存策略，不再强制 no-store。"""
+
+    def __init__(self, app, path_prefix: str = "/static") -> None:
+        super().__init__(app, path_prefix=path_prefix)
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):

@@ -13,6 +13,7 @@ from nexus.database import close_db, init_db
 from nexus.logging import get_logger, setup_logging
 from nexus.middleware import (
     ErrorHandlerMiddleware,
+    LoadingSplashMiddleware,
     LoggingMiddleware,
     NoCacheMiddleware,
     NotFoundCheckMiddleware,
@@ -78,6 +79,7 @@ def create_app(
     lifespan: Optional[AppLifecycle] = None,
     enable_rate_limit: bool = True,
     enable_logging_middleware: bool = True,
+    enable_loading_splash: bool = False,
 ) -> FastAPI:
     cfg: NexusConfig = config or get_settings()
     setup_logging(cfg, app_name=title)
@@ -104,6 +106,8 @@ def create_app(
         app.add_middleware(RateLimitMiddleware, config=cfg)
     app.add_middleware(ErrorHandlerMiddleware)
     app.add_middleware(NoCacheMiddleware, path_prefix="/static")
+    if enable_loading_splash:
+        app.add_middleware(LoadingSplashMiddleware, app_name=cfg.app_name)
 
     setup_cors(app, cfg)
 
@@ -125,6 +129,7 @@ def setup_middleware(
     enable_request_id: bool = True,
     enable_security_headers: bool = False,
     enable_not_found_check: bool = False,
+    enable_loading_splash: bool = False,
     no_cache_prefix: str = "/static",
 ) -> None:
     """在已存在的 FastAPI app 上注册统一中间件栈。
@@ -153,6 +158,8 @@ def setup_middleware(
         app.add_middleware(SecurityHeadersMiddleware)
     if enable_not_found_check:
         app.add_middleware(NotFoundCheckMiddleware)
+    if enable_loading_splash:
+        app.add_middleware(LoadingSplashMiddleware, app_name=cfg.app_name)
     if enable_cors:
         setup_cors(app, cfg, origins=cors_origins)
 

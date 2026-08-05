@@ -5,8 +5,10 @@ from nexus.middleware_base import (
     NotFoundCheckMiddleware,
     RequestIdMiddleware,
     SecurityHeadersMiddleware,
+    StaticAssetsCacheMiddleware,
     setup_cors,
 )
+from nexus.middleware_splash import LoadingSplashMiddleware
 from nexus.middleware_auth import (
     DEFAULT_PUBLIC_API_PREFIXES,
     DEFAULT_STATIC_EXTENSIONS,
@@ -26,6 +28,8 @@ __all__ = [
     "LoggingMiddleware",
     "NotFoundCheckMiddleware",
     "SecurityHeadersMiddleware",
+    "StaticAssetsCacheMiddleware",
+    "LoadingSplashMiddleware",
     "ErrorHandlerMiddleware",
     "ServiceAuthMiddleware",
     "setup_exception_handlers",
