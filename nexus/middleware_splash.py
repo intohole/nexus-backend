@@ -12,6 +12,7 @@ html[data-theme="dark"] #__nexus_splash__{background:#0f172a;color:#e2e8f0}
 #__nexus_splash__ .nexus-spinner{width:42px;height:42px;border-radius:50%;border:3px solid var(--nexus-splash-ring,rgba(var(--app-accent-rgb,15,118,110),.18));border-top-color:var(--app-accent,#059669);animation:nexus-spin .8s linear infinite}
 #__nexus_splash__ .nexus-brand{font-size:16px;font-weight:600}
 #__nexus_splash__ .nexus-hint{font-size:12px;opacity:.55}
+#__nexus_splash__.is-done{opacity:0;pointer-events:none}
 @keyframes nexus-spin{to{transform:rotate(360deg)}}
 </style>
 <div id="__nexus_splash__" role="status" aria-live="polite">
@@ -20,7 +21,7 @@ html[data-theme="dark"] #__nexus_splash__{background:#0f172a;color:#e2e8f0}
   <div class="nexus-hint">正在加载应用，请稍候…</div>
 </div>
 <script>
-(function(){var el=document.getElementById("__nexus_splash__");function done(){if(!el||el.classList.contains("is-done"))return;el.classList.add("is-done");setTimeout(function(){var p=el.parentNode;if(p)p.removeChild(el)},400)}window.NexusSplash={done:done};var t=null;function fallback(){if(t)clearTimeout(t);done()}if(document.readyState==="complete"){t=setTimeout(done,600)}else{window.addEventListener("load",function(){t=setTimeout(done,400)})}t=setTimeout(done,15000);var app=document.getElementById("app");if(app&&window.MutationObserver){var mo=new MutationObserver(function(){if(app.childNodes.length){clearTimeout(t);done();mo.disconnect()}});mo.observe(app,{childList:true,subtree:true});window.addEventListener("click",function listener(){if(app.childNodes.length){window.removeEventListener("click",listener);fallback()}})}window.NexusSplashReady=true})();
+(function(){var el=document.getElementById("__nexus_splash__");if(!el)return;var MIN=800,start=Date.now(),fired=false;function finish(){if(fired)return;var wait=Math.max(0,MIN-(Date.now()-start));setTimeout(function(){if(fired)return;fired=true;el.classList.add("is-done");setTimeout(function(){var p=el.parentNode;if(p)p.removeChild(el)},400)},wait)}window.NexusSplash={done:finish};var app=document.getElementById("app");if(app&&window.MutationObserver){var mo=new MutationObserver(function(){if(app.childNodes.length){mo.disconnect();finish()}});mo.observe(app,{childList:true,subtree:true})}if(document.readyState==="complete"){finish()}else{window.addEventListener("load",function(){finish()})}setTimeout(finish,12000);window.NexusSplashReady=true})();
 </script>
 """
 
