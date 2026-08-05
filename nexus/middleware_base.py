@@ -97,14 +97,18 @@ class StaticAssetsCacheMiddleware(BaseHTTPMiddleware):
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         response: Response = await call_next(request)
+        ctype: str = response.headers.get("content-type", "")
+        if "text/html" in ctype:
+            for header in ("Pragma", "Expires"):
+                if header in response.headers:
+                    del response.headers[header]
+            response.headers["Cache-Control"] = "no-cache"
+            return response
         if not request.url.path.startswith(self._path_prefix):
             return response
         for header in ("Pragma", "Expires"):
             if header in response.headers:
                 del response.headers[header]
-        if request.url.path.endswith(".html"):
-            response.headers["Cache-Control"] = "no-cache"
-            return response
         if any(m in request.url.path for m in self._immutable_markers):
             response.headers["Cache-Control"] = (
                 f"public, max-age={self._immutable_age}, immutable"
