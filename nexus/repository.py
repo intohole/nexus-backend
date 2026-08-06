@@ -192,30 +192,30 @@ class BaseRepository(Generic[ModelT]):
         return result.rowcount or 0
 
 
-class StatelessRepository:
+class StatelessRepository(Generic[ModelT]):
     """无状态Repository基类，每次方法调用时传入session"""
 
-    def __init__(self, model: type) -> None:
-        self._model: type = model
+    def __init__(self, model: Type[ModelT]) -> None:
+        self._model: Type[ModelT] = model
 
     @property
-    def model(self) -> type:
+    def model(self) -> Type[ModelT]:
         return self._model
 
-    async def _scalar_one_or_none(self, session: AsyncSession, stmt: object) -> object | None:
+    async def _scalar_one_or_none(self, session: AsyncSession, stmt: object) -> Optional[ModelT]:
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def _scalars_all(self, session: AsyncSession, stmt: object) -> list[object]:
+    async def _scalars_all(self, session: AsyncSession, stmt: object) -> list[ModelT]:
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_by_id(self, session: AsyncSession, id: int | str) -> object | None:
+    async def get_by_id(self, session: AsyncSession, id: int | str) -> Optional[ModelT]:
         stmt = select(self._model).where(self._model.id == id)  # type: ignore[attr-defined]
         return await self._scalar_one_or_none(session, stmt)
 
-    async def get_or_404(self, session: AsyncSession, id: int | str) -> object:
-        obj: object | None = await self.get_by_id(session, id)
+    async def get_or_404(self, session: AsyncSession, id: int | str) -> ModelT:
+        obj: Optional[ModelT] = await self.get_by_id(session, id)
         if obj is None:
             raise NotFoundError(f"{self._model.__name__} with id={id} not found")  # type: ignore[attr-defined]
         return obj
@@ -225,7 +225,7 @@ class StatelessRepository:
         session: AsyncSession,
         obj_in: dict[str, object],
         auto_refresh: bool = True,
-    ) -> object:
+    ) -> ModelT:
         instance = self._model(**obj_in)  # type: ignore[call-arg]
         session.add(instance)
         await session.flush()
@@ -238,8 +238,8 @@ class StatelessRepository:
         session: AsyncSession,
         id: int | str,
         obj_in: dict[str, object],
-    ) -> object | None:
-        obj: object | None = await self.get_by_id(session, id)
+    ) -> Optional[ModelT]:
+        obj: Optional[ModelT] = await self.get_by_id(session, id)
         if obj is None:
             return None
         for key, value in obj_in.items():
@@ -250,7 +250,7 @@ class StatelessRepository:
         return obj
 
     async def delete(self, session: AsyncSession, id: int | str) -> bool:
-        obj: object | None = await self.get_by_id(session, id)
+        obj: Optional[ModelT] = await self.get_by_id(session, id)
         if obj is None:
             return False
         await session.delete(obj)
@@ -263,7 +263,7 @@ class StatelessRepository:
         skip: int = 0,
         limit: int = 20,
         order_by: object | None = None,
-    ) -> list[object]:
+    ) -> list[ModelT]:
         stmt = select(self._model)
         if order_by is not None:
             stmt = stmt.order_by(order_by)
@@ -284,7 +284,7 @@ class StatelessRepository:
         result: int | None = await session.scalar(stmt)
         return result is not None
 
-    async def find_one_by(self, session: AsyncSession, **kwargs: object) -> object | None:
+    async def find_one_by(self, session: AsyncSession, **kwargs: object) -> Optional[ModelT]:
         stmt = select(self._model)
         for key, value in kwargs.items():
             if hasattr(self._model, key):
@@ -299,7 +299,7 @@ class StatelessRepository:
         order_by_attr: str = "id",
         descending: bool = True,
         **kwargs: object,
-    ) -> list[object]:
+    ) -> list[ModelT]:
         stmt = select(self._model)
         for key, value in kwargs.items():
             if hasattr(self._model, key):
