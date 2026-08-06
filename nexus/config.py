@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 from pathlib import Path
 from typing import Optional
@@ -103,10 +104,15 @@ class NexusConfig(BaseSettings):
     model_config = SettingsConfigDict(extra="allow", env_nested_delimiter="__")
 
 
+_ENV_PATTERN = re.compile(r"^\$\{(\w+)(?::-([^}]*))?\}$")
+
+
 def _resolve_env(value: object) -> object:
-    if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
-        env_key = value[2:-1]
-        return os.environ.get(env_key, "")
+    if isinstance(value, str):
+        match = _ENV_PATTERN.match(value)
+        if match:
+            env_key: str = match.group(1)
+            return os.environ.get(env_key, match.group(2) if match.group(2) is not None else "")
     return value
 
 
