@@ -81,6 +81,14 @@ def safe_float(value: object, default: float = 0.0, min_val: float = -float("inf
     return clamp(result, min_val, max_val)
 
 
+def resolve_cors_origins(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [o.strip() for o in value.split(",") if o.strip()]
+    if isinstance(value, (list, tuple)):
+        return [str(o).strip() for o in value if str(o).strip()]
+    return []
+
+
 def safe_int(value: object, default: int = 0) -> int:
     try:
         return int(value)

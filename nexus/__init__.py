@@ -52,7 +52,14 @@ from nexus.utils import (
     safe_float,
     safe_int,
     safe_bool,
+    resolve_cors_origins,
     paginate_from_skip,
+)
+from nexus.boot import (
+    register_service_auth,
+    register_health_detail,
+    mount_spa_static,
+    DEFAULT_SERVICE_AUTH_WHITELIST,
 )
 from nexus.middleware import (
     setup_cors,
@@ -198,7 +205,7 @@ from nexus.llm_rate_limiter import (
 from nexus.resilient_llm import resilient_ask, resilient_extract, resilient_stream
 from nexus.scheduler import NexusScheduler, get_scheduler, setup_scheduler
 
-__version__ = "1.12.0"
+__version__ = "1.13.0"
 
 __all__ = [
     "__version__",
@@ -254,7 +261,12 @@ __all__ = [
     "safe_float",
     "safe_int",
     "safe_bool",
+    "resolve_cors_origins",
     "paginate_from_skip",
+    "register_service_auth",
+    "register_health_detail",
+    "mount_spa_static",
+    "DEFAULT_SERVICE_AUTH_WHITELIST",
     "setup_cors",
     "RequestIdMiddleware",
     "NoCacheMiddleware",
