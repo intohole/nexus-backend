@@ -195,7 +195,7 @@ from nexus.llm_rate_limiter import (
     LLMRateLimiter,
     get_llm_rate_limiter,
 )
-from nexus.resilient_llm import resilient_ask
+from nexus.resilient_llm import resilient_ask, resilient_extract, resilient_stream
 from nexus.scheduler import NexusScheduler, get_scheduler, setup_scheduler
 
 __version__ = "1.12.0"
@@ -379,6 +379,8 @@ __all__ = [
     "LLMRateLimiter",
     "get_llm_rate_limiter",
     "resilient_ask",
+    "resilient_extract",
+    "resilient_stream",
     "NexusScheduler",
     "get_scheduler",
     "setup_scheduler",

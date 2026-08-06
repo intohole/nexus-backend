@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+from collections.abc import AsyncGenerator
 from typing import Awaitable, Callable, Optional
 
 from nexus.circuit_breaker import (
@@ -18,6 +19,7 @@ from nexus.circuit_breaker import (
 )
 from nexus.cost_guard import CostBudgetExceededError, get_cost_guard
 from nexus.llm import get_llm_service
+from nexus.llm_utils import parse_llm_json
 from nexus.logging import get_logger
 
 logger = get_logger("nexus.resilient_llm")
@@ -33,7 +35,9 @@ _CB_CONFIG = CircuitBreakerConfig(
 async def resilient_ask(
     prompt: str,
     *,
+    system: str = "",
     temperature: float = 0.7,
+    max_tokens: Optional[int] = 2000,
     alias: str = "default",
     timeout: float = 30.0,
     fallback: Optional[str] = None,
@@ -49,6 +53,7 @@ async def resilient_ask(
     alias 用于熔断器隔离与成本归集（同一 alias 共享熔断状态）。
     fallback 非 None 时，任何失败都返回 fallback 而不是抛异常。
     use_rate_limit=True 时额外启用 LLMRateLimiter 全局限流（高并发场景）。
+    system 为可选的系统提示词，max_tokens 限制输出长度，透传底层 LLMService.ask。
     """
     cb = get_circuit_breaker(f"llm_{alias}", config=_CB_CONFIG)
     cost_guard = get_cost_guard()
@@ -68,9 +73,9 @@ async def resilient_ask(
             if use_rate_limit:
                 from nexus.llm_rate_limiter import get_llm_rate_limiter
                 async with get_llm_rate_limiter().limited(caller=alias):
-                    result = await cb.call(_call_llm, prompt=prompt, temperature=temperature, timeout=timeout)
+                    result = await cb.call(_call_llm, prompt=prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout)
             else:
-                result = await cb.call(_call_llm, prompt=prompt, temperature=temperature, timeout=timeout)
+                result = await cb.call(_call_llm, prompt=prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout)
             await cost_guard.record_usage(
                 prompt_tokens=estimated_tokens // 2,
                 completion_tokens=estimated_tokens // 2,
@@ -100,9 +105,73 @@ async def resilient_ask(
     raise last_error or RuntimeError("LLM call failed")
 
 
-async def _call_llm(prompt: str, temperature: float, timeout: float) -> str:
+async def _call_llm(prompt: str, system: str, temperature: float, max_tokens: Optional[int], timeout: float) -> str:
     svc = get_llm_service()
     return await asyncio.wait_for(
-        svc.ask(prompt, temperature=temperature, timeout=timeout),
+        svc.ask(prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout),
         timeout=timeout + 5,
     )
+
+
+async def resilient_extract(
+    prompt: str,
+    *,
+    system: str = "",
+    temperature: float = 0.4,
+    max_tokens: Optional[int] = 2000,
+    alias: str = "default",
+    timeout: float = 60.0,
+    operation: str = "",
+    estimated_tokens: int = 500,
+    retry_count: int = 2,
+    retry_delay: float = 1.0,
+    use_rate_limit: bool = False,
+) -> dict[str, object]:
+    """带成本守卫/熔断/重试/降级的 LLM JSON 抽取。
+
+    失败或解析失败返回 {}（供调用方规则化降级），不抛异常。
+    """
+    raw = await resilient_ask(
+        prompt,
+        system=system,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        alias=alias,
+        timeout=timeout,
+        fallback="",
+        operation=operation,
+        estimated_tokens=estimated_tokens,
+        retry_count=retry_count,
+        retry_delay=retry_delay,
+        use_rate_limit=use_rate_limit,
+    )
+    if not raw:
+        return {}
+    parsed = parse_llm_json(raw)
+    if "raw_response" in parsed:
+        logger.warning("resilient_extract parse failed for %s, fallback to empty", alias)
+        return {}
+    return parsed
+
+
+async def resilient_stream(
+    prompt: str,
+    *,
+    system: str = "",
+    temperature: float = 0.4,
+    max_tokens: int = 2000,
+    alias: str = "default",
+) -> AsyncGenerator[str, None]:
+    """韧性流式 LLM 调用。异常 re-raise，供调用方感知中断并发送错误事件。"""
+    svc = get_llm_service()
+    try:
+        async for token in svc.stream_ask(
+            prompt,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        ):
+            yield token
+    except Exception as e:
+        logger.warning("resilient_stream %s failed: %s", alias, e)
+        raise
