@@ -77,6 +77,30 @@ class NotifyClient:
             logger.error("Notify send error: %s", str(exc))
             return {}
 
+    async def send_admin_email(
+        self,
+        subject: str,
+        content: str = "",
+        email: str = "",
+        priority: int = 3,
+        app_id: str = "system",
+        type: str = "alert",
+    ) -> dict[str, object]:
+        admin_email: str = email or os.environ.get("ADMIN_NOTIFY_EMAIL", "")
+        if not admin_email:
+            logger.warning("ADMIN_NOTIFY_EMAIL未配置，跳过管理员邮件通知")
+            return {}
+        return await self.send(
+            user_id="admin",
+            title=subject,
+            content=content,
+            type=type,
+            priority=priority,
+            app_id=app_id,
+            channels=["email"],
+            data={"email": admin_email},
+        )
+
     async def send_email(
         self,
         to: str | list[str],
@@ -164,9 +188,29 @@ async def send_email(
     )
 
 
+async def send_admin_email(
+    subject: str,
+    content: str = "",
+    email: str = "",
+    priority: int = 3,
+    app_id: str = "system",
+    type: str = "alert",
+) -> dict[str, object]:
+    client: NotifyClient = get_notify_client()
+    return await client.send_admin_email(
+        subject=subject,
+        content=content,
+        email=email,
+        priority=priority,
+        app_id=app_id,
+        type=type,
+    )
+
+
 __all__ = [
     "NotifyClient",
     "get_notify_client",
     "send_notification",
     "send_email",
+    "send_admin_email",
 ]
