@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import AsyncGenerator, Optional
 
-from nexus.context import get_request_id
+from nexus.context import get_request_id, get_user_id
 from nexus.logging import get_logger
 from nexus.llm_metrics import get_llm_metrics
 from nexus.circuit_breaker import get_llm_circuit
@@ -25,6 +25,13 @@ class LLMService:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
+
+    @staticmethod
+    def _resolve_namespace(namespace: Optional[str]) -> Optional[str]:
+        if namespace:
+            return namespace
+        from nexus.context import get_user_id as _get_user_id
+        return _get_user_id() or None
 
     @staticmethod
     def _convert_messages(
@@ -70,6 +77,7 @@ class LLMService:
         timeout: float = 60.0,
         max_retries: int = 3,
         json_mode: bool = False,
+        namespace: Optional[str] = None,
     ) -> str:
         await configure_ironman()
         from ironman import chat as _chat
@@ -81,6 +89,10 @@ class LLMService:
         extra: dict[str, object] | None = None
         if json_mode:
             extra = {"response_format": {"type": "json_object"}}
+        ns = self._resolve_namespace(namespace)
+        if ns:
+            extra = dict(extra or {})
+            extra["namespace"] = ns
         llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
 
         async def _do() -> str:
@@ -122,6 +134,7 @@ class LLMService:
         timeout: float = 60.0,
         max_retries: int = 3,
         json_mode: bool = False,
+        namespace: Optional[str] = None,
     ) -> str:
         await configure_ironman()
         from ironman import chat as _chat
@@ -132,6 +145,10 @@ class LLMService:
         extra: dict[str, object] | None = None
         if json_mode:
             extra = {"response_format": {"type": "json_object"}}
+        ns = self._resolve_namespace(namespace)
+        if ns:
+            extra = dict(extra or {})
+            extra["namespace"] = ns
         llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
 
         msgs: list = []
@@ -269,13 +286,18 @@ class LLMService:
         system: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
+        namespace: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         await configure_ironman()
         from ironman import chat_stream as _chat_stream
         from ironman.types import LLMOptions
 
         ironman_messages = self._convert_messages(messages, system)
-        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens)
+        extra: dict[str, object] | None = None
+        ns = self._resolve_namespace(namespace)
+        if ns:
+            extra = {"namespace": ns}
+        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
         has_content: bool = False
         reasoning_buffer: list[str] = []
         async for chunk in _chat_stream(messages=ironman_messages, llm=llm_opts):
@@ -294,12 +316,17 @@ class LLMService:
         system: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
+        namespace: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         await configure_ironman()
         from ironman import chat_stream as _chat_stream
         from ironman.types import LLMOptions, Message, Role
 
-        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens)
+        extra: dict[str, object] | None = None
+        ns = self._resolve_namespace(namespace)
+        if ns:
+            extra = {"namespace": ns}
+        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
         msgs: list = []
         if system:
             msgs.append(Message(role=Role.SYSTEM, content=system))

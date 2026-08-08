@@ -47,6 +47,7 @@ async def resilient_ask(
     retry_delay: float = 1.0,
     use_rate_limit: bool = False,
     on_fallback: Optional[Callable[[str], None]] = None,
+    namespace: Optional[str] = None,
 ) -> str:
     """带成本守卫/熔断/重试/降级的 LLM 调用。
 
@@ -73,9 +74,9 @@ async def resilient_ask(
             if use_rate_limit:
                 from nexus.llm_rate_limiter import get_llm_rate_limiter
                 async with get_llm_rate_limiter().limited(caller=alias):
-                    result = await cb.call(_call_llm, prompt=prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout)
+                    result = await cb.call(_call_llm, prompt=prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout, namespace=namespace)
             else:
-                result = await cb.call(_call_llm, prompt=prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout)
+                result = await cb.call(_call_llm, prompt=prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout, namespace=namespace)
             await cost_guard.record_usage(
                 prompt_tokens=estimated_tokens // 2,
                 completion_tokens=estimated_tokens // 2,
@@ -105,10 +106,10 @@ async def resilient_ask(
     raise last_error or RuntimeError("LLM call failed")
 
 
-async def _call_llm(prompt: str, system: str, temperature: float, max_tokens: Optional[int], timeout: float) -> str:
+async def _call_llm(prompt: str, system: str, temperature: float, max_tokens: Optional[int], timeout: float, namespace: Optional[str] = None) -> str:
     svc = get_llm_service()
     return await asyncio.wait_for(
-        svc.ask(prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout),
+        svc.ask(prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout, namespace=namespace),
         timeout=timeout + 5,
     )
 
@@ -126,6 +127,7 @@ async def resilient_extract(
     retry_count: int = 2,
     retry_delay: float = 1.0,
     use_rate_limit: bool = False,
+    namespace: Optional[str] = None,
 ) -> dict[str, object]:
     """带成本守卫/熔断/重试/降级的 LLM JSON 抽取。
 
@@ -144,6 +146,7 @@ async def resilient_extract(
         retry_count=retry_count,
         retry_delay=retry_delay,
         use_rate_limit=use_rate_limit,
+        namespace=namespace,
     )
     if not raw:
         return {}
@@ -161,6 +164,7 @@ async def resilient_stream(
     temperature: float = 0.4,
     max_tokens: int = 2000,
     alias: str = "default",
+    namespace: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """韧性流式 LLM 调用。异常 re-raise，供调用方感知中断并发送错误事件。"""
     svc = get_llm_service()
@@ -170,6 +174,7 @@ async def resilient_stream(
             system=system,
             temperature=temperature,
             max_tokens=max_tokens,
+            namespace=namespace,
         ):
             yield token
     except Exception as e:
