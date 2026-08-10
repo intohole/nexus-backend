@@ -14,7 +14,12 @@ class WebhookChannel(NotificationChannel):
         self._timeout: float = timeout
 
     async def send(self, notification: dict[str, object]) -> bool:
-        webhook_url: str = str(notification.get("webhook_url", ""))
+        notif_data: dict[str, object] = notification.get("data", {})
+        webhook_url: str = str(
+            notification.get("webhook_url")
+            or notif_data.get("webhook_url")
+            or ""
+        )
         if not webhook_url:
             logger.debug("No webhook URL in notification data, skipping")
             return False
