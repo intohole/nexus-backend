@@ -101,6 +101,30 @@ class NotifyClient:
             data={"email": admin_email},
         )
 
+    async def send_email_via_center(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        html: str | None = None,
+    ) -> bool:
+        try:
+            resp: httpx.Response = await self._http.post(
+                "/api/notify/email",
+                json={
+                    "to": to,
+                    "subject": subject,
+                    "body": body,
+                    "html": html or "",
+                },
+            )
+            resp.raise_for_status()
+            data: dict[str, object] = resp.json()
+            return bool(data.get("sent", False))
+        except Exception as exc:
+            logger.error("NotifyCenter email send failed: %s", str(exc))
+            return False
+
     async def send_email(
         self,
         to: str | list[str],
@@ -109,6 +133,13 @@ class NotifyClient:
         html: str | None = None,
         from_addr: str = "",
     ) -> bool:
+        recipients: list[str] = [to] if isinstance(to, str) else list(to)
+        if len(recipients) == 1:
+            sent_center: bool = await self.send_email_via_center(
+                to=recipients[0], subject=subject, body=body, html=html
+            )
+            if sent_center:
+                return True
         smtp_host: str = os.environ.get("SMTP_HOST", "")
         if not smtp_host:
             logger.warning("SMTP_HOST未配置，跳过邮件发送")
@@ -118,7 +149,6 @@ class NotifyClient:
         smtp_password: str = os.environ.get("SMTP_PASSWORD", "")
         smtp_from: str = from_addr or os.environ.get("SMTP_FROM", smtp_user or "noreply@local")
         use_tls: bool = os.environ.get("SMTP_USE_TLS", "true").lower() in ("true", "1", "yes")
-        recipients: list[str] = [to] if isinstance(to, str) else list(to)
         try:
             import aiosmtplib
             from email.mime.text import MIMEText
@@ -207,10 +237,27 @@ async def send_admin_email(
     )
 
 
+async def send_sms(
+    phone: str,
+    template_code: str,
+    template_param: Optional[dict[str, object]] = None,
+    sign_name: str = "",
+) -> bool:
+    from nexus.notify_sms import send_sms as _send_sms
+
+    return await _send_sms(
+        phone=phone,
+        template_code=template_code,
+        template_param=template_param,
+        sign_name=sign_name,
+    )
+
+
 __all__ = [
     "NotifyClient",
     "get_notify_client",
     "send_notification",
     "send_email",
     "send_admin_email",
+    "send_sms",
 ]
