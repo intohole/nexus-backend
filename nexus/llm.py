@@ -78,6 +78,7 @@ class LLMService:
         max_retries: int = 3,
         json_mode: bool = False,
         namespace: Optional[str] = None,
+        task_type: Optional[str] = None,
     ) -> str:
         await configure_ironman()
         from ironman import chat as _chat
@@ -93,6 +94,9 @@ class LLMService:
         if ns:
             extra = dict(extra or {})
             extra["namespace"] = ns
+        if task_type:
+            extra = dict(extra or {})
+            extra["task_type"] = task_type
         llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
 
         async def _do() -> str:
@@ -135,6 +139,7 @@ class LLMService:
         max_retries: int = 3,
         json_mode: bool = False,
         namespace: Optional[str] = None,
+        task_type: Optional[str] = None,
     ) -> str:
         await configure_ironman()
         from ironman import chat as _chat
@@ -149,6 +154,9 @@ class LLMService:
         if ns:
             extra = dict(extra or {})
             extra["namespace"] = ns
+        if task_type:
+            extra = dict(extra or {})
+            extra["task_type"] = task_type
         llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
 
         msgs: list = []
@@ -194,6 +202,7 @@ class LLMService:
         max_tokens: Optional[int] = 1500,
         timeout: float = 60.0,
         max_retries: int = 3,
+        task_type: Optional[str] = None,
     ) -> dict[str, object]:
         raw = await self.ask(
             prompt=prompt,
@@ -202,6 +211,8 @@ class LLMService:
             max_tokens=max_tokens,
             timeout=timeout,
             max_retries=max_retries,
+            json_mode=True,
+            task_type=task_type,
         )
         return parse_llm_json(raw)
 
@@ -213,6 +224,7 @@ class LLMService:
         max_tokens: Optional[int] = 1500,
         timeout: float = 60.0,
         max_retries: int = 3,
+        task_type: Optional[str] = None,
     ) -> dict[str, object]:
         raw = await self.chat(
             messages=messages,
@@ -221,6 +233,8 @@ class LLMService:
             max_tokens=max_tokens,
             timeout=timeout,
             max_retries=max_retries,
+            json_mode=True,
+            task_type=task_type,
         )
         return parse_llm_json(raw)
 
@@ -287,6 +301,7 @@ class LLMService:
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         namespace: Optional[str] = None,
+        task_type: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         await configure_ironman()
         from ironman import chat_stream as _chat_stream
@@ -297,6 +312,9 @@ class LLMService:
         ns = self._resolve_namespace(namespace)
         if ns:
             extra = {"namespace": ns}
+        if task_type:
+            extra = dict(extra or {})
+            extra["task_type"] = task_type
         llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
         has_content: bool = False
         reasoning_buffer: list[str] = []
@@ -317,6 +335,7 @@ class LLMService:
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         namespace: Optional[str] = None,
+        task_type: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         await configure_ironman()
         from ironman import chat_stream as _chat_stream
@@ -326,6 +345,9 @@ class LLMService:
         ns = self._resolve_namespace(namespace)
         if ns:
             extra = {"namespace": ns}
+        if task_type:
+            extra = dict(extra or {})
+            extra["task_type"] = task_type
         llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
         msgs: list = []
         if system:

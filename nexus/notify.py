@@ -140,43 +140,36 @@ class NotifyClient:
             )
             if sent_center:
                 return True
-        smtp_host: str = os.environ.get("SMTP_HOST", "")
-        if not smtp_host:
-            logger.warning("SMTP_HOST未配置，跳过邮件发送")
-            return False
-        smtp_port: int = int(os.environ.get("SMTP_PORT", "587"))
-        smtp_user: str = os.environ.get("SMTP_USER", "")
-        smtp_password: str = os.environ.get("SMTP_PASSWORD", "")
-        smtp_from: str = from_addr or os.environ.get("SMTP_FROM", smtp_user or "noreply@local")
-        use_tls: bool = os.environ.get("SMTP_USE_TLS", "true").lower() in ("true", "1", "yes")
-        try:
-            import aiosmtplib
-            from email.mime.text import MIMEText
-            from email.mime.multipart import MIMEMultipart
-        except ImportError:
-            logger.warning("aiosmtplib未安装，请安装nexus-backend[email]")
-            return False
-        msg: MIMEMultipart = MIMEMultipart("alternative")
-        msg["From"] = smtp_from
-        msg["To"] = ", ".join(recipients)
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain", "utf-8"))
-        if html:
-            msg.attach(MIMEText(html, "html", "utf-8"))
-        try:
-            await aiosmtplib.send(
-                msg,
-                hostname=smtp_host,
-                port=smtp_port,
-                username=smtp_user or None,
-                password=smtp_password or None,
-                use_tls=smtp_port == 465,
-                start_tls=smtp_port != 465 and use_tls,
+        sent: bool = False
+        for recipient in recipients:
+            ok: bool = await self.send_email_via_center(
+                to=recipient, subject=subject, body=body, html=html
             )
-            logger.info("邮件发送成功: to=%s subject=%s", msg["To"], subject)
-            return True
+            sent = sent or ok
+        return sent
+
+    async def send_sms(
+        self,
+        phone: str,
+        template_code: str,
+        template_param: Optional[dict[str, object]] = None,
+        sign_name: str = "",
+    ) -> bool:
+        try:
+            resp: httpx.Response = await self._http.post(
+                "/api/notify/sms",
+                json={
+                    "phone": phone,
+                    "template_code": template_code,
+                    "template_param": template_param or {},
+                    "sign_name": sign_name,
+                },
+            )
+            resp.raise_for_status()
+            data: dict[str, object] = resp.json()
+            return bool(data.get("sent", False))
         except Exception as exc:
-            logger.error("邮件发送失败: to=%s error=%s", msg["To"], str(exc))
+            logger.error("NotifyCenter SMS send failed: %s", str(exc))
             return False
 
     async def close(self) -> None:
@@ -243,9 +236,8 @@ async def send_sms(
     template_param: Optional[dict[str, object]] = None,
     sign_name: str = "",
 ) -> bool:
-    from nexus.notify_sms import send_sms as _send_sms
-
-    return await _send_sms(
+    client: NotifyClient = get_notify_client()
+    return await client.send_sms(
         phone=phone,
         template_code=template_code,
         template_param=template_param,
