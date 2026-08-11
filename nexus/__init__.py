@@ -147,6 +147,15 @@ from nexus.llm import (
     configure_ironman,
     mark_ironman_configured,
 )
+from nexus.llm_optimizer import (
+    CONCISENESS_HINT,
+    JSON_ONLY_HINT,
+    DEFAULT_TOKEN_BUDGET,
+    estimate_tokens,
+    trim_context,
+    compact_history,
+    within_budget,
+)
 from nexus.ironman import (
     init_ironman,
     startup as startup_ironman,
@@ -338,6 +347,13 @@ __all__ = [
     "get_llm_service",
     "configure_ironman",
     "mark_ironman_configured",
+    "CONCISENESS_HINT",
+    "JSON_ONLY_HINT",
+    "DEFAULT_TOKEN_BUDGET",
+    "estimate_tokens",
+    "trim_context",
+    "compact_history",
+    "within_budget",
     "init_ironman",
     "startup_ironman",
     "require_ironman",

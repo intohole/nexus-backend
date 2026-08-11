@@ -34,11 +34,13 @@ class LLMMetrics:
         self._errors: int = 0
         self._total_latency: float = 0.0
         self._total_tokens: int = 0
+        self._total_cost_usd: float = 0.0
+        self._cached_tokens: int = 0
         self._by_app: dict[str, dict[str, float]] = defaultdict(
-            lambda: {"calls": 0, "errors": 0, "tokens": 0, "latency": 0.0}
+            lambda: {"calls": 0, "errors": 0, "tokens": 0, "latency": 0.0, "cost_usd": 0.0}
         )
         self._by_model: dict[str, dict[str, float]] = defaultdict(
-            lambda: {"calls": 0, "errors": 0, "tokens": 0, "latency": 0.0}
+            lambda: {"calls": 0, "errors": 0, "tokens": 0, "latency": 0.0, "cost_usd": 0.0}
         )
         self._by_status: dict[str, int] = defaultdict(int)
 
@@ -49,20 +51,27 @@ class LLMMetrics:
         latency: float,
         tokens: int = 0,
         error: Optional[str] = None,
+        cached: bool = False,
+        cost_usd: float = 0.0,
     ) -> None:
         """记录一次 LLM 调用。
 
         Args:
             app_name: 应用名（来自 get_init_app_name()）
-            model: 模型名（暂为 "unknown"，后续解析 response.usage）
+            model: 模型名（来自 response.model）
             latency: 调用耗时（秒）
-            tokens: token 用量（暂为 0，后续解析 response.usage）
+            tokens: token 用量（来自 response.usage.total_tokens）
             error: 错误类型名（None 表示成功）
+            cached: 是否命中前缀缓存（来自 response.cached）
+            cost_usd: 估算成本（美元，来自 response.cost_usd）
         """
         with self._call_lock:
             self._calls += 1
             self._total_latency += latency
             self._total_tokens += tokens
+            self._total_cost_usd += cost_usd
+            if cached:
+                self._cached_tokens += tokens
             if error:
                 self._errors += 1
                 self._by_status[error] += 1
@@ -71,6 +80,7 @@ class LLMMetrics:
             app_stats["calls"] += 1
             app_stats["latency"] += latency
             app_stats["tokens"] += tokens
+            app_stats["cost_usd"] += cost_usd
             if error:
                 app_stats["errors"] += 1
 
@@ -78,6 +88,7 @@ class LLMMetrics:
             model_stats["calls"] += 1
             model_stats["latency"] += latency
             model_stats["tokens"] += tokens
+            model_stats["cost_usd"] += cost_usd
             if error:
                 model_stats["errors"] += 1
 
@@ -90,6 +101,9 @@ class LLMMetrics:
                 "total_calls": self._calls,
                 "total_errors": self._errors,
                 "total_tokens": self._total_tokens,
+                "total_cost_usd": round(self._total_cost_usd, 6),
+                "cached_tokens": self._cached_tokens,
+                "cache_hit_rate": round(self._cached_tokens / self._total_tokens, 4) if self._total_tokens else 0.0,
                 "avg_latency_ms": round(avg_latency * 1000, 2),
                 "error_rate": error_rate,
                 "by_app": dict(self._by_app),

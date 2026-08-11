@@ -68,6 +68,34 @@ class LLMService:
         logger.warning("LLM returned empty content and no reasoning [req_id=%s]", request_id)
         return ""
 
+    @staticmethod
+    def _record_usage(
+        metrics: object,
+        app_name: str,
+        response: object,
+        latency: float,
+        error: Optional[str],
+    ) -> None:
+        """从 ironman 响应中提取真实 token/model/cache/cost 用量并记录指标。
+
+        修复前 metrics.record 始终传 tokens=0、model="unknown"，导致成本不可见。
+        这里从 response.usage/model/cached/cost_usd 取真实值，开启成本的量化与优化。
+        """
+        usage = getattr(response, "usage", None)
+        tokens = int(getattr(usage, "total_tokens", 0) or 0)
+        model: str = getattr(response, "model", "") or "unknown"
+        cached: bool = bool(getattr(response, "cached", False))
+        cost_usd: float = float(getattr(response, "cost_usd", 0.0) or 0.0)
+        metrics.record(
+            app_name,
+            model,
+            latency,
+            tokens=tokens,
+            error=error,
+            cached=cached,
+            cost_usd=cost_usd,
+        )
+
     async def chat(
         self,
         messages: list[dict[str, str]],
@@ -99,21 +127,21 @@ class LLMService:
             extra["task_type"] = task_type
         llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
 
-        async def _do() -> str:
-            response = await _chat(messages=ironman_messages, llm=llm_opts)
-            return self._extract_content(response, request_id)
+        async def _do() -> object:
+            return await _chat(messages=ironman_messages, llm=llm_opts)
 
         circuit = get_llm_circuit()
         metrics = get_llm_metrics()
         start: float = time.monotonic()
         try:
-            async def _do_with_circuit() -> str:
+            async def _do_with_circuit() -> object:
                 return await circuit.call(_do)
-            result: str = await with_retry(
+            response: object = await with_retry(
                 _do_with_circuit, timeout, _effective_retries(max_retries)
             )
+            result: str = self._extract_content(response, request_id)
             latency: float = time.monotonic() - start
-            metrics.record(app_name, "unknown", latency, tokens=0, error=None)
+            self._record_usage(metrics, app_name, response, latency, None)
             logger.info(
                 "LLM chat completed [req_id=%s, app=%s, latency=%.2fs]",
                 request_id, app_name, latency,
@@ -164,21 +192,21 @@ class LLMService:
             msgs.append(Message(role=Role.SYSTEM, content=system))
         msgs.append(Message(role=Role.USER, content=prompt))
 
-        async def _do() -> str:
-            response = await _chat(messages=msgs, llm=llm_opts)
-            return self._extract_content(response, request_id)
+        async def _do() -> object:
+            return await _chat(messages=msgs, llm=llm_opts)
 
         circuit = get_llm_circuit()
         metrics = get_llm_metrics()
         start: float = time.monotonic()
         try:
-            async def _do_with_circuit() -> str:
+            async def _do_with_circuit() -> object:
                 return await circuit.call(_do)
-            result: str = await with_retry(
+            response: object = await with_retry(
                 _do_with_circuit, timeout, _effective_retries(max_retries)
             )
+            result: str = self._extract_content(response, request_id)
             latency: float = time.monotonic() - start
-            metrics.record(app_name, "unknown", latency, tokens=0, error=None)
+            self._record_usage(metrics, app_name, response, latency, None)
             logger.info(
                 "LLM ask completed [req_id=%s, app=%s, latency=%.2fs]",
                 request_id, app_name, latency,
@@ -316,14 +344,30 @@ class LLMService:
             extra = dict(extra or {})
             extra["task_type"] = task_type
         llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
+        metrics = get_llm_metrics()
+        app_name: str = _resolve_app_name()
+        start: float = time.monotonic()
         has_content: bool = False
         reasoning_buffer: list[str] = []
+        last_usage: Optional[object] = None
+        last_model: str = "unknown"
         async for chunk in _chat_stream(messages=ironman_messages, llm=llm_opts):
             if chunk.content:
                 has_content = True
                 yield chunk.content
             elif chunk.reasoning:
                 reasoning_buffer.append(chunk.reasoning)
+            if chunk.usage is not None:
+                last_usage = chunk.usage
+            if chunk.model:
+                last_model = chunk.model
+        metrics.record(
+            app_name,
+            last_model,
+            time.monotonic() - start,
+            tokens=int(getattr(last_usage, "total_tokens", 0) or 0),
+            error=None,
+        )
         if not has_content and reasoning_buffer:
             logger.warning("stream_chat: no content, yielding reasoning fallback")
             yield "".join(reasoning_buffer)
@@ -353,14 +397,30 @@ class LLMService:
         if system:
             msgs.append(Message(role=Role.SYSTEM, content=system))
         msgs.append(Message(role=Role.USER, content=prompt))
+        metrics = get_llm_metrics()
+        app_name: str = _resolve_app_name()
+        start: float = time.monotonic()
         has_content: bool = False
         reasoning_buffer: list[str] = []
+        last_usage: Optional[object] = None
+        last_model: str = "unknown"
         async for chunk in _chat_stream(messages=msgs, llm=llm_opts):
             if chunk.content:
                 has_content = True
                 yield chunk.content
             elif chunk.reasoning:
                 reasoning_buffer.append(chunk.reasoning)
+            if chunk.usage is not None:
+                last_usage = chunk.usage
+            if chunk.model:
+                last_model = chunk.model
+        metrics.record(
+            app_name,
+            last_model,
+            time.monotonic() - start,
+            tokens=int(getattr(last_usage, "total_tokens", 0) or 0),
+            error=None,
+        )
         if not has_content and reasoning_buffer:
             logger.warning("stream_ask: no content, yielding reasoning fallback")
             yield "".join(reasoning_buffer)
