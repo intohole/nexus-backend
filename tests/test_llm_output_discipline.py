@@ -61,6 +61,20 @@ def test_discipline_default_mode_passthrough():
     assert p == prompt
 
 
+def test_discipline_default_mode_respects_json_hint():
+    s, p = apply_output_discipline(
+        "助手", "给数据", concise=True, json_mode=True, output_mode=OutputMode.DEFAULT
+    )
+    assert JSON_ONLY_HINT in s
+
+
+def test_discipline_default_mode_respects_concise_hint():
+    s, p = apply_output_discipline(
+        "助手", "你好", concise=True, json_mode=False, output_mode=OutputMode.DEFAULT
+    )
+    assert CONCISENESS_HINT in s
+
+
 def test_resolve_budget_writing():
     max_t, temp, mode = _resolve_budget("writing", None, 0.7, None)
     assert max_t == 8000
@@ -77,3 +91,15 @@ def test_resolve_budget_no_task_passthrough():
     max_t, temp, mode = _resolve_budget(None, None, 0.7, None)
     assert max_t is None
     assert mode is None
+
+
+def test_resolve_budget_ppt():
+    max_t, temp, mode = _resolve_budget("ppt", None, 0.7, None)
+    assert max_t == 3000
+    assert mode == OutputMode.JSON
+
+
+def test_resolve_budget_assistant():
+    max_t, temp, mode = _resolve_budget("assistant", None, 0.7, None)
+    assert max_t == 512
+    assert mode == OutputMode.CONCISE

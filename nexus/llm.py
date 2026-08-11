@@ -311,13 +311,14 @@ class LLMService:
         from ironman import chat_stream as _chat_stream
         from ironman.types import LLMOptions
 
-        budget_max, budget_temp, _ = _resolve_budget(
+        budget_max, budget_temp, budget_mode = _resolve_budget(
             task_type, max_tokens, temperature, output_mode
         )
         temperature = 0.7 if budget_temp is None else budget_temp
         eff_max_tokens: Optional[int] = (
             budget_max if budget_max is not None else DEFAULT_MAX_OUTPUT_TOKENS
         )
+        system, _ = apply_output_discipline(system, "", False, False, budget_mode)
         ironman_messages = convert_messages(messages, system)
         llm_opts = LLMOptions(
             temperature=temperature,
@@ -341,13 +342,14 @@ class LLMService:
         from ironman import chat_stream as _chat_stream
         from ironman.types import LLMOptions, Message, Role
 
-        budget_max, budget_temp, _ = _resolve_budget(
+        budget_max, budget_temp, budget_mode = _resolve_budget(
             task_type, max_tokens, temperature, output_mode
         )
         temperature = 0.7 if budget_temp is None else budget_temp
         eff_max_tokens: Optional[int] = (
             budget_max if budget_max is not None else DEFAULT_MAX_OUTPUT_TOKENS
         )
+        system, prompt = apply_output_discipline(system, prompt, False, False, budget_mode)
         llm_opts = LLMOptions(
             temperature=temperature,
             max_tokens=eff_max_tokens,
