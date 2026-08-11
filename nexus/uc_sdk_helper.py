@@ -73,6 +73,12 @@ async def _bootstrap(sdk: object) -> None:
             logger.warning("UC SDK bootstrap failed, verify_token will use fallback")
     except Exception as exc:
         logger.warning(f"UC SDK bootstrap error: {exc}")
+    start = getattr(sdk, "start_background_refresh", None)
+    if start is not None:
+        try:
+            await start()
+        except Exception as exc:
+            logger.warning(f"UC SDK background refresh start error: {exc}")
 
 
 def get_uc_sdk() -> object:

@@ -105,6 +105,12 @@ class AuthDependencies:
                 logger.warning("UC SDK bootstrap failed, verify_token will use local/remote verification")
         except Exception as exc:
             logger.warning("UC SDK bootstrap error: %s, verify_token will use local/remote verification", str(exc))
+        start = getattr(sdk, "start_background_refresh", None)
+        if start is not None:
+            try:
+                await start()
+            except Exception as exc:
+                logger.warning("UC SDK background refresh start error: %s", str(exc))
         self._ready = True
 
     async def validate_token(self, token: str) -> Optional[dict[str, object]]:
