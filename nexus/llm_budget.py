@@ -40,6 +40,7 @@ TASK_BUDGETS: dict[str, TaskBudget] = {
     "article": TaskBudget(max_tokens=6000, temperature=0.8, output_mode=OutputMode.PROSE),
     "report": TaskBudget(max_tokens=4000, temperature=0.3, output_mode=OutputMode.DEFAULT),
     "research": TaskBudget(max_tokens=2000, temperature=0.3, output_mode=OutputMode.DEFAULT),
+    "ppt": TaskBudget(max_tokens=3000, temperature=0.4, output_mode=OutputMode.JSON),
 }
 
 DEFAULT_TASK_BUDGET = TaskBudget(max_tokens=1500, output_mode=OutputMode.DEFAULT)

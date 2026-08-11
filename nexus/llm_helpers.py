@@ -16,7 +16,7 @@ def apply_output_discipline(
     json_mode: bool,
     output_mode: Optional[OutputMode] = None,
 ) -> tuple[Optional[str], str]:
-    if output_mode is None:
+    if output_mode is None or output_mode == OutputMode.DEFAULT:
         if not concise:
             return system, prompt
         hint = JSON_ONLY_HINT if json_mode else CONCISENESS_HINT
