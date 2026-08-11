@@ -74,7 +74,7 @@ class AuthDependencies:
                 return self._sdk
             if self._sdk is None:
                 try:
-                    from uc_sdk import UserCenterSDK
+                    from nexus.uc_sdk import UserCenterSDK
 
                     uc_cfg = self._config.uc
                     self._sdk = UserCenterSDK(
