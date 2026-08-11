@@ -4,44 +4,46 @@ import os
 import time
 from typing import AsyncGenerator, Optional
 
-from nexus.context import get_request_id, get_user_id
+from nexus.context import get_request_id
 from nexus.logging import get_logger
 from nexus.llm_metrics import get_llm_metrics
 from nexus.circuit_breaker import get_llm_circuit
-from nexus.llm_utils import parse_llm_json, with_retry, LLMTimeoutError, strip_code_fence
-from nexus.llm_optimizer import CONCISENESS_HINT, JSON_ONLY_HINT
-
-logger = get_logger("nexus.llm")
-
-DEFAULT_MAX_OUTPUT_TOKENS: int = int(os.environ.get("LLM_DEFAULT_MAX_OUTPUT_TOKENS", "2048"))
-
-
-def _apply_output_discipline(
-    system: Optional[str],
-    prompt: str,
-    concise: bool,
-    json_mode: bool,
-) -> tuple[Optional[str], str]:
-    """对未显式声明输出纪律的调用注入简洁/纯JSON提示，降低输出 token 消耗。
-
-    - json_mode: 追加 JSON_ONLY_HINT，避免模型输出 markdown 代码块或多余解释
-    - 文本生成(concise=True): 追加 CONCISENESS_HINT，抑制寒暄/总结性废话
-    - 仅当 concise=True 时才注入，保证默认行为向后兼容
-    """
-    if not concise:
-        return system, prompt
-    hint = JSON_ONLY_HINT if json_mode else CONCISENESS_HINT
-    if system:
-        return (system + "\n\n" + hint), prompt
-    return hint, prompt
-
-
+from nexus.llm_utils import parse_llm_json, with_retry, LLMTimeoutError
+from nexus.llm_helpers import (
+    apply_output_discipline,
+    convert_messages,
+    extract_content,
+    record_usage,
+    resolve_namespace,
+)
+from nexus.llm_budget import OutputMode, TASK_BUDGETS
 from nexus.llm_config import (
     configure_ironman,
     mark_ironman_configured,
     _effective_retries,
     _resolve_app_name,
 )
+
+logger = get_logger("nexus.llm")
+
+DEFAULT_MAX_OUTPUT_TOKENS: int = int(os.environ.get("LLM_DEFAULT_MAX_OUTPUT_TOKENS", "2048"))
+
+
+def _resolve_budget(
+    task_type: Optional[str],
+    max_tokens: Optional[int],
+    temperature: float,
+    output_mode: Optional[OutputMode],
+) -> tuple[Optional[int], float, Optional[OutputMode]]:
+    if not task_type:
+        return max_tokens, temperature, output_mode
+    budget = TASK_BUDGETS.get(task_type)
+    if budget is None:
+        return max_tokens, temperature, output_mode
+    resolved_max = max_tokens if max_tokens is not None else budget.max_tokens
+    resolved_temp = temperature if temperature is not None else (budget.temperature or 0.7)
+    resolved_mode = output_mode if output_mode is not None else budget.output_mode
+    return resolved_max, resolved_temp, resolved_mode
 
 
 class LLMService:
@@ -53,74 +55,56 @@ class LLMService:
         return cls._instance
 
     @staticmethod
-    def _resolve_namespace(namespace: Optional[str]) -> Optional[str]:
-        if namespace:
-            return namespace
-        from nexus.context import get_user_id as _get_user_id
-        return _get_user_id() or None
+    def _build_extra(
+        json_mode: bool,
+        namespace: Optional[str],
+        task_type: Optional[str],
+    ) -> dict[str, object] | None:
+        extra: dict[str, object] | None = None
+        if json_mode:
+            extra = {"response_format": {"type": "json_object"}}
+        ns = resolve_namespace(namespace)
+        if ns:
+            extra = dict(extra or {})
+            extra["namespace"] = ns
+        if task_type:
+            extra = dict(extra or {})
+            extra["task_type"] = task_type
+        return extra
 
-    @staticmethod
-    def _convert_messages(
-        messages: list[dict[str, str]],
-        system: Optional[str],
-    ) -> list:
-        from ironman.types import Message, Role
-
-        ironman_messages: list = []
-        if system:
-            ironman_messages.append(Message(role=Role.SYSTEM, content=system))
-        for msg in messages:
-            role_str = msg.get("role", "user")
-            content = msg.get("content", "")
-            if role_str == "user":
-                ironman_messages.append(Message(role=Role.USER, content=content))
-            elif role_str == "assistant":
-                ironman_messages.append(Message(role=Role.ASSISTANT, content=content))
-            elif role_str == "system":
-                ironman_messages.append(Message(role=Role.SYSTEM, content=content))
-        return ironman_messages
-
-    @staticmethod
-    def _extract_content(response: object, request_id: str = "-") -> str:
-        if response.content:
-            return response.content
-        if getattr(response, "reasoning", None):
-            logger.warning(
-                "LLM returned empty content, using reasoning as fallback [req_id=%s, tokens=%s]",
-                request_id,
-                getattr(response.usage, "completion_tokens", "?"),
-            )
-            return response.reasoning
-        logger.warning("LLM returned empty content and no reasoning [req_id=%s]", request_id)
-        return ""
-
-    @staticmethod
-    def _record_usage(
-        metrics: object,
+    async def _execute(
+        self,
+        do,
+        timeout: float,
+        max_retries: int,
         app_name: str,
-        response: object,
-        latency: float,
-        error: Optional[str],
-    ) -> None:
-        """从 ironman 响应中提取真实 token/model/cache/cost 用量并记录指标。
-
-        修复前 metrics.record 始终传 tokens=0、model="unknown"，导致成本不可见。
-        这里从 response.usage/model/cached/cost_usd 取真实值，开启成本的量化与优化。
-        """
-        usage = getattr(response, "usage", None)
-        tokens = int(getattr(usage, "total_tokens", 0) or 0)
-        model: str = getattr(response, "model", "") or "unknown"
-        cached: bool = bool(getattr(response, "cached", False))
-        cost_usd: float = float(getattr(response, "cost_usd", 0.0) or 0.0)
-        metrics.record(
-            app_name,
-            model,
-            latency,
-            tokens=tokens,
-            error=error,
-            cached=cached,
-            cost_usd=cost_usd,
-        )
+        request_id: str,
+        kind: str,
+    ) -> str:
+        circuit = get_llm_circuit()
+        metrics = get_llm_metrics()
+        start: float = time.monotonic()
+        try:
+            async def _do_with_circuit() -> object:
+                return await circuit.call(do)
+            response: object = await with_retry(
+                _do_with_circuit, timeout, _effective_retries(max_retries)
+            )
+            result: str = extract_content(response, request_id)
+            record_usage(metrics, app_name, response, time.monotonic() - start, None)
+            logger.info(
+                "LLM %s completed [req_id=%s, app=%s, latency=%.2fs]",
+                kind, request_id, app_name, time.monotonic() - start,
+            )
+            return result
+        except Exception as e:
+            latency: float = time.monotonic() - start
+            metrics.record(app_name, "unknown", latency, tokens=0, error=type(e).__name__)
+            logger.error(
+                "LLM %s failed [req_id=%s, app=%s, latency=%.2fs]: %s",
+                kind, request_id, app_name, latency, e,
+            )
+            raise
 
     async def chat(
         self,
@@ -132,6 +116,7 @@ class LLMService:
         max_retries: int = 3,
         json_mode: bool = False,
         concise: bool = False,
+        output_mode: Optional[OutputMode] = None,
         namespace: Optional[str] = None,
         task_type: Optional[str] = None,
     ) -> str:
@@ -141,54 +126,27 @@ class LLMService:
 
         request_id: str = get_request_id() or "-"
         app_name: str = _resolve_app_name()
-        eff_max_tokens: Optional[int] = (
-            max_tokens if max_tokens is not None else DEFAULT_MAX_OUTPUT_TOKENS
+        budget_max, budget_temp, budget_mode = _resolve_budget(
+            task_type, max_tokens, temperature, output_mode
         )
-        system, last_user = _apply_output_discipline(system, "", concise, json_mode)
-        ironman_messages = self._convert_messages(messages, system)
-        if last_user:
-            ironman_messages.append(Message(role=Role.USER, content=last_user))
-        extra: dict[str, object] | None = None
-        if json_mode:
-            extra = {"response_format": {"type": "json_object"}}
-        ns = self._resolve_namespace(namespace)
-        if ns:
-            extra = dict(extra or {})
-            extra["namespace"] = ns
-        if task_type:
-            extra = dict(extra or {})
-            extra["task_type"] = task_type
-        llm_opts = LLMOptions(temperature=temperature, max_tokens=eff_max_tokens, extra=extra)
+        temperature = 0.7 if budget_temp is None else budget_temp
+        eff_max_tokens: Optional[int] = (
+            budget_max if budget_max is not None else DEFAULT_MAX_OUTPUT_TOKENS
+        )
+        system, _ = apply_output_discipline(
+            system, "", concise, json_mode, budget_mode
+        )
+        ironman_messages = convert_messages(messages, system)
+        llm_opts = LLMOptions(
+            temperature=temperature,
+            max_tokens=eff_max_tokens,
+            extra=self._build_extra(json_mode, namespace, task_type),
+        )
 
         async def _do() -> object:
             return await _chat(messages=ironman_messages, llm=llm_opts)
 
-        circuit = get_llm_circuit()
-        metrics = get_llm_metrics()
-        start: float = time.monotonic()
-        try:
-            async def _do_with_circuit() -> object:
-                return await circuit.call(_do)
-            response: object = await with_retry(
-                _do_with_circuit, timeout, _effective_retries(max_retries)
-            )
-            result: str = self._extract_content(response, request_id)
-            latency: float = time.monotonic() - start
-            self._record_usage(metrics, app_name, response, latency, None)
-            logger.info(
-                "LLM chat completed [req_id=%s, app=%s, latency=%.2fs]",
-                request_id, app_name, latency,
-            )
-            return result
-        except Exception as e:
-            latency = time.monotonic() - start
-            error_type: str = type(e).__name__
-            metrics.record(app_name, "unknown", latency, tokens=0, error=error_type)
-            logger.error(
-                "LLM chat failed [req_id=%s, app=%s, latency=%.2fs]: %s",
-                request_id, app_name, latency, e,
-            )
-            raise
+        return await self._execute(_do, timeout, max_retries, app_name, request_id, "chat")
 
     async def ask(
         self,
@@ -200,6 +158,7 @@ class LLMService:
         max_retries: int = 3,
         json_mode: bool = False,
         concise: bool = False,
+        output_mode: Optional[OutputMode] = None,
         namespace: Optional[str] = None,
         task_type: Optional[str] = None,
     ) -> str:
@@ -209,21 +168,21 @@ class LLMService:
 
         request_id: str = get_request_id() or "-"
         app_name: str = _resolve_app_name()
-        extra: dict[str, object] | None = None
-        if json_mode:
-            extra = {"response_format": {"type": "json_object"}}
-        ns = self._resolve_namespace(namespace)
-        if ns:
-            extra = dict(extra or {})
-            extra["namespace"] = ns
-        if task_type:
-            extra = dict(extra or {})
-            extra["task_type"] = task_type
-        eff_max_tokens: Optional[int] = (
-            max_tokens if max_tokens is not None else DEFAULT_MAX_OUTPUT_TOKENS
+        budget_max, budget_temp, budget_mode = _resolve_budget(
+            task_type, max_tokens, temperature, output_mode
         )
-        system, prompt = _apply_output_discipline(system, prompt, concise, json_mode)
-        llm_opts = LLMOptions(temperature=temperature, max_tokens=eff_max_tokens, extra=extra)
+        temperature = 0.7 if budget_temp is None else budget_temp
+        eff_max_tokens: Optional[int] = (
+            budget_max if budget_max is not None else DEFAULT_MAX_OUTPUT_TOKENS
+        )
+        system, prompt = apply_output_discipline(
+            system, prompt, concise, json_mode, budget_mode
+        )
+        llm_opts = LLMOptions(
+            temperature=temperature,
+            max_tokens=eff_max_tokens,
+            extra=self._build_extra(json_mode, namespace, task_type),
+        )
 
         msgs: list = []
         if system:
@@ -233,32 +192,7 @@ class LLMService:
         async def _do() -> object:
             return await _chat(messages=msgs, llm=llm_opts)
 
-        circuit = get_llm_circuit()
-        metrics = get_llm_metrics()
-        start: float = time.monotonic()
-        try:
-            async def _do_with_circuit() -> object:
-                return await circuit.call(_do)
-            response: object = await with_retry(
-                _do_with_circuit, timeout, _effective_retries(max_retries)
-            )
-            result: str = self._extract_content(response, request_id)
-            latency: float = time.monotonic() - start
-            self._record_usage(metrics, app_name, response, latency, None)
-            logger.info(
-                "LLM ask completed [req_id=%s, app=%s, latency=%.2fs]",
-                request_id, app_name, latency,
-            )
-            return result
-        except Exception as e:
-            latency = time.monotonic() - start
-            error_type: str = type(e).__name__
-            metrics.record(app_name, "unknown", latency, tokens=0, error=error_type)
-            logger.error(
-                "LLM ask failed [req_id=%s, app=%s, latency=%.2fs]: %s",
-                request_id, app_name, latency, e,
-            )
-            raise
+        return await self._execute(_do, timeout, max_retries, app_name, request_id, "ask")
 
     async def ask_json(
         self,
@@ -322,6 +256,9 @@ class LLMService:
 
         request_id: str = get_request_id() or "-"
         app_name: str = _resolve_app_name()
+        circuit = get_llm_circuit()
+        metrics = get_llm_metrics()
+        start: float = time.monotonic()
 
         async def _do() -> object:
             return await _extract(
@@ -330,24 +267,20 @@ class LLMService:
                 llm=LLMOptions(),
             )
 
-        circuit = get_llm_circuit()
-        metrics = get_llm_metrics()
-        start: float = time.monotonic()
         try:
             async def _do_with_circuit() -> object:
                 return await circuit.call(_do)
             result: object = await with_retry(
                 _do_with_circuit, timeout, _effective_retries(max_retries)
             )
-            latency: float = time.monotonic() - start
-            metrics.record(app_name, "unknown", latency, tokens=0, error=None)
+            metrics.record(app_name, "unknown", time.monotonic() - start, tokens=0, error=None)
             logger.info(
                 "LLM extract completed [req_id=%s, app=%s, latency=%.2fs]",
-                request_id, app_name, latency,
+                request_id, app_name, time.monotonic() - start,
             )
             return result
         except Exception as e:
-            latency = time.monotonic() - start
+            latency: float = time.monotonic() - start
             error_type: str = type(e).__name__
             metrics.record(app_name, "unknown", latency, tokens=0, error=error_type)
             if error_type == "CircuitBreakerOpenError":
@@ -370,6 +303,7 @@ class LLMService:
         system: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
+        output_mode: Optional[OutputMode] = None,
         namespace: Optional[str] = None,
         task_type: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
@@ -377,18 +311,61 @@ class LLMService:
         from ironman import chat_stream as _chat_stream
         from ironman.types import LLMOptions
 
-        eff_max_tokens: Optional[int] = (
-            max_tokens if max_tokens is not None else DEFAULT_MAX_OUTPUT_TOKENS
+        budget_max, budget_temp, _ = _resolve_budget(
+            task_type, max_tokens, temperature, output_mode
         )
-        ironman_messages = self._convert_messages(messages, system)
-        extra: dict[str, object] | None = None
-        ns = self._resolve_namespace(namespace)
-        if ns:
-            extra = {"namespace": ns}
-        if task_type:
-            extra = dict(extra or {})
-            extra["task_type"] = task_type
-        llm_opts = LLMOptions(temperature=temperature, max_tokens=eff_max_tokens, extra=extra)
+        temperature = 0.7 if budget_temp is None else budget_temp
+        eff_max_tokens: Optional[int] = (
+            budget_max if budget_max is not None else DEFAULT_MAX_OUTPUT_TOKENS
+        )
+        ironman_messages = convert_messages(messages, system)
+        llm_opts = LLMOptions(
+            temperature=temperature,
+            max_tokens=eff_max_tokens,
+            extra=self._build_extra(False, namespace, task_type),
+        )
+        async for chunk in self._stream(_chat_stream, ironman_messages, llm_opts):
+            yield chunk
+
+    async def stream_ask(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        output_mode: Optional[OutputMode] = None,
+        namespace: Optional[str] = None,
+        task_type: Optional[str] = None,
+    ) -> AsyncGenerator[str, None]:
+        await configure_ironman()
+        from ironman import chat_stream as _chat_stream
+        from ironman.types import LLMOptions, Message, Role
+
+        budget_max, budget_temp, _ = _resolve_budget(
+            task_type, max_tokens, temperature, output_mode
+        )
+        temperature = 0.7 if budget_temp is None else budget_temp
+        eff_max_tokens: Optional[int] = (
+            budget_max if budget_max is not None else DEFAULT_MAX_OUTPUT_TOKENS
+        )
+        llm_opts = LLMOptions(
+            temperature=temperature,
+            max_tokens=eff_max_tokens,
+            extra=self._build_extra(False, namespace, task_type),
+        )
+        msgs: list = []
+        if system:
+            msgs.append(Message(role=Role.SYSTEM, content=system))
+        msgs.append(Message(role=Role.USER, content=prompt))
+        async for chunk in self._stream(_chat_stream, msgs, llm_opts):
+            yield chunk
+
+    async def _stream(
+        self,
+        chat_stream,
+        msgs: list,
+        llm_opts: object,
+    ) -> AsyncGenerator[str, None]:
         metrics = get_llm_metrics()
         app_name: str = _resolve_app_name()
         start: float = time.monotonic()
@@ -396,7 +373,7 @@ class LLMService:
         reasoning_buffer: list[str] = []
         last_usage: Optional[object] = None
         last_model: str = "unknown"
-        async for chunk in _chat_stream(messages=ironman_messages, llm=llm_opts):
+        async for chunk in chat_stream(messages=msgs, llm=llm_opts):
             if chunk.content:
                 has_content = True
                 yield chunk.content
@@ -415,62 +392,6 @@ class LLMService:
         )
         if not has_content and reasoning_buffer:
             logger.warning("stream_chat: no content, yielding reasoning fallback")
-            yield "".join(reasoning_buffer)
-
-    async def stream_ask(
-        self,
-        prompt: str,
-        system: Optional[str] = None,
-        temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
-        namespace: Optional[str] = None,
-        task_type: Optional[str] = None,
-    ) -> AsyncGenerator[str, None]:
-        await configure_ironman()
-        from ironman import chat_stream as _chat_stream
-        from ironman.types import LLMOptions, Message, Role
-
-        eff_max_tokens: Optional[int] = (
-            max_tokens if max_tokens is not None else DEFAULT_MAX_OUTPUT_TOKENS
-        )
-        extra: dict[str, object] | None = None
-        ns = self._resolve_namespace(namespace)
-        if ns:
-            extra = {"namespace": ns}
-        if task_type:
-            extra = dict(extra or {})
-            extra["task_type"] = task_type
-        llm_opts = LLMOptions(temperature=temperature, max_tokens=eff_max_tokens, extra=extra)
-        msgs: list = []
-        if system:
-            msgs.append(Message(role=Role.SYSTEM, content=system))
-        msgs.append(Message(role=Role.USER, content=prompt))
-        metrics = get_llm_metrics()
-        app_name: str = _resolve_app_name()
-        start: float = time.monotonic()
-        has_content: bool = False
-        reasoning_buffer: list[str] = []
-        last_usage: Optional[object] = None
-        last_model: str = "unknown"
-        async for chunk in _chat_stream(messages=msgs, llm=llm_opts):
-            if chunk.content:
-                has_content = True
-                yield chunk.content
-            elif chunk.reasoning:
-                reasoning_buffer.append(chunk.reasoning)
-            if chunk.usage is not None:
-                last_usage = chunk.usage
-            if chunk.model:
-                last_model = chunk.model
-        metrics.record(
-            app_name,
-            last_model,
-            time.monotonic() - start,
-            tokens=int(getattr(last_usage, "total_tokens", 0) or 0),
-            error=None,
-        )
-        if not has_content and reasoning_buffer:
-            logger.warning("stream_ask: no content, yielding reasoning fallback")
             yield "".join(reasoning_buffer)
 
     async def embed(
