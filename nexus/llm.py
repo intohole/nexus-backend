@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from typing import AsyncGenerator, Optional
 
@@ -8,14 +9,39 @@ from nexus.logging import get_logger
 from nexus.llm_metrics import get_llm_metrics
 from nexus.circuit_breaker import get_llm_circuit
 from nexus.llm_utils import parse_llm_json, with_retry, LLMTimeoutError, strip_code_fence
+from nexus.llm_optimizer import CONCISENESS_HINT, JSON_ONLY_HINT
+
+logger = get_logger("nexus.llm")
+
+DEFAULT_MAX_OUTPUT_TOKENS: int = int(os.environ.get("LLM_DEFAULT_MAX_OUTPUT_TOKENS", "2048"))
+
+
+def _apply_output_discipline(
+    system: Optional[str],
+    prompt: str,
+    concise: bool,
+    json_mode: bool,
+) -> tuple[Optional[str], str]:
+    """对未显式声明输出纪律的调用注入简洁/纯JSON提示，降低输出 token 消耗。
+
+    - json_mode: 追加 JSON_ONLY_HINT，避免模型输出 markdown 代码块或多余解释
+    - 文本生成(concise=True): 追加 CONCISENESS_HINT，抑制寒暄/总结性废话
+    - 仅当 concise=True 时才注入，保证默认行为向后兼容
+    """
+    if not concise:
+        return system, prompt
+    hint = JSON_ONLY_HINT if json_mode else CONCISENESS_HINT
+    if system:
+        return (system + "\n\n" + hint), prompt
+    return hint, prompt
+
+
 from nexus.llm_config import (
     configure_ironman,
     mark_ironman_configured,
     _effective_retries,
     _resolve_app_name,
 )
-
-logger = get_logger("nexus.llm")
 
 
 class LLMService:
@@ -105,16 +131,23 @@ class LLMService:
         timeout: float = 60.0,
         max_retries: int = 3,
         json_mode: bool = False,
+        concise: bool = False,
         namespace: Optional[str] = None,
         task_type: Optional[str] = None,
     ) -> str:
         await configure_ironman()
         from ironman import chat as _chat
-        from ironman.types import LLMOptions
+        from ironman.types import LLMOptions, Message, Role
 
         request_id: str = get_request_id() or "-"
         app_name: str = _resolve_app_name()
+        eff_max_tokens: Optional[int] = (
+            max_tokens if max_tokens is not None else DEFAULT_MAX_OUTPUT_TOKENS
+        )
+        system, last_user = _apply_output_discipline(system, "", concise, json_mode)
         ironman_messages = self._convert_messages(messages, system)
+        if last_user:
+            ironman_messages.append(Message(role=Role.USER, content=last_user))
         extra: dict[str, object] | None = None
         if json_mode:
             extra = {"response_format": {"type": "json_object"}}
@@ -125,7 +158,7 @@ class LLMService:
         if task_type:
             extra = dict(extra or {})
             extra["task_type"] = task_type
-        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
+        llm_opts = LLMOptions(temperature=temperature, max_tokens=eff_max_tokens, extra=extra)
 
         async def _do() -> object:
             return await _chat(messages=ironman_messages, llm=llm_opts)
@@ -166,6 +199,7 @@ class LLMService:
         timeout: float = 60.0,
         max_retries: int = 3,
         json_mode: bool = False,
+        concise: bool = False,
         namespace: Optional[str] = None,
         task_type: Optional[str] = None,
     ) -> str:
@@ -185,7 +219,11 @@ class LLMService:
         if task_type:
             extra = dict(extra or {})
             extra["task_type"] = task_type
-        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
+        eff_max_tokens: Optional[int] = (
+            max_tokens if max_tokens is not None else DEFAULT_MAX_OUTPUT_TOKENS
+        )
+        system, prompt = _apply_output_discipline(system, prompt, concise, json_mode)
+        llm_opts = LLMOptions(temperature=temperature, max_tokens=eff_max_tokens, extra=extra)
 
         msgs: list = []
         if system:
@@ -230,6 +268,7 @@ class LLMService:
         max_tokens: Optional[int] = 1500,
         timeout: float = 60.0,
         max_retries: int = 3,
+        concise: bool = False,
         task_type: Optional[str] = None,
     ) -> dict[str, object]:
         raw = await self.ask(
@@ -240,6 +279,7 @@ class LLMService:
             timeout=timeout,
             max_retries=max_retries,
             json_mode=True,
+            concise=concise,
             task_type=task_type,
         )
         return parse_llm_json(raw)
@@ -252,6 +292,7 @@ class LLMService:
         max_tokens: Optional[int] = 1500,
         timeout: float = 60.0,
         max_retries: int = 3,
+        concise: bool = False,
         task_type: Optional[str] = None,
     ) -> dict[str, object]:
         raw = await self.chat(
@@ -262,6 +303,7 @@ class LLMService:
             timeout=timeout,
             max_retries=max_retries,
             json_mode=True,
+            concise=concise,
             task_type=task_type,
         )
         return parse_llm_json(raw)
@@ -335,6 +377,9 @@ class LLMService:
         from ironman import chat_stream as _chat_stream
         from ironman.types import LLMOptions
 
+        eff_max_tokens: Optional[int] = (
+            max_tokens if max_tokens is not None else DEFAULT_MAX_OUTPUT_TOKENS
+        )
         ironman_messages = self._convert_messages(messages, system)
         extra: dict[str, object] | None = None
         ns = self._resolve_namespace(namespace)
@@ -343,7 +388,7 @@ class LLMService:
         if task_type:
             extra = dict(extra or {})
             extra["task_type"] = task_type
-        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
+        llm_opts = LLMOptions(temperature=temperature, max_tokens=eff_max_tokens, extra=extra)
         metrics = get_llm_metrics()
         app_name: str = _resolve_app_name()
         start: float = time.monotonic()
@@ -385,6 +430,9 @@ class LLMService:
         from ironman import chat_stream as _chat_stream
         from ironman.types import LLMOptions, Message, Role
 
+        eff_max_tokens: Optional[int] = (
+            max_tokens if max_tokens is not None else DEFAULT_MAX_OUTPUT_TOKENS
+        )
         extra: dict[str, object] | None = None
         ns = self._resolve_namespace(namespace)
         if ns:
@@ -392,7 +440,7 @@ class LLMService:
         if task_type:
             extra = dict(extra or {})
             extra["task_type"] = task_type
-        llm_opts = LLMOptions(temperature=temperature, max_tokens=max_tokens, extra=extra)
+        llm_opts = LLMOptions(temperature=temperature, max_tokens=eff_max_tokens, extra=extra)
         msgs: list = []
         if system:
             msgs.append(Message(role=Role.SYSTEM, content=system))
