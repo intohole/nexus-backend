@@ -108,7 +108,7 @@ def safe_bool(value: object, default: bool = False) -> bool:
 
 class MemoryCache:
     def __init__(self, max_size: int = 1000) -> None:
-        self._cache: OrderedDict[str, tuple[object, float]] = OrderedDict()
+        self._cache: OrderedDict[str, tuple[object, float, float, int]] = OrderedDict()
         self._max_size: int = max_size
         self._lock: asyncio.Lock = asyncio.Lock()
 
@@ -116,7 +116,7 @@ class MemoryCache:
         async with self._lock:
             if key not in self._cache:
                 return _MISSING
-            value, expire_at = self._cache[key]
+            value, expire_at, _created_at, _ttl = self._cache[key]
             if expire_at > 0 and time.time() > expire_at:
                 del self._cache[key]
                 return _MISSING
@@ -125,8 +125,9 @@ class MemoryCache:
 
     async def set(self, key: str, value: object, ttl: int = 0) -> None:
         async with self._lock:
-            expire_at: float = time.time() + ttl if ttl > 0 else 0
-            self._cache[key] = (value, expire_at)
+            now: float = time.time()
+            expire_at: float = now + ttl if ttl > 0 else 0
+            self._cache[key] = (value, expire_at, now, ttl)
             self._cache.move_to_end(key)
             while len(self._cache) > self._max_size:
                 self._cache.popitem(last=False)
@@ -146,11 +147,49 @@ class MemoryCache:
         async with self._lock:
             if key not in self._cache:
                 return False
-            _, expire_at = self._cache[key]
+            _, expire_at, _created_at, _ttl = self._cache[key]
             if expire_at > 0 and time.time() > expire_at:
                 del self._cache[key]
                 return False
             return True
+
+    async def peek(self, key: str) -> object:
+        async with self._lock:
+            if key not in self._cache:
+                return _MISSING
+            value, expire_at, _created_at, _ttl = self._cache[key]
+            if expire_at > 0 and time.time() > expire_at:
+                del self._cache[key]
+                return _MISSING
+            return value
+
+    async def get_entry(self, key: str) -> Optional[dict[str, object]]:
+        async with self._lock:
+            if key not in self._cache:
+                return None
+            value, expire_at, created_at, ttl = self._cache[key]
+            if expire_at > 0 and time.time() > expire_at:
+                del self._cache[key]
+                return None
+            self._cache.move_to_end(key)
+            return {
+                "value": value,
+                "created_at": created_at,
+                "expires_at": expire_at,
+                "ttl": ttl,
+            }
+
+    async def cleanup_expired(self) -> int:
+        async with self._lock:
+            now: float = time.time()
+            expired: list[str] = [k for k, v in self._cache.items() if v[1] > 0 and now > v[1]]
+            for k in expired:
+                del self._cache[k]
+            return len(expired)
+
+    @property
+    def size(self) -> int:
+        return len(self._cache)
 
     async def get_or_set(
         self,
