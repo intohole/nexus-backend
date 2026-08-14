@@ -22,13 +22,16 @@ class Base(DeclarativeBase):
 
 class DatabaseManager:
     def __init__(self, config: Optional[NexusConfig] = None) -> None:
-        self._config: NexusConfig = config or get_settings()
+        self._config_arg: Optional[NexusConfig] = config
+        self._config: Optional[NexusConfig] = None
         self._engine: Optional[AsyncEngine] = None
         self._session_factory: Optional[async_sessionmaker[AsyncSession]] = None
         self._lock: asyncio.Lock = asyncio.Lock()
 
     @property
     def config(self) -> NexusConfig:
+        if self._config is None:
+            self._config = self._config_arg or get_settings()
         return self._config
 
     async def init(self) -> None:
@@ -37,6 +40,7 @@ class DatabaseManager:
         async with self._lock:
             if self._engine is not None:
                 return
+            self._config = self._config_arg or get_settings()
             db_url: str = self._config.database.url
             if db_url.startswith("sqlite://"):
                 db_url = db_url.replace("sqlite://", "sqlite+aiosqlite://", 1)
