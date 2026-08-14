@@ -107,6 +107,32 @@ class NexusConfig(BaseSettings):
 _ENV_PATTERN = re.compile(r"^\$\{(\w+)(?::-([^}]*))?\}$")
 
 
+def resolve_env_string(value: str) -> str:
+    if not isinstance(value, str):
+        return value
+
+    def _replacer(m):
+        name, default = m.group(1), m.group(2)
+        val = os.environ.get(name)
+        if val is not None:
+            return val
+        if default is not None:
+            return default
+        return m.group(0)
+
+    return re.sub(r"\$\{(\w+)(?::-([^}]*))?\}", _replacer, value)
+
+
+def resolve_env_tree(data: object) -> object:
+    if isinstance(data, dict):
+        return {k: resolve_env_tree(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return [resolve_env_tree(i) for i in data]
+    if isinstance(data, str):
+        return resolve_env_string(data)
+    return data
+
+
 def _resolve_env(value: object) -> object:
     if isinstance(value, str):
         match = _ENV_PATTERN.match(value)
