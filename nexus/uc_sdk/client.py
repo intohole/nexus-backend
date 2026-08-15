@@ -100,7 +100,7 @@ class UserCenterSDK(AuthMixin, UserMixin, AppMixin, VipMixin, InviteCodeMixin,
     def __init__(self, base_url: str = "", app_key: str = None, app_secret: str = None,
                  client_id: str = None, jwt_secret_key: str = None, timeout: float = 10.0):
         if not base_url:
-            base_url = os.environ.get("UC_BASE_URL", "http://localhost:8901")
+            base_url = os.environ.get("UC_BASE_URL", "http://${UC_BASE_URL}")
         self.base_url = base_url.rstrip("/")
         self.app_key = app_key or client_id
         self.client_id = self.app_key

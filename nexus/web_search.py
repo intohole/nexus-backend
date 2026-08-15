@@ -31,7 +31,7 @@ class WebSearchService:
 
     async def _ensure_tool(self) -> object:
         cfg = await get_spider_config()
-        base_url = cfg.get("base_url", "http://localhost:8250")
+        base_url = cfg.get("base_url", "http://${NOTIFY_BASE_URL}")
         token = cfg.get("service_token", "")
         if self._tool is not None and self._configured_base_url == base_url and self._configured_token == token:
             return self._tool

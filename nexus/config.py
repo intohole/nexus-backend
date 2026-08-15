@@ -42,7 +42,7 @@ class CORSConfig(BaseSettings):
 
 
 class UCConfig(BaseSettings):
-    base_url: str = Field(default="http://localhost:8901")
+    base_url: str = Field(default="http://${UC_BASE_URL}")
     app_key: str = Field(default="")
     app_secret: str = Field(default="")
     jwt_secret: str = Field(default="")
@@ -51,7 +51,7 @@ class UCConfig(BaseSettings):
 
 
 class LionConfig(BaseSettings):
-    base_url: str = Field(default="http://localhost:9527")
+    base_url: str = Field(default="http://${NEXUS_BASE_URL}")
     namespace: str = Field(default="default")
 
     model_config = SettingsConfigDict(extra="ignore")

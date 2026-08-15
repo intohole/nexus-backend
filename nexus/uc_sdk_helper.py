@@ -23,7 +23,7 @@ def init_uc_sdk(
     global _sdk
     from nexus.uc_sdk import UserCenterSDK
 
-    base_url = base_url or os.getenv("UC_BASE_URL", "http://localhost:8901")
+    base_url = base_url or os.getenv("UC_BASE_URL", "http://${UC_BASE_URL}")
     app_key = app_key or os.getenv("UC_APP_KEY", "")
     app_secret = app_secret or os.getenv("UC_APP_SECRET", "")
     jwt_secret = jwt_secret or os.getenv("UC_JWT_SECRET", "")

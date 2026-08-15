@@ -8,12 +8,12 @@ from nexus.lion import get_infra_config, get_business_config
 async def get_uc_base_url() -> str:
     config = await get_infra_config("usercenter")
     url = str(config.get("base_url") or "")
-    return url or os.getenv("UC_BASE_URL", "http://localhost:8901")
+    return url or os.getenv("UC_BASE_URL", "http://${UC_BASE_URL}")
 
 
 async def get_uc_config() -> dict[str, str]:
     config = await get_infra_config("usercenter")
-    base_url = str(config.get("base_url") or "") or os.getenv("UC_BASE_URL", "http://localhost:8901")
+    base_url = str(config.get("base_url") or "") or os.getenv("UC_BASE_URL", "http://${UC_BASE_URL}")
     app_key = str(config.get("app_key") or "") or os.getenv("UC_APP_KEY", "")
     app_secret = str(config.get("app_secret") or "") or os.getenv("UC_APP_SECRET", "")
     return {"base_url": base_url, "app_key": app_key, "app_secret": app_secret}
@@ -22,12 +22,12 @@ async def get_uc_config() -> dict[str, str]:
 async def get_spider_base_url() -> str:
     config = await get_infra_config("spider")
     url = str(config.get("base_url") or "")
-    return url or os.getenv("SPIDER_BASE_URL", "http://localhost:8250")
+    return url or os.getenv("SPIDER_BASE_URL", "http://${NOTIFY_BASE_URL}")
 
 
 async def get_spider_config() -> dict[str, str]:
     config = await get_infra_config("spider")
-    base_url = str(config.get("base_url") or "") or os.getenv("SPIDER_BASE_URL", "http://localhost:8250")
+    base_url = str(config.get("base_url") or "") or os.getenv("SPIDER_BASE_URL", "http://${NOTIFY_BASE_URL}")
     service_token = str(config.get("service_token") or "") or os.getenv("SERVICE_TOKEN", "")
     return {"base_url": base_url, "service_token": service_token}
 
@@ -43,7 +43,7 @@ async def get_promptmanager_config() -> dict[str, str]:
 async def get_beememory_base_url() -> str:
     config = await get_infra_config("beememory")
     url = str(config.get("base_url") or "")
-    return url or os.getenv("BEEMEMORY_BASE_URL", "http://localhost:8700")
+    return url or os.getenv("BEEMEMORY_BASE_URL", "http://${BEE_MEMORY_BASE_URL}")
 
 
 async def get_chroma_config() -> dict[str, str]:
