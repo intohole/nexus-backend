@@ -42,7 +42,7 @@ class CORSConfig(BaseSettings):
 
 
 class UCConfig(BaseSettings):
-    base_url: str = Field(default="http://${UC_BASE_URL}")
+    base_url: str = Field(default="")
     app_key: str = Field(default="")
     app_secret: str = Field(default="")
     jwt_secret: str = Field(default="")
@@ -51,7 +51,7 @@ class UCConfig(BaseSettings):
 
 
 class LionConfig(BaseSettings):
-    base_url: str = Field(default="http://${NEXUS_BASE_URL}")
+    base_url: str = Field(default="http://localhost:9527")
     namespace: str = Field(default="default")
 
     model_config = SettingsConfigDict(extra="ignore")
@@ -107,10 +107,11 @@ class NexusConfig(BaseSettings):
 _ENV_PATTERN = re.compile(r"^\$\{(\w+)(?::-([^}]*))?\}$")
 
 
+
+
 def resolve_env_string(value: str) -> str:
     if not isinstance(value, str):
         return value
-
     def _replacer(m):
         name, default = m.group(1), m.group(2)
         val = os.environ.get(name)
@@ -119,8 +120,7 @@ def resolve_env_string(value: str) -> str:
         if default is not None:
             return default
         return m.group(0)
-
-    return re.sub(r"\$\{(\w+)(?::-([^}]*))?\}", _replacer, value)
+    return re.sub(r'\$\{(\w+)(?::-([^}]*))?\}', _replacer, value)
 
 
 def resolve_env_tree(data: object) -> object:
