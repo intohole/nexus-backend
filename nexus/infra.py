@@ -66,6 +66,10 @@ async def get_beememory_base_url() -> str:
     return await _infra_url("beememory", "BEEMEMORY_BASE_URL", "")
 
 
+async def get_notify_center_url() -> str:
+    return await _infra_url("notifycenter", "NOTIFY_CENTER_URL", "http://localhost:8910")
+
+
 async def get_chroma_config() -> dict[str, str]:
     config = await _get_infra("chroma")
     host = str(config.get("host") or "") or os.getenv("CHROMA_HOST", "localhost")

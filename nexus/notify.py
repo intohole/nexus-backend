@@ -5,6 +5,7 @@ from typing import Optional
 
 import httpx
 
+from nexus.infra import get_notify_center_url
 from nexus.logging import get_logger
 from nexus.utils import HttpClient
 
@@ -177,12 +178,30 @@ class NotifyClient:
 
 
 _notify_client: Optional[NotifyClient] = None
+_notify_client_initialized: bool = False
 
 
-def get_notify_client() -> NotifyClient:
+async def async_init_notify_client() -> None:
+    global _notify_client, _notify_client_initialized
+    if _notify_client_initialized:
+        return
+    try:
+        base_url = await get_notify_center_url()
+        if base_url:
+            _notify_client = NotifyClient(base_url=base_url)
+            _notify_client_initialized = True
+            logger.info("NotifyClient initialized from Lion infra: %s", base_url)
+            return
+    except Exception as e:
+        logger.warning("Failed to init NotifyClient from Lion infra: %s", e)
+    _notify_client = NotifyClient()
+    _notify_client_initialized = True
+
+
+def get_notify_client(base_url: str = "") -> NotifyClient:
     global _notify_client
     if _notify_client is None:
-        _notify_client = NotifyClient()
+        _notify_client = NotifyClient(base_url=base_url)
     return _notify_client
 
 
@@ -248,6 +267,7 @@ async def send_sms(
 __all__ = [
     "NotifyClient",
     "get_notify_client",
+    "async_init_notify_client",
     "send_notification",
     "send_email",
     "send_admin_email",
