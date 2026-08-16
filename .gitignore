@@ -20,3 +20,4 @@ env/
 *.swo
 .DS_Store
 readme.html
+logs/
