@@ -175,7 +175,7 @@ def parse_llm_json(raw: str) -> dict[str, object]:
         except json.JSONDecodeError:
             pass
 
-        fixed = re.sub(r"\"(\w+)\"\s*:", r'"\1":', candidate)
+        fixed = re.sub(r"(\w+)\s*:", r'"\1":', cleaned)
         try:
             result = json.loads(fixed)
             if isinstance(result, dict):
