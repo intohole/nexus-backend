@@ -5,49 +5,69 @@ import os
 from nexus.lion import get_infra_config, get_business_config
 
 
+def _compose_url(host: str, port: str, path: str = "") -> str:
+    host = (host or "").strip()
+    port = (port or "").strip()
+    if not host:
+        return ""
+    url = f"http://{host}" + (f":{port}" if port else "")
+    path = (path or "").strip()
+    if path and not path.startswith("/"):
+        path = "/" + path
+    return url + path if path else url
+
+
+async def _infra_url(key: str, env_key: str, default: str) -> str:
+    config = await _get_infra(key)
+    path = str(config.get("path") or "")
+    if config.get("base_url"):
+        url = str(config["base_url"])
+    else:
+        url = _compose_url(str(config.get("host") or ""), str(config.get("port") or ""), path)
+    return url or os.getenv(env_key, default)
+
+
+async def _get_infra(key: str) -> dict[str, object]:
+    return await get_infra_config(key)
+
+
 async def get_uc_base_url() -> str:
-    config = await get_infra_config("usercenter")
-    url = str(config.get("base_url") or "")
-    return url or os.getenv("UC_BASE_URL", "http://${UC_BASE_URL}")
+    return await _infra_url("usercenter", "UC_BASE_URL", "")
 
 
 async def get_uc_config() -> dict[str, str]:
-    config = await get_infra_config("usercenter")
-    base_url = str(config.get("base_url") or "") or os.getenv("UC_BASE_URL", "http://${UC_BASE_URL}")
+    config = await _get_infra("usercenter")
+    base_url = await _infra_url("usercenter", "UC_BASE_URL", "")
     app_key = str(config.get("app_key") or "") or os.getenv("UC_APP_KEY", "")
     app_secret = str(config.get("app_secret") or "") or os.getenv("UC_APP_SECRET", "")
     return {"base_url": base_url, "app_key": app_key, "app_secret": app_secret}
 
 
 async def get_spider_base_url() -> str:
-    config = await get_infra_config("spider")
-    url = str(config.get("base_url") or "")
-    return url or os.getenv("SPIDER_BASE_URL", "http://${NOTIFY_BASE_URL}")
+    return await _infra_url("spider", "SPIDER_BASE_URL", "")
 
 
 async def get_spider_config() -> dict[str, str]:
-    config = await get_infra_config("spider")
-    base_url = str(config.get("base_url") or "") or os.getenv("SPIDER_BASE_URL", "http://${NOTIFY_BASE_URL}")
+    config = await _get_infra("spider")
+    base_url = await _infra_url("spider", "SPIDER_BASE_URL", "")
     service_token = str(config.get("service_token") or "") or os.getenv("SERVICE_TOKEN", "")
     return {"base_url": base_url, "service_token": service_token}
 
 
 async def get_promptmanager_config() -> dict[str, str]:
-    config = await get_infra_config("promptmanager")
-    base_url = str(config.get("base_url") or "")
-    api_key = str(config.get("api_key") or "")
-    gateway_url = str(config.get("gateway_url") or "")
+    config = await _get_infra("promptmanager")
+    base_url = await _infra_url("promptmanager", "PM_BASE_URL", "")
+    api_key = str(config.get("api_key") or "") or os.getenv("PM_GATEWAY_API_KEY", "")
+    gateway_url = str(config.get("gateway_url") or "") or os.getenv("PM_GATEWAY_URL", "")
     return {"base_url": base_url, "api_key": api_key, "gateway_url": gateway_url}
 
 
 async def get_beememory_base_url() -> str:
-    config = await get_infra_config("beememory")
-    url = str(config.get("base_url") or "")
-    return url or os.getenv("BEEMEMORY_BASE_URL", "http://${BEE_MEMORY_BASE_URL}")
+    return await _infra_url("beememory", "BEEMEMORY_BASE_URL", "")
 
 
 async def get_chroma_config() -> dict[str, str]:
-    config = await get_infra_config("chroma")
+    config = await _get_infra("chroma")
     host = str(config.get("host") or "") or os.getenv("CHROMA_HOST", "localhost")
     port = str(config.get("port") or "") or os.getenv("CHROMA_PORT", "8999")
     api_key = str(config.get("api_key") or "") or os.getenv("CHROMA_API_KEY", "")
