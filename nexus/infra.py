@@ -43,6 +43,18 @@ async def get_uc_config() -> dict[str, str]:
     return {"base_url": base_url, "app_key": app_key, "app_secret": app_secret}
 
 
+async def get_uc_auth() -> dict[str, str]:
+    """从当前应用 namespace 的 business/uc_auth 读取 UC 凭证。
+
+    无环境变量兜底，配置不存在直接返回空 dict。
+    """
+    config = await get_business_config("uc_auth")
+    return {
+        "app_key": str(config.get("app_key") or ""),
+        "app_secret": str(config.get("app_secret") or ""),
+    }
+
+
 async def get_spider_base_url() -> str:
     return await _infra_url("spider", "SPIDER_BASE_URL", "")
 
