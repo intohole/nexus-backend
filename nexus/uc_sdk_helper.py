@@ -52,14 +52,15 @@ def init_uc_sdk(
 
 
 async def init_uc_sdk_from_lion() -> object:
-    from nexus.infra import get_uc_config
+    from nexus.infra import get_uc_auth, get_uc_base_url
 
-    cfg = await get_uc_config()
+    auth = await get_uc_auth()
+    base_url = await get_uc_base_url()
     jwt_secret = os.getenv("UC_JWT_SECRET", "")
     return init_uc_sdk(
-        base_url=cfg["base_url"],
-        app_key=cfg["app_key"],
-        app_secret=cfg["app_secret"],
+        base_url=base_url,
+        app_key=auth["app_key"],
+        app_secret=auth["app_secret"],
         jwt_secret=jwt_secret,
     )
 
