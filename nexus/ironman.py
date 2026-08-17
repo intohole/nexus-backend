@@ -30,6 +30,10 @@ _original_extract: Optional[Callable[..., Awaitable[object]]] = None
 _original_stream: Optional[Callable[..., object]] = None
 
 
+class IronmanConfigError(RuntimeError):
+    pass
+
+
 def _is_placeholder(value: str) -> bool:
     return value.startswith("${") and value.endswith("}")
 
@@ -48,8 +52,8 @@ async def default_config_loader(app_name: str) -> dict[str, object]:
 
     配置唯一来源：Lion（nexus.lion.get_chat_config / get_embed_config）。
     不再从环境变量兜底（PROMPTFORGE_API_KEY / LLM_API_KEY 等），
-    避免配置散落在环境变量中难以管控。配置缺失时返回空字段，
-    ironman 进入降级模式（is_available() 返回 False）。
+    避免配置散落在环境变量中难以管控。LLM 连接配置（api_key/base_url）
+    缺失时直接抛错，拒绝静默进入降级模式掩盖问题。
     """
     global _via_gateway
     chat_cfg = await get_chat_config(prefer_gateway=True)
@@ -60,6 +64,13 @@ async def default_config_loader(app_name: str) -> dict[str, object]:
     base_url = _clean(str(chat_cfg.get("base_url", "")))
     model = _clean(str(chat_cfg.get("model", "")))
     provider = str(chat_cfg.get("provider", "") or "openai")
+
+    if not api_key or not base_url:
+        raise IronmanConfigError(
+            f"Lion 未返回 {app_name} 可用的 LLM chat 配置（api_key/base_url 为空）。"
+            f"请检查 LION_NAMESPACE={app_name} 的 llm/chat 配置是否存在、Lion 服务是否可达、"
+            f"SERVICE_TOKEN 是否注入应用环境。收到配置: {chat_cfg or '{}'}"
+        )
 
     emb_api_key = _clean(str(embed_cfg.get("api_key", ""))) or api_key
     emb_base_url = _clean(str(embed_cfg.get("base_url", ""))) or base_url
@@ -290,9 +301,9 @@ async def init_ironman(
                 _via_gateway,
             )
         else:
-            logger.warning(
-                "ironman Bootstrap in degraded mode (app=%s, config missing or incomplete)",
-                app_name,
+            raise IronmanConfigError(
+                f"ironman Bootstrap 配置不完整（app={app_name}），api_key/base_url 缺失，"
+                "拒绝降级启动。请检查 LION_NAMESPACE 对应 llm/chat 配置。"
             )
         return _bootstrap
 
@@ -348,37 +359,27 @@ async def startup(
     config_loader: Optional[ConfigLoader] = None,
     middleware: str = "production",
 ) -> dict[str, object]:
-    """一站式启动 ironman：初始化 + 返回状态字典，自动吞异常进入降级模式。
+    """一站式启动 ironman：初始化 + 返回状态字典。
 
-    消除各项目 main.py 中重复的 try/except + is_ironman_available 检查样板。
+    LLM 配置缺失（IronmanConfigError / LionConfigError）时直接抛出，
+    拒绝静默降级掩盖问题，让部署健康检查与回滚机制兜底。
     返回字典字段：
         app: 应用名
         available: ironman 是否可用
         via_gateway: 是否走网关模式
-        degraded: 是否处于降级模式
-        error: 异常信息（仅降级时存在）
+        degraded: 是否处于降级模式（恒为 False，失败即抛错）
     """
-    try:
-        await init_ironman(
-            app_name=app_name,
-            config_loader=config_loader,
-            middleware=middleware,
-        )
-        return {
-            "app": app_name,
-            "available": is_ironman_available(),
-            "via_gateway": is_gateway_mode(),
-            "degraded": not is_ironman_available(),
-        }
-    except Exception as exc:
-        logger.warning("ironman startup failed for app=%s: %s", app_name, exc)
-        return {
-            "app": app_name,
-            "available": False,
-            "via_gateway": False,
-            "degraded": True,
-            "error": str(exc),
-        }
+    await init_ironman(
+        app_name=app_name,
+        config_loader=config_loader,
+        middleware=middleware,
+    )
+    return {
+        "app": app_name,
+        "available": is_ironman_available(),
+        "via_gateway": is_gateway_mode(),
+        "degraded": False,
+    }
 
 
 def require_ironman(func: Callable[..., Awaitable[object]]) -> Callable[..., Awaitable[object]]:

@@ -11,6 +11,10 @@ logger = get_logger("nexus.lion")
 
 _lion_instance: Optional["LionIntegration"] = None
 
+
+class LionConfigError(RuntimeError):
+    """Lion 配置拉取失败（不可达/鉴权失败/SDK 缺失）。禁止静默降级掩盖问题。"""
+
 # P0: 配置热更新 - 降低缓存 TTL（300s → 60s），让用户改完配置 60s 内生效
 _CACHE_TTL: int = 60
 
@@ -51,22 +55,34 @@ class LionIntegration:
         key: str,
         prefer_gateway: bool,
     ) -> dict[str, object]:
+        lion_cfg = self._config.lion
         try:
             from lion_sdk import LionSDK
 
-            lion_cfg = self._config.lion
             async with LionSDK(
                 base_url=lion_cfg.base_url,
                 namespace=lion_cfg.namespace,
                 fallback_namespace="default",
             ) as lion:
-                return await lion.get_ready_config(key, prefer_gateway=prefer_gateway)
-        except ImportError:
-            logger.warning("lion_sdk not installed, Lion integration disabled")
-            return {}
+                result = await lion.get_ready_config(key, prefer_gateway=prefer_gateway)
+        except ImportError as exc:
+            raise LionConfigError(
+                f"lion_sdk 未安装，无法从 Lion 读取配置（key={key}），拒绝静默降级"
+            ) from exc
         except Exception as exc:
-            logger.warning("Lion config fetch failed (key=%s): %s", key, str(exc))
-            return {}
+            raise LionConfigError(
+                f"Lion 配置拉取异常: key={key}, namespace={lion_cfg.namespace}, "
+                f"base_url={lion_cfg.base_url}: {exc}"
+            ) from exc
+        if result.get("success") is False:
+            detail = str(result.get("detail", "unknown error"))
+            if detail.startswith("Config not found"):
+                return {}
+            raise LionConfigError(
+                f"Lion 配置拉取失败: key={key}, namespace={lion_cfg.namespace}, "
+                f"base_url={lion_cfg.base_url}: {detail}"
+            )
+        return result
 
     async def get_infra_config(self, key: str, use_cache: bool = True) -> dict[str, object]:
         if use_cache and self._is_cache_valid(key):
@@ -97,7 +113,7 @@ class LionIntegration:
             logger.warning("lion_sdk not installed, Lion integration disabled")
             return {}
         except Exception as exc:
-            logger.warning("Lion infra config fetch failed (key=%s): %s", key, str(exc))
+            logger.error("Lion infra config fetch failed (key=%s): %s", key, str(exc))
             return {}
 
     async def get_business_config(self, key: str, use_cache: bool = True) -> dict[str, object]:
@@ -130,7 +146,7 @@ class LionIntegration:
             logger.warning("lion_sdk not installed, Lion integration disabled")
             return {}
         except Exception as exc:
-            logger.warning("Lion business config fetch failed (key=%s): %s", key, str(exc))
+            logger.error("Lion business config fetch failed (key=%s): %s", key, str(exc))
             return {}
 
     async def get_chat_config(self, prefer_gateway: bool = True) -> dict[str, object]:
