@@ -51,6 +51,7 @@ def create_auth_router(
     endpoints: Optional[set[str]] = None,
     include_profile_endpoints: bool = False,
     password_ops: bool = False,
+    frontend_uc_url: str = "/uc-api",
     app_title: str = "",
     app_subtitle: str = "",
     post_login_hook: Optional[PostActionHook] = None,
@@ -213,12 +214,11 @@ def create_auth_router(
         async def uc_config() -> object:
             sdk: object = uc_sdk_provider()
             configured: bool = bool(getattr(sdk, "is_configured", lambda: False)())
-            base_url: str = getattr(sdk, "base_url", "") or ""
             app_key: str = getattr(sdk, "app_key", "") or ""
             return wrap_ok(
                 {
                     "enabled": configured,
-                    "base_url": base_url if configured else "",
+                    "base_url": frontend_uc_url if configured else "",
                     "app_key": app_key if configured else "",
                 },
                 "获取成功",
