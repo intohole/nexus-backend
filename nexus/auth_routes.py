@@ -8,10 +8,14 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from nexus.auth import get_current_user_full
 from nexus.auth_models import (
+    BindContactRequest,
     ChangePasswordRequest,
+    ForgotPasswordRequest,
     LoginRequest,
     RefreshTokenRequest,
     RegisterRequest,
+    ResetPasswordRequest,
+    SendBindCodeRequest,
     UpdateUserRequest,
 )
 from nexus.auth_route_types import (
@@ -31,6 +35,12 @@ logger = get_logger("nexus.auth_routes")
 _security: HTTPBearer = HTTPBearer(auto_error=False)
 
 
+async def _require_auth(credentials: HTTPAuthorizationCredentials = Depends(_security)) -> HTTPAuthorizationCredentials:
+    if not credentials or not credentials.credentials:
+        raise HTTPException(status_code=401, detail="请先登录")
+    return credentials
+
+
 def create_auth_router(
     prefix: str,
     uc_sdk_provider: UcSdkProvider,
@@ -40,6 +50,7 @@ def create_auth_router(
     err: Optional[ErrWrapper] = None,
     endpoints: Optional[set[str]] = None,
     include_profile_endpoints: bool = False,
+    password_ops: bool = False,
     app_title: str = "",
     app_subtitle: str = "",
     post_login_hook: Optional[PostActionHook] = None,
@@ -202,31 +213,135 @@ def create_auth_router(
         async def uc_config() -> object:
             sdk: object = uc_sdk_provider()
             configured: bool = bool(getattr(sdk, "is_configured", lambda: False)())
+            base_url: str = getattr(sdk, "base_url", "") or ""
+            app_key: str = getattr(sdk, "app_key", "") or ""
             return wrap_ok(
                 {
                     "enabled": configured,
-                    "base_url": getattr(sdk, "base_url", None) if configured else None,
+                    "base_url": base_url if configured else "",
+                    "app_key": app_key if configured else "",
                 },
                 "获取成功",
             )
 
-    if include_profile_endpoints:
+    if password_ops:
 
         @router.post("/change-password")
         async def change_password(
             request: ChangePasswordRequest,
-            credentials: HTTPAuthorizationCredentials = Depends(_security),
+            credentials: HTTPAuthorizationCredentials = Depends(_require_auth),
         ) -> object:
             try:
-                result: dict[str, object] = await uc_sdk_provider().update_current_user(
-                    {"old_password": request.old_password, "new_password": request.new_password},
-                    token=credentials.credentials,
+                result: dict[str, object] = await uc_sdk_provider().change_password(
+                    request.old_password, request.new_password,
+                    revoke_others=request.revoke_others, token=credentials.credentials,
                 )
                 if result.get("success"):
                     return wrap_ok(None, "密码修改成功")
                 return wrap_err(_map_uc_detail(result, "修改密码失败"), 400)
             except Exception as exc:
                 return _handle(exc)
+
+        @router.post("/forgot-password")
+        async def forgot_password(request: ForgotPasswordRequest) -> object:
+            try:
+                result: dict[str, object] = await uc_sdk_provider().forgot_password(
+                    email=request.email, phone=request.phone,
+                )
+                if result.get("success"):
+                    return wrap_ok(None, "验证码已发送，请查收")
+                return wrap_err(_map_uc_detail(result, "发送失败"), 400)
+            except Exception as exc:
+                return _handle(exc)
+
+        @router.post("/reset-password")
+        async def reset_password(request: ResetPasswordRequest) -> object:
+            try:
+                result: dict[str, object] = await uc_sdk_provider().reset_password(
+                    request.code, request.new_password,
+                    email=request.email, phone=request.phone,
+                )
+                if result.get("success"):
+                    return wrap_ok(None, "密码已重置，请使用新密码登录")
+                return wrap_err(_map_uc_detail(result, "重置失败"), 400)
+            except Exception as exc:
+                return _handle(exc)
+
+        @router.post("/send-bind-code")
+        async def send_bind_code(
+            request: SendBindCodeRequest,
+            credentials: HTTPAuthorizationCredentials = Depends(_require_auth),
+        ) -> object:
+            try:
+                result: dict[str, object] = await uc_sdk_provider().send_bind_code(
+                    email=request.email, phone=request.phone, token=credentials.credentials,
+                )
+                if result.get("success"):
+                    return wrap_ok(None, "验证码已发送，请查收")
+                return wrap_err(_map_uc_detail(result, "发送失败"), 400)
+            except Exception as exc:
+                return _handle(exc)
+
+        @router.put("/bind-contact")
+        async def bind_contact(
+            request: BindContactRequest,
+            credentials: HTTPAuthorizationCredentials = Depends(_require_auth),
+        ) -> object:
+            try:
+                result: dict[str, object] = await uc_sdk_provider().bind_contact(
+                    request.code, email=request.email, phone=request.phone,
+                    token=credentials.credentials,
+                )
+                if result.get("success"):
+                    return wrap_ok(None, "绑定成功")
+                return wrap_err(_map_uc_detail(result, "绑定失败"), 400)
+            except Exception as exc:
+                return _handle(exc)
+
+        @router.get("/sessions")
+        async def list_sessions(
+            credentials: HTTPAuthorizationCredentials = Depends(_require_auth),
+        ) -> object:
+            try:
+                result: dict[str, object] = await uc_sdk_provider().get_sessions(
+                    token=credentials.credentials
+                )
+                if result.get("success"):
+                    return wrap_ok(result.get("data") or [], "获取成功")
+                return wrap_err(_map_uc_detail(result, "获取失败"), 400)
+            except Exception as exc:
+                return _handle(exc)
+
+        @router.delete("/sessions/{session_id}")
+        async def revoke_session(
+            session_id: int,
+            credentials: HTTPAuthorizationCredentials = Depends(_require_auth),
+        ) -> object:
+            try:
+                result: dict[str, object] = await uc_sdk_provider().revoke_session(
+                    session_id, token=credentials.credentials
+                )
+                if result.get("success"):
+                    return wrap_ok(None, "已下线该设备")
+                return wrap_err(_map_uc_detail(result, "操作失败"), 400)
+            except Exception as exc:
+                return _handle(exc)
+
+        @router.delete("/sessions")
+        async def revoke_all_sessions(
+            credentials: HTTPAuthorizationCredentials = Depends(_require_auth),
+        ) -> object:
+            try:
+                result: dict[str, object] = await uc_sdk_provider().revoke_all_sessions(
+                    token=credentials.credentials
+                )
+                if result.get("success"):
+                    return wrap_ok(result.get("data") or None, "所有设备已下线")
+                return wrap_err(_map_uc_detail(result, "操作失败"), 400)
+            except Exception as exc:
+                return _handle(exc)
+
+    if include_profile_endpoints:
 
         @router.put("/me")
         async def update_current_user(
