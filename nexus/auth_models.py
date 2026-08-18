@@ -55,6 +55,54 @@ class RefreshTokenRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     old_password: str
     new_password: str = Field(..., min_length=8, max_length=128)
+    revoke_others: bool = True
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _ensure_identifier(self) -> "ForgotPasswordRequest":
+        if not self.email and not self.phone:
+            raise ValueError("请输入邮箱或手机号")
+        return self
+
+
+class ResetPasswordRequest(BaseModel):
+    code: str = Field(..., min_length=6, max_length=6)
+    new_password: str = Field(..., min_length=8, max_length=128)
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _ensure_identifier(self) -> "ResetPasswordRequest":
+        if not self.email and not self.phone:
+            raise ValueError("请输入邮箱或手机号")
+        return self
+
+
+class SendBindCodeRequest(BaseModel):
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _ensure_identifier(self) -> "SendBindCodeRequest":
+        if not self.email and not self.phone:
+            raise ValueError("请输入邮箱或手机号")
+        return self
+
+
+class BindContactRequest(BaseModel):
+    code: str = Field(..., min_length=6, max_length=6)
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _ensure_identifier(self) -> "BindContactRequest":
+        if not self.email and not self.phone:
+            raise ValueError("请输入邮箱或手机号")
+        return self
 
 
 class UpdateUserRequest(BaseModel):

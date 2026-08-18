@@ -158,26 +158,53 @@ class ApiTokenMixin:
 
 
 class SessionMixin:
-    async def forgot_password(self, email: str) -> dict:
-        return await self._request("POST", "/api/auth/forgot-password", json={"email": email})
+    async def forgot_password(self, email: str = None, phone: str = None) -> dict:
+        data: dict[str, Any] = {}
+        if email:
+            data["email"] = email
+        if phone:
+            data["phone"] = phone
+        return await self._request("POST", "/api/auth/forgot-password", json=data)
 
-    async def reset_password(self, token: str, new_password: str) -> dict:
-        return await self._request("POST", "/api/auth/reset-password", json={"token": token, "new_password": new_password})
+    async def reset_password(self, code: str, new_password: str, email: str = None, phone: str = None) -> dict:
+        data: dict[str, Any] = {"code": code, "new_password": new_password}
+        if email:
+            data["email"] = email
+        if phone:
+            data["phone"] = phone
+        return await self._request("POST", "/api/auth/reset-password", json=data)
 
-    async def verify_email(self, token: str) -> dict:
-        return await self._request("POST", "/api/auth/verify-email", json={"token": token})
+    async def change_password(self, old_password: str, new_password: str, revoke_others: bool = True, token: str = None) -> dict:
+        return await self._request(
+            "POST", "/api/auth/change-password",
+            token=token,
+            json={"old_password": old_password, "new_password": new_password, "revoke_others": revoke_others},
+        )
 
-    async def resend_verification(self) -> dict:
-        return await self._request("POST", "/api/auth/resend-verification")
+    async def send_bind_code(self, email: str = None, phone: str = None, token: str = None) -> dict:
+        data: dict[str, Any] = {}
+        if email:
+            data["email"] = email
+        if phone:
+            data["phone"] = phone
+        return await self._request("POST", "/api/auth/send-bind-code", token=token, json=data)
 
-    async def get_sessions(self) -> dict:
-        return await self._request("GET", "/api/auth/sessions")
+    async def bind_contact(self, code: str, email: str = None, phone: str = None, token: str = None) -> dict:
+        data: dict[str, Any] = {"code": code}
+        if email:
+            data["email"] = email
+        if phone:
+            data["phone"] = phone
+        return await self._request("PUT", "/api/auth/bind-contact", token=token, json=data)
 
-    async def revoke_session(self, session_id: int) -> dict:
-        return await self._request("DELETE", f"/api/auth/sessions/{session_id}")
+    async def get_sessions(self, token: str = None) -> dict:
+        return await self._request("GET", "/api/auth/sessions", token=token)
 
-    async def revoke_all_sessions(self) -> dict:
-        return await self._request("DELETE", "/api/auth/sessions")
+    async def revoke_session(self, session_id: int, token: str = None) -> dict:
+        return await self._request("DELETE", f"/api/auth/sessions/{session_id}", token=token)
+
+    async def revoke_all_sessions(self, token: str = None) -> dict:
+        return await self._request("DELETE", "/api/auth/sessions", token=token)
 
 
 class AuditMixin:
