@@ -2,7 +2,7 @@ import logging
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from nexus.uc_sdk.client import UserCenterSDK
+from .client import UserCenterSDK
 
 logger = logging.getLogger(__name__)
 

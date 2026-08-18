@@ -1,7 +1,7 @@
 import time
 from typing import Dict, Any
 
-from nexus.uc_sdk.pkce import PKCEHelper
+from .pkce import PKCEHelper
 
 try:
     from jose import JWTError

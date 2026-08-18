@@ -57,7 +57,7 @@ class LionIntegration:
     ) -> dict[str, object]:
         lion_cfg = self._config.lion
         try:
-            from lion_sdk import LionSDK
+            from nexus.lion_sdk import LionSDK
 
             async with LionSDK(
                 base_url=lion_cfg.base_url,
@@ -100,7 +100,7 @@ class LionIntegration:
 
     async def _fetch_infra_config(self, key: str) -> dict[str, object]:
         try:
-            from lion_sdk import LionSDK
+            from nexus.lion_sdk import LionSDK
 
             lion_cfg = self._config.lion
             async with LionSDK(
@@ -133,7 +133,7 @@ class LionIntegration:
 
     async def _fetch_business_config(self, key: str) -> dict[str, object]:
         try:
-            from lion_sdk import LionSDK
+            from nexus.lion_sdk import LionSDK
 
             lion_cfg = self._config.lion
             async with LionSDK(
