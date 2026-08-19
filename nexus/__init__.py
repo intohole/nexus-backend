@@ -147,8 +147,10 @@ from nexus.llm_utils import (
 from nexus.llm import (
     LLMService,
     get_llm_service,
-    configure_ironman,
-    mark_ironman_configured,
+)
+from nexus.image import (
+    ImageService,
+    get_image_service,
 )
 from nexus.llm_optimizer import (
     CONCISENESS_HINT,
@@ -349,6 +351,8 @@ __all__ = [
     "LLMTimeoutError",
     "LLMService",
     "get_llm_service",
+    "ImageService",
+    "get_image_service",
     "configure_ironman",
     "mark_ironman_configured",
     "CONCISENESS_HINT",
