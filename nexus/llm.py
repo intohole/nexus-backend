@@ -1,3 +1,4 @@
+"""LLM 统一接入层: 网关路由、确定性prompt缓存、异步调用与重试."""
 from __future__ import annotations
 
 import os
@@ -17,6 +18,7 @@ from nexus.llm_helpers import (
     resolve_namespace,
 )
 from nexus.llm_budget import OutputMode, TASK_BUDGETS
+from nexus.llm_cache import PromptCache, get_prompt_cache
 from nexus.llm_config import (
     configure_ironman,
     mark_ironman_configured,
@@ -137,6 +139,12 @@ class LLMService:
             system, "", concise, json_mode, budget_mode
         )
         ironman_messages = convert_messages(messages, system)
+        cache = get_prompt_cache() if temperature <= 0.0 else None
+        if cache is not None:
+            key: str = PromptCache.make_messages_key(system, messages, temperature, eff_max_tokens)
+            hit: Optional[str] = cache.get(key)
+            if hit is not None:
+                return hit
         llm_opts = LLMOptions(
             temperature=temperature,
             max_tokens=eff_max_tokens,
@@ -146,7 +154,10 @@ class LLMService:
         async def _do() -> object:
             return await _chat(messages=ironman_messages, llm=llm_opts)
 
-        return await self._execute(_do, timeout, max_retries, app_name, request_id, "chat")
+        result = await self._execute(_do, timeout, max_retries, app_name, request_id, "chat")
+        if cache is not None and result:
+            cache.set(key, result)
+        return result
 
     async def ask(
         self,
@@ -178,6 +189,12 @@ class LLMService:
         system, prompt = apply_output_discipline(
             system, prompt, concise, json_mode, budget_mode
         )
+        cache = get_prompt_cache() if temperature <= 0.0 else None
+        if cache is not None:
+            key: str = PromptCache.make_key(system, prompt, temperature, eff_max_tokens)
+            hit: Optional[str] = cache.get(key)
+            if hit is not None:
+                return hit
         llm_opts = LLMOptions(
             temperature=temperature,
             max_tokens=eff_max_tokens,
@@ -192,7 +209,10 @@ class LLMService:
         async def _do() -> object:
             return await _chat(messages=msgs, llm=llm_opts)
 
-        return await self._execute(_do, timeout, max_retries, app_name, request_id, "ask")
+        result = await self._execute(_do, timeout, max_retries, app_name, request_id, "ask")
+        if cache is not None and result:
+            cache.set(key, result)
+        return result
 
     async def ask_json(
         self,

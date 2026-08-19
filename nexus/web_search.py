@@ -1,9 +1,12 @@
+"""Web 搜索服务封装: 多租户spider工具实例与来源隔离."""
 from __future__ import annotations
 
+import os
 from typing import Any, Optional
 
 from nexus.infra import get_spider_config
 from nexus.logging import get_logger
+from nexus.ironman import get_init_app_name
 
 logger = get_logger("nexus.web_search")
 
@@ -23,6 +26,7 @@ class WebSearchService:
     _tool: Optional[object] = None
     _configured_base_url: str = ""
     _configured_token: str = ""
+    _configured_source: str = ""
 
     def __new__(cls) -> "WebSearchService":
         if cls._instance is None:
@@ -33,7 +37,8 @@ class WebSearchService:
         cfg = await get_spider_config()
         base_url = cfg.get("base_url", "http://${NOTIFY_BASE_URL}")
         token = cfg.get("service_token", "")
-        if self._tool is not None and self._configured_base_url == base_url and self._configured_token == token:
+        source_app = get_init_app_name() or os.environ.get("LION_NAMESPACE", "") or ""
+        if self._tool is not None and self._configured_base_url == base_url and self._configured_token == token and self._configured_source == source_app:
             return self._tool
         from ironman.tools.websearch_tool import WebSearchTool
 
@@ -41,8 +46,10 @@ class WebSearchService:
             spider_base_url=base_url,
             service_token=token,
             timeout=30.0,
+            source_app=source_app,
         )
         self._configured_base_url = base_url
+        self._configured_source = source_app
         self._configured_token = token
         return self._tool
 
