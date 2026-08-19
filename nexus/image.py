@@ -1,3 +1,5 @@
+"""文生图中间件服务，统一封装 PromptManager 图像生成网关，供各应用复用."""
+
 from __future__ import annotations
 
 import asyncio
