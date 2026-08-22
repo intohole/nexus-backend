@@ -179,7 +179,9 @@ class ChatEngine:
 
         updated_meta = await handler.on_reply_complete(context, content, reply)
         if updated_meta:
-            await self._store.update_conversation(conversation_id, meta=updated_meta)
+            current_meta = dict(context.conversation.meta or {})
+            current_meta.update(updated_meta)
+            await self._store.update_conversation(conversation_id, meta=current_meta)
 
         await self._event_bus.publish(
             "message.completed",

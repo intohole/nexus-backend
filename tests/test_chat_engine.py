@@ -223,6 +223,24 @@ async def test_cost_middleware(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_cost_meta_coexist(tmp_path):
+    db_engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'coexist.db'}")
+    store = LocalChatStore(db_engine)
+    chat = ChatEngine(
+        engine=db_engine,
+        store=store,
+        middlewares=[HistoryMiddleware(store), CostMiddleware(store)],
+    )
+    chat.register("testapp", MetaHandler())
+    conv = await chat.create_conversation("user1", "testapp")
+    await chat.send_message("user1", "testapp", conv.id, "你好")
+    got = await chat.get_conversation("user1", conv.id)
+    assert got.meta["phase"] == "done"
+    assert got.meta["cost"]["rounds"] == 1
+    await db_engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_cost_usage_report(tmp_path):
     class UsageHandler(FakeHandler):
         async def stream_reply(self, context: ChatContext, messages):

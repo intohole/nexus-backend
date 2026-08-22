@@ -45,6 +45,7 @@ class CostMiddleware(BaseChatMiddleware):
         stats["amount"] = round(float(stats.get("amount", 0)) + cost, 6)
         stats["rounds"] = int(stats.get("rounds", 0)) + 1
         await self._store.update_conversation(context.conversation.id, meta=meta)
+        context.conversation.meta = meta
 
     async def _conversation_tokens(self, conversation_id: str) -> int:
         conversation = await self._store.get_conversation(conversation_id)
