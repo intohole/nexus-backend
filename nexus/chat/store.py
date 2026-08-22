@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any, AsyncGenerator, Protocol
 
 from sqlalchemy import func, or_, select
@@ -37,6 +38,7 @@ class ChatStore(Protocol):
     ) -> dict[str, Any]: ...
     async def recent_messages(self, conversation_id: str, limit: int) -> list[ChatMessage]: ...
     async def count_messages(self, conversation_id: str) -> int: ...
+    async def count_messages_since(self, conversation_id: str, since: datetime) -> int: ...
 
 
 class LocalChatStore:
@@ -189,5 +191,17 @@ class LocalChatStore:
                 select(func.count())
                 .select_from(ChatMessage)
                 .where(ChatMessage.conversation_id == conversation_id)
+            )
+            return int(total or 0)
+
+    async def count_messages_since(self, conversation_id: str, since: datetime) -> int:
+        async with self._session() as session:
+            total = await session.scalar(
+                select(func.count())
+                .select_from(ChatMessage)
+                .where(
+                    ChatMessage.conversation_id == conversation_id,
+                    ChatMessage.created_at >= since,
+                )
             )
             return int(total or 0)

@@ -4,6 +4,7 @@ from nexus.chat.events import ChatEventBus
 from nexus.chat.handler import BaseChatHandler, ChatHandler
 from nexus.chat.middleware.base import BaseChatMiddleware, ChatMiddleware
 from nexus.chat.middleware.history import HistoryMiddleware
+from nexus.chat.middleware.rate_limit import RateLimitMiddleware
 from nexus.chat.middleware.title import TitleMiddleware
 from nexus.chat.models import ChatBase, ChatConversation, ChatMessage
 from nexus.chat.router import chat_router
@@ -30,6 +31,7 @@ __all__ = [
     "BaseChatMiddleware",
     "HistoryMiddleware",
     "TitleMiddleware",
+    "RateLimitMiddleware",
     "ChatStore",
     "LocalChatStore",
     "ChatTransport",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -18,6 +19,7 @@ from nexus.chat import (
     ChatEngine,
     HistoryMiddleware,
     LocalChatStore,
+    RateLimitMiddleware,
     TitleMiddleware,
     chat_router,
 )
@@ -147,6 +149,55 @@ async def test_event_bus(engine):
     engine.event_bus.subscribe("conversation.created", listener)
     conv = await engine.create_conversation("user1", "testapp")
     assert seen == [("conversation.created", conv.id)]
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_middleware(tmp_path):
+    db_engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'rate.db'}")
+    store = LocalChatStore(db_engine)
+    chat = ChatEngine(
+        engine=db_engine,
+        store=store,
+        middlewares=[HistoryMiddleware(store), RateLimitMiddleware(store, max_messages=1, window_seconds=3600)],
+    )
+    chat.register("testapp", FakeHandler())
+    conv = await chat.create_conversation("user1", "testapp")
+
+    ok = []
+    async for event in chat.stream_message("user1", "testapp", conv.id, "第一条"):
+        ok.append(event)
+    assert any(e.get("type") == "done" for e in ok)
+
+    blocked = []
+    async for event in chat.stream_message("user1", "testapp", conv.id, "第二条超限"):
+        blocked.append(event)
+    first = blocked[0]
+    assert first.get("type") == "error"
+    assert first.get("code") == 429
+    assert len(blocked) == 1
+    assert not any(e.get("type") == "done" for e in blocked)
+    assert not any(e.get("type") == "delta" for e in blocked)
+    await db_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_count_messages_since(tmp_path):
+    db_engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'count.db'}")
+    store = LocalChatStore(db_engine)
+    conv = await store.create_conversation(
+        __import__("nexus.chat.models", fromlist=["ChatConversation"]).ChatConversation(
+            user_id="u1", app_name="app", title="t"
+        )
+    )
+    await store.add_message(conv.id, "user", "a")
+    await store.add_message(conv.id, "user", "b")
+    from datetime import datetime, timedelta, timezone
+
+    since = datetime.now(timezone.utc) - timedelta(seconds=60)
+    assert await store.count_messages_since(conv.id, since) == 2
+    future = datetime.now(timezone.utc) + timedelta(hours=1)
+    assert await store.count_messages_since(conv.id, future) == 0
+    await db_engine.dispose()
 
 
 @pytest.mark.asyncio

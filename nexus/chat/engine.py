@@ -15,7 +15,7 @@ from nexus.chat.middleware.title import TitleMiddleware
 from nexus.chat.models import ChatConversation
 from nexus.chat.store import ChatStore, LocalChatStore
 from nexus.chat.transport import ChatTransport, SSETransport
-from nexus.errors import ForbiddenError, NotFoundError
+from nexus.errors import ForbiddenError, NotFoundError, RateLimitError
 
 
 class ChatEngine:
@@ -132,8 +132,15 @@ class ChatEngine:
         )
         await handler.build_context(context)
 
-        for middleware in self._middlewares:
-            await middleware.before(context)
+        try:
+            for middleware in self._middlewares:
+                await middleware.before(context)
+        except RateLimitError as exc:
+            yield {"type": "error", "code": 429, "message": exc.message, "details": exc.details}
+            return
+        except Exception as exc:
+            yield {"type": "error", "message": str(exc)}
+            return
 
         messages = list(context.history_messages) + [{"role": "user", "content": content}]
 
