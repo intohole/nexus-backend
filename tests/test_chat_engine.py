@@ -17,6 +17,7 @@ from nexus.auth import get_current_user_id_required
 from nexus.chat import (
     BaseChatHandler,
     ChatEngine,
+    CostMiddleware,
     HistoryMiddleware,
     LocalChatStore,
     RateLimitMiddleware,
@@ -197,6 +198,71 @@ async def test_count_messages_since(tmp_path):
     assert await store.count_messages_since(conv.id, since) == 2
     future = datetime.now(timezone.utc) + timedelta(hours=1)
     assert await store.count_messages_since(conv.id, future) == 0
+    await db_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_cost_middleware(tmp_path):
+    db_engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'cost.db'}")
+    store = LocalChatStore(db_engine)
+    cost_mw = CostMiddleware(store, input_price_per_1k=1.0, output_price_per_1k=2.0)
+    chat = ChatEngine(
+        engine=db_engine,
+        store=store,
+        middlewares=[HistoryMiddleware(store), cost_mw],
+    )
+    chat.register("testapp", FakeHandler())
+    conv = await chat.create_conversation("user1", "testapp")
+    await chat.send_message("user1", "testapp", conv.id, "你好")
+    got = await chat.get_conversation("user1", conv.id)
+    stats = got.meta["cost"]
+    assert stats["rounds"] == 1
+    assert stats["tokens"] > 0
+    assert stats["amount"] >= 0
+    await db_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_cost_usage_report(tmp_path):
+    class UsageHandler(FakeHandler):
+        async def stream_reply(self, context: ChatContext, messages):
+            context.set_usage(prompt_tokens=100, completion_tokens=50)
+            yield "回复"
+
+    db_engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'usage.db'}")
+    store = LocalChatStore(db_engine)
+    chat = ChatEngine(
+        engine=db_engine,
+        store=store,
+        middlewares=[HistoryMiddleware(store), CostMiddleware(store)],
+    )
+    chat.register("testapp", UsageHandler())
+    conv = await chat.create_conversation("user1", "testapp")
+    await chat.send_message("user1", "testapp", conv.id, "hi")
+    got = await chat.get_conversation("user1", conv.id)
+    assert got.meta["cost"]["tokens"] == 150
+    await db_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_cost_budget(tmp_path):
+    db_engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'budget.db'}")
+    store = LocalChatStore(db_engine)
+    chat = ChatEngine(
+        engine=db_engine,
+        store=store,
+        middlewares=[HistoryMiddleware(store), CostMiddleware(store, token_budget=1)],
+    )
+    chat.register("testapp", FakeHandler())
+    conv = await chat.create_conversation("user1", "testapp")
+
+    async for _ in chat.stream_message("user1", "testapp", conv.id, "第一轮"):
+        pass
+
+    blocked = []
+    async for event in chat.stream_message("user1", "testapp", conv.id, "超预算"):
+        blocked.append(event)
+    assert blocked[0].get("type") == "error"
     await db_engine.dispose()
 
 

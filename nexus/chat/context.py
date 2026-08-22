@@ -16,6 +16,10 @@ class ChatContext:
     history_messages: list[dict[str, str]] = field(default_factory=list)
     default_title: str = "新对话"
     domain_state: dict[str, Any] = field(default_factory=dict)
+    usage: dict[str, int] = field(default_factory=dict)
+
+    def set_usage(self, prompt_tokens: int, completion_tokens: int) -> None:
+        self.usage = {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens}
 
     @property
     def meta(self) -> dict[str, Any]:
