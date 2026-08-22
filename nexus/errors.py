@@ -65,6 +65,11 @@ class RateLimitError(NexusError):
     error_code = "RATE_LIMIT_EXCEEDED"
 
 
+class ContentFilterError(NexusError):
+    status_code = 422
+    error_code = "CONTENT_FILTERED"
+
+
 class ForbiddenError(NexusError):
     status_code = 403
     error_code = "FORBIDDEN"
