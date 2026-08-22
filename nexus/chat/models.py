@@ -1,3 +1,5 @@
+"""聊天数据模型 — 会话与消息 ORM, 使用独立 ChatBase 避免依赖项目 Base。"""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone

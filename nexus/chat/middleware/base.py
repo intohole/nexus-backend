@@ -1,3 +1,5 @@
+"""聊天中间件协议 — 洋葱模型管道扩展点。"""
+
 from __future__ import annotations
 
 from typing import AsyncIterator, Protocol

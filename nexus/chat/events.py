@@ -1,3 +1,5 @@
+"""聊天事件总线 — 会话生命周期事件发布与订阅。"""
+
 from __future__ import annotations
 
 import asyncio

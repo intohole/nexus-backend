@@ -1,3 +1,5 @@
+"""标题中间件 — 首轮对话自动生成会话标题。"""
+
 from __future__ import annotations
 
 from nexus.chat.context import ChatContext

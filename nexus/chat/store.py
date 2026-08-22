@@ -1,3 +1,9 @@
+"""聊天存储抽象 — 定义 ChatStore 契约与 LocalChatStore 本地实现。
+
+Phase 1 各项目注入 LocalChatStore 使用本地表; Phase 4 切换 CentralChatStore
+实现跨应用会话连续, 业务代码无需改动。
+"""
+
 from __future__ import annotations
 
 import asyncio

@@ -1,3 +1,8 @@
+"""聊天业务处理器协议 — 项目仅需实现 ChatHandler 即可接入统一引擎。
+
+业务差异(上下文构建/系统提示/回复生成)留在项目侧, 通用编排由引擎承担。
+"""
+
 from __future__ import annotations
 
 from typing import AsyncIterator, Protocol

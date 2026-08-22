@@ -1,3 +1,5 @@
+"""聊天 API 契约 — 统一会话与消息的请求/响应模型。"""
+
 from __future__ import annotations
 
 from datetime import datetime

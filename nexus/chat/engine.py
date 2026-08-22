@@ -1,3 +1,5 @@
+"""统一聊天引擎 — 编排 Handler/Middleware/Store/Transport/EventBus 五大扩展点。"""
+
 from __future__ import annotations
 
 from typing import Any, AsyncIterator

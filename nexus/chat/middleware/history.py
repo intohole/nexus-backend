@@ -1,3 +1,5 @@
+"""历史中间件 — 注入最近对话历史作为上下文。"""
+
 from __future__ import annotations
 
 from nexus.chat.context import ChatContext

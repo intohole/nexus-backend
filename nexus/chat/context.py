@@ -1,3 +1,5 @@
+"""聊天上下文 — 一次会话请求的上下文数据载体。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

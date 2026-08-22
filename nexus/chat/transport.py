@@ -1,3 +1,5 @@
+"""聊天传输抽象 — 统一 SSE 流式与 JSON 非流式响应格式。"""
+
 from __future__ import annotations
 
 from typing import Any, AsyncIterator, Protocol

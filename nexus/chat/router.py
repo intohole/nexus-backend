@@ -1,3 +1,5 @@
+"""聊天 API 路由 — 暴露统一会话 CRUD 与消息流式接口。"""
+
 from __future__ import annotations
 
 from typing import Any
