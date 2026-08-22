@@ -15,6 +15,7 @@ class ChatContext:
     context_parts: list[str] = field(default_factory=list)
     history_messages: list[dict[str, str]] = field(default_factory=list)
     default_title: str = "新对话"
+    domain_state: dict[str, Any] = field(default_factory=dict)
 
     @property
     def meta(self) -> dict[str, Any]:
