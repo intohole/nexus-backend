@@ -15,6 +15,7 @@ class ConversationCreate(BaseModel):
 class ConversationUpdate(BaseModel):
     title: str | None = None
     status: str | None = None
+    meta: dict[str, Any] | None = None
 
 
 class ConversationOut(BaseModel):
