@@ -152,6 +152,10 @@ from nexus.image import (
     ImageService,
     get_image_service,
 )
+from nexus.vision import (
+    VisionService,
+    get_vision_service,
+)
 from nexus.llm_optimizer import (
     CONCISENESS_HINT,
     JSON_ONLY_HINT,
@@ -353,6 +357,8 @@ __all__ = [
     "get_llm_service",
     "ImageService",
     "get_image_service",
+    "VisionService",
+    "get_vision_service",
     "configure_ironman",
     "mark_ironman_configured",
     "CONCISENESS_HINT",
