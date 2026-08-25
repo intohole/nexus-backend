@@ -17,6 +17,9 @@ class UserMixin:
     async def get_user(self, token: str, user_id: int) -> Dict[str, Any]:
         return await self._request("GET", f"/api/users/{user_id}", token=token)
 
+    async def get_user_contact(self, user_id: int, token: str = None) -> Dict[str, Any]:
+        return await self._request("GET", f"/api/users/{user_id}/contact", token=token)
+
     async def update_user(self, token: str, user_id: int, update_data: Dict[str, Any]) -> Dict[str, Any]:
         return await self._request("PUT", f"/api/users/{user_id}", token=token, json=update_data)
 
