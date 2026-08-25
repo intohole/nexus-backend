@@ -78,6 +78,20 @@ class NotifyClient:
             logger.error("Notify send error: %s", str(exc))
             return {}
 
+    async def send_many(
+        self,
+        items: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        results: list[dict[str, object]] = []
+        for item in items:
+            try:
+                result: dict[str, object] = await self.send(**item)
+            except Exception as exc:
+                logger.error("Batch notify item failed: %s", str(exc))
+                result = {}
+            results.append(result)
+        return results
+
     async def send_admin_email(
         self,
         subject: str,
