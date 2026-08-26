@@ -4,6 +4,7 @@ import os
 from typing import Optional
 
 import httpx
+from fastapi import FastAPI, Request, Response
 
 from nexus.infra import get_notify_center_url
 from nexus.logging import get_logger
@@ -278,6 +279,37 @@ async def send_sms(
     )
 
 
+def register_notify_proxy(app: FastAPI) -> None:
+    """在任意 FastAPI app 上注册 /api/notify/* 反向代理到 notifyCenter。
+
+    前端通过项目后端代理访问 notifyCenter，避免跨域和鉴权问题。
+    目标地址从 NOTIFY_CENTER_URL 环境变量获取，默认 http://localhost:8910。
+    """
+    notify_center_url: str = os.environ.get("NOTIFY_CENTER_URL", "http://localhost:8910")
+
+    @app.api_route("/api/notify/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+    async def notify_proxy(path: str, request: Request) -> Response:
+        target_url: str = f"{notify_center_url}/api/notify/{path}"
+        query: str = request.url.query
+        if query:
+            target_url += f"?{query}"
+        body: bytes = await request.body()
+        headers: dict[str, str] = dict(request.headers)
+        headers.pop("host", None)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp: httpx.Response = await client.request(
+                method=request.method,
+                url=target_url,
+                content=body,
+                headers=headers,
+            )
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                headers=dict(resp.headers),
+            )
+
+
 __all__ = [
     "NotifyClient",
     "get_notify_client",
@@ -286,4 +318,5 @@ __all__ = [
     "send_email",
     "send_admin_email",
     "send_sms",
+    "register_notify_proxy",
 ]
