@@ -180,3 +180,74 @@ class BeeMemorySDK:
             return False
         except Exception:
             return False
+
+    # ──────────────────────────────
+    # Auto Dream SDK methods
+    # ──────────────────────────────
+
+    async def trigger_dream(self, app_name: Optional[str] = None) -> Dict:
+        """触发一次 Auto Dream 自进化循环"""
+        return await self._request(
+            "POST", "/api/memory/dream/trigger",
+            params={"app_name": app_name or self.app_name},
+        )
+
+    async def get_dream_config(self, app_name: Optional[str] = None) -> Dict:
+        """获取 Auto Dream 配置"""
+        return await self._request(
+            "GET", "/api/memory/dream/config",
+            params={"app_name": app_name or self.app_name},
+        )
+
+    async def update_dream_config(
+        self,
+        app_name: Optional[str] = None,
+        **kwargs,
+    ) -> Dict:
+        """更新 Auto Dream 配置（如 enabled=true/false 等）"""
+        payload: Dict = {"app_name": app_name or self.app_name}
+        payload.update(kwargs)
+        return await self._request(
+            "PUT", "/api/memory/dream/config",
+            params={"app_name": app_name or self.app_name},
+            data=payload,
+        )
+
+    async def list_dream_runs(
+        self,
+        app_name: Optional[str] = None,
+        limit: int = 10,
+    ) -> Dict:
+        """查看 Auto Dream 执行历史"""
+        return await self._request(
+            "GET", "/api/memory/dream/runs",
+            params={"app_name": app_name or self.app_name, "limit": str(limit)},
+        )
+
+    async def get_active_topics(
+        self,
+        user_id: str,
+        app_name: Optional[str] = None,
+        limit: int = 10,
+    ) -> Dict:
+        """获取活跃的兴趣主题（Proactive）"""
+        return await self._request(
+            "GET", "/api/memory/dream/topics",
+            params={
+                "app_name": app_name or self.app_name,
+                "user_id": user_id,
+                "limit": str(limit),
+            },
+        )
+
+    async def acknowledge_topics(
+        self,
+        topic_ids: List[int],
+        app_name: Optional[str] = None,
+    ) -> Dict:
+        """确认已处理的兴趣主题"""
+        return await self._request(
+            "POST", "/api/memory/dream/topics/ack",
+            params={"app_name": app_name or self.app_name},
+            data={"topic_ids": topic_ids},
+        )
