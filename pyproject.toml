@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nexus-backend"
-version = "1.9.2"
+version = "1.13.0"
 description = "通用后端中间件框架 - 与ironman平行的非LLM后端能力集"
 requires-python = ">=3.10"
 dependencies = [
@@ -19,7 +19,7 @@ dependencies = [
     "python-multipart>=0.0.6",
     "pyyaml>=6.0",
     "cachetools>=5.3.0",
-    "ironman-llm==0.3.2",
+    "ironman-llm==0.3.3",
     "apscheduler>=3.10.0",
 ]
 
