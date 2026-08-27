@@ -88,6 +88,8 @@ class MoutainClient:
         form_data: Optional[Dict[str, Any]] = None,
         headers: Optional[Dict[str, str]] = None,
         response_type: str = "json",
+        render: bool = False,
+        csrf_pre_request: Optional[Dict[str, Any]] = None,
         callback_headers: Optional[Dict[str, str]] = None,
         timeout: float = 30.0,
     ) -> Optional[Dict[str, Any]]:
@@ -100,6 +102,8 @@ class MoutainClient:
             "form_data": form_data,
             "headers": headers,
             "response_type": response_type,
+            "render": render,
+            "csrf_pre_request": csrf_pre_request,
             "callback_url": callback_url,
             "callback_headers": callback_headers,
             "source": source,
