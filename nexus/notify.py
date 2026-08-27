@@ -6,6 +6,7 @@ from typing import Optional
 import httpx
 from fastapi import FastAPI, Request, Response
 
+from nexus.defaults import DEFAULT_NOTIFY_CENTER_URL
 from nexus.infra import get_notify_center_url
 from nexus.logging import get_logger
 from nexus.utils import HttpClient
@@ -22,7 +23,7 @@ class NotifyClient:
     ) -> None:
         self._base_url: str = (
             base_url
-            or os.environ.get("NOTIFY_CENTER_URL", "http://localhost:8910")
+            or os.environ.get("NOTIFY_CENTER_URL", DEFAULT_NOTIFY_CENTER_URL)
         )
         self._service_token: str = service_token or os.environ.get(
             "SERVICE_TOKEN", ""
@@ -283,9 +284,9 @@ def register_notify_proxy(app: FastAPI) -> None:
     """在任意 FastAPI app 上注册 /api/notify/* 反向代理到 notifyCenter。
 
     前端通过项目后端代理访问 notifyCenter，避免跨域和鉴权问题。
-    目标地址从 NOTIFY_CENTER_URL 环境变量获取，默认 http://localhost:8910。
+    目标地址从 NOTIFY_CENTER_URL 环境变量获取，默认走 nexus.defaults 单一权威源。
     """
-    notify_center_url: str = os.environ.get("NOTIFY_CENTER_URL", "http://localhost:8910")
+    notify_center_url: str = os.environ.get("NOTIFY_CENTER_URL", DEFAULT_NOTIFY_CENTER_URL)
 
     @app.api_route("/api/notify/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
     async def notify_proxy(path: str, request: Request) -> Response:

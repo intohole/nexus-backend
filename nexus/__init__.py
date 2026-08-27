@@ -119,6 +119,7 @@ from nexus.infra import (
     get_uc_config,
     get_spider_base_url,
     get_spider_config,
+    get_moutain_config,
     get_promptmanager_config,
     get_beememory_base_url,
     get_notify_center_url,
@@ -176,6 +177,7 @@ from nexus.ironman import (
     reload_ironman,
     get_init_app_name,
 )
+from nexus.moutain import MoutainClient, get_moutain_client
 from nexus.web_search import WebSearchService, get_web_search_service
 from nexus.deep_research import DeepResearchService, get_deep_research_service
 from nexus.dialogue_history import (
@@ -270,6 +272,7 @@ __all__ = [
     "paginate_response",
     "TimeUtils",
     "MemoryCache",
+    "MoutainClient",
     "cached",
     "HttpClient",
     "HealthRegistry",
@@ -342,6 +345,8 @@ __all__ = [
     "get_timeout_config",
     "get_auth_config",
     "get_llm_quota_config",
+    "get_moutain_client",
+    "get_moutain_config",
     "create_app",
     "setup_middleware",
     "setup_static_files",

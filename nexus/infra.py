@@ -66,6 +66,13 @@ async def get_spider_config() -> dict[str, str]:
     return {"base_url": base_url, "service_token": service_token}
 
 
+async def get_moutain_config() -> dict[str, str]:
+    config = await _get_infra("moutain")
+    base_url = await _infra_url("moutain", "MOUTAIN_BASE_URL", "")
+    service_token = str(config.get("service_token") or "") or os.getenv("SERVICE_TOKEN", "")
+    return {"base_url": base_url, "service_token": service_token}
+
+
 async def get_promptmanager_config() -> dict[str, str]:
     config = await _get_infra("promptmanager")
     base_url = await _infra_url("promptmanager", "PM_BASE_URL", "")
@@ -79,7 +86,8 @@ async def get_beememory_base_url() -> str:
 
 
 async def get_notify_center_url() -> str:
-    return await _infra_url("notifycenter", "NOTIFY_CENTER_URL", "http://localhost:8910")
+    from nexus.defaults import DEFAULT_NOTIFY_CENTER_URL
+    return await _infra_url("notifycenter", "NOTIFY_CENTER_URL", DEFAULT_NOTIFY_CENTER_URL)
 
 
 async def get_chroma_config() -> dict[str, str]:
