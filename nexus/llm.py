@@ -121,6 +121,9 @@ class LLMService:
         output_mode: Optional[OutputMode] = None,
         namespace: Optional[str] = None,
         task_type: Optional[str] = None,
+        model: Optional[str] = None,
+        enable_thinking: bool = False,
+        thinking_budget: int = 8192,
     ) -> str:
         await configure_ironman()
         from ironman import chat as _chat
@@ -148,6 +151,9 @@ class LLMService:
         llm_opts = LLMOptions(
             temperature=temperature,
             max_tokens=eff_max_tokens,
+            model=model,
+            enable_thinking=enable_thinking,
+            thinking_budget=thinking_budget,
             extra=self._build_extra(json_mode, namespace, task_type),
         )
 
@@ -172,6 +178,9 @@ class LLMService:
         output_mode: Optional[OutputMode] = None,
         namespace: Optional[str] = None,
         task_type: Optional[str] = None,
+        model: Optional[str] = None,
+        enable_thinking: bool = False,
+        thinking_budget: int = 8192,
     ) -> str:
         await configure_ironman()
         from ironman import chat as _chat
@@ -198,6 +207,9 @@ class LLMService:
         llm_opts = LLMOptions(
             temperature=temperature,
             max_tokens=eff_max_tokens,
+            model=model,
+            enable_thinking=enable_thinking,
+            thinking_budget=thinking_budget,
             extra=self._build_extra(json_mode, namespace, task_type),
         )
 
@@ -224,6 +236,9 @@ class LLMService:
         max_retries: int = 3,
         concise: bool = False,
         task_type: Optional[str] = None,
+        model: Optional[str] = None,
+        enable_thinking: bool = False,
+        thinking_budget: int = 8192,
     ) -> dict[str, object]:
         raw = await self.ask(
             prompt=prompt,
@@ -235,6 +250,9 @@ class LLMService:
             json_mode=True,
             concise=concise,
             task_type=task_type,
+            model=model,
+            enable_thinking=enable_thinking,
+            thinking_budget=thinking_budget,
         )
         return parse_llm_json(raw)
 
@@ -248,6 +266,9 @@ class LLMService:
         max_retries: int = 3,
         concise: bool = False,
         task_type: Optional[str] = None,
+        model: Optional[str] = None,
+        enable_thinking: bool = False,
+        thinking_budget: int = 8192,
     ) -> dict[str, object]:
         raw = await self.chat(
             messages=messages,
@@ -259,6 +280,9 @@ class LLMService:
             json_mode=True,
             concise=concise,
             task_type=task_type,
+            model=model,
+            enable_thinking=enable_thinking,
+            thinking_budget=thinking_budget,
         )
         return parse_llm_json(raw)
 
@@ -326,6 +350,9 @@ class LLMService:
         output_mode: Optional[OutputMode] = None,
         namespace: Optional[str] = None,
         task_type: Optional[str] = None,
+        model: Optional[str] = None,
+        enable_thinking: bool = False,
+        thinking_budget: int = 8192,
     ) -> AsyncGenerator[str, None]:
         await configure_ironman()
         from ironman import chat_stream as _chat_stream
@@ -343,6 +370,9 @@ class LLMService:
         llm_opts = LLMOptions(
             temperature=temperature,
             max_tokens=eff_max_tokens,
+            model=model,
+            enable_thinking=enable_thinking,
+            thinking_budget=thinking_budget,
             extra=self._build_extra(False, namespace, task_type),
         )
         async for chunk in self._stream(_chat_stream, ironman_messages, llm_opts):
@@ -357,6 +387,9 @@ class LLMService:
         output_mode: Optional[OutputMode] = None,
         namespace: Optional[str] = None,
         task_type: Optional[str] = None,
+        model: Optional[str] = None,
+        enable_thinking: bool = False,
+        thinking_budget: int = 8192,
     ) -> AsyncGenerator[str, None]:
         await configure_ironman()
         from ironman import chat_stream as _chat_stream
@@ -373,6 +406,9 @@ class LLMService:
         llm_opts = LLMOptions(
             temperature=temperature,
             max_tokens=eff_max_tokens,
+            model=model,
+            enable_thinking=enable_thinking,
+            thinking_budget=thinking_budget,
             extra=self._build_extra(False, namespace, task_type),
         )
         msgs: list = []
