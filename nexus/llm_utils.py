@@ -168,6 +168,11 @@ def parse_llm_json(raw: str) -> dict[str, object]:
         cleaned = re.sub(r",\s*}", "}", candidate)
         cleaned = re.sub(r",\s*]", "]", cleaned)
         cleaned = re.sub(r"[\x00-\x1f\x7f]", " ", cleaned)
+        for _ in range(3):
+            merged = re.sub(r'"([^"]*)"\s*:\s*"([^"]*)"\s*:\s*"', r'"\1":"\2：', cleaned)
+            if merged == cleaned:
+                break
+            cleaned = merged
         try:
             result = json.loads(cleaned)
             if isinstance(result, dict):
