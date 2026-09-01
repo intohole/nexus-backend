@@ -93,6 +93,13 @@ from nexus.auth import (
     extract_bearer_token,
 )
 from nexus.auth_routes import create_auth_router
+from nexus.agreement import (
+    AGREEMENT_VERSION,
+    DEFAULT_PRIVACY,
+    DEFAULT_TERMS,
+    AgreementRecord,
+    create_agreement_router,
+)
 from nexus.uc_sdk_helper import (
     init_uc_sdk,
     init_uc_sdk_from_lion,
@@ -312,6 +319,11 @@ __all__ = [
     "get_user_string_id",
     "parse_user_id",
     "create_auth_router",
+    "create_agreement_router",
+    "AgreementRecord",
+    "AGREEMENT_VERSION",
+    "DEFAULT_TERMS",
+    "DEFAULT_PRIVACY",
     "init_uc_sdk",
     "init_uc_sdk_from_lion",
     "get_uc_sdk",
