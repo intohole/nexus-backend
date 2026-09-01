@@ -190,6 +190,14 @@ class ConfigFactory:
         with open(path, "r", encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
         resolved = _resolve_dict(raw)
+        if isinstance(resolved, dict):
+            db_cfg = resolved.get("database")
+            if isinstance(db_cfg, dict):
+                url = db_cfg.get("url")
+                if isinstance(url, str) and url.startswith("sqlite"):
+                    scheme, sep, db_path = url.partition(":///")
+                    if sep and db_path and not db_path.startswith("/"):
+                        db_cfg["url"] = f"{scheme}:///{(path.parent / db_path).resolve()}"
         with cls._lock:
             cls._raw_yaml = resolved if isinstance(resolved, dict) else {}
             config = NexusConfig(**resolved)
