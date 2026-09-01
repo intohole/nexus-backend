@@ -84,8 +84,8 @@ def record_usage(
 ) -> None:
     usage = getattr(response, "usage", None)
     tokens = int(getattr(usage, "total_tokens", 0) or 0)
+    cached_tokens = int(getattr(usage, "cached_tokens", 0) or 0)
     model: str = getattr(response, "model", "") or "unknown"
-    cached: bool = bool(getattr(response, "cached", False))
     cost_usd: float = float(getattr(response, "cost_usd", 0.0) or 0.0)
     metrics.record(
         app_name,
@@ -93,6 +93,6 @@ def record_usage(
         latency,
         tokens=tokens,
         error=error,
-        cached=cached,
+        cached_tokens=cached_tokens,
         cost_usd=cost_usd,
     )

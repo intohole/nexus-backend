@@ -51,7 +51,7 @@ class LLMMetrics:
         latency: float,
         tokens: int = 0,
         error: Optional[str] = None,
-        cached: bool = False,
+        cached_tokens: int = 0,
         cost_usd: float = 0.0,
     ) -> None:
         """记录一次 LLM 调用。
@@ -62,7 +62,7 @@ class LLMMetrics:
             latency: 调用耗时（秒）
             tokens: token 用量（来自 response.usage.total_tokens）
             error: 错误类型名（None 表示成功）
-            cached: 是否命中前缀缓存（来自 response.cached）
+            cached_tokens: 前缀缓存命中 token 数（来自 response.usage.cached_tokens）
             cost_usd: 估算成本（美元，来自 response.cost_usd）
         """
         with self._call_lock:
@@ -70,8 +70,7 @@ class LLMMetrics:
             self._total_latency += latency
             self._total_tokens += tokens
             self._total_cost_usd += cost_usd
-            if cached:
-                self._cached_tokens += tokens
+            self._cached_tokens += cached_tokens
             if error:
                 self._errors += 1
                 self._by_status[error] += 1
