@@ -1,4 +1,4 @@
-"""多模态视觉审查中间件服务，统一封装 PromptManager 网关视觉能力（GLM-4.5V 等），供各应用复用."""
+"""多模态视觉审查中间件服务，统一封装 PromptManager 网关视觉能力（GLM-4.6V-Flash/GLM-4.5V），供各应用复用."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from nexus.lion import get_chat_config, get_image_config
 logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 90.0
-DEFAULT_VISION_MODEL = "glm-4.5v"
+DEFAULT_VISION_MODEL = "glm-4.6v-flash"
 
 
 class VisionService:
