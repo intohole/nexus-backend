@@ -73,24 +73,30 @@ class ThinkStreamFilter:
             if self._inside:
                 idx = self._buf.find(THINK_CLOSE)
                 if idx == -1:
-                    keep = min(len(self._buf), len(THINK_CLOSE) - 1)
-                    self._buf = self._buf[len(self._buf) - keep:] if keep else ""
+                    keep = len(THINK_CLOSE) - 1
+                    if len(self._buf) > keep:
+                        self._buf = self._buf[-keep:]
                     break
                 self._inside = False
                 self._buf = self._buf[idx + len(THINK_CLOSE):]
             else:
-                idx = self._buf.find(THINK_OPEN)
-                if idx == -1:
-                    keep = min(len(self._buf), len(THINK_OPEN) - 1)
-                    emit = self._buf[: len(self._buf) - keep] if keep else self._buf
-                    if emit:
-                        out.append(emit)
-                    self._buf = self._buf[len(self._buf) - keep:] if keep else ""
+                o = self._buf.find(THINK_OPEN)
+                c = self._buf.find(THINK_CLOSE)
+                if o != -1 and (c == -1 or o < c):
+                    if o > 0:
+                        out.append(self._buf[:o])
+                    self._inside = True
+                    self._buf = self._buf[o + len(THINK_OPEN):]
+                elif c != -1:
+                    if c > 0:
+                        out.append(self._buf[:c])
+                    self._buf = self._buf[c + len(THINK_CLOSE):]
+                else:
+                    keep = max(len(THINK_OPEN), len(THINK_CLOSE)) - 1
+                    if len(self._buf) > keep:
+                        out.append(self._buf[:-keep])
+                        self._buf = self._buf[-keep:]
                     break
-                if idx > 0:
-                    out.append(self._buf[:idx])
-                self._inside = True
-                self._buf = self._buf[idx + len(THINK_OPEN):]
         return "".join(out)
 
     def flush(self) -> str:
