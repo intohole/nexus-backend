@@ -432,20 +432,27 @@ class LLMService:
         think_filter = ThinkStreamFilter()
         last_usage: Optional[object] = None
         last_model: str = "unknown"
-        async for chunk in chat_stream(messages=msgs, llm=llm_opts):
-            if chunk.content:
-                piece = think_filter.feed(chunk.content)
-                if piece:
-                    has_content = True
-                    yield piece
-            if chunk.usage is not None:
-                last_usage = chunk.usage
-            if chunk.model:
-                last_model = chunk.model
-        tail = think_filter.flush()
-        if tail:
-            has_content = True
-            yield tail
+        max_attempts: int = 2
+        for attempt in range(max_attempts):
+            async for chunk in chat_stream(messages=msgs, llm=llm_opts):
+                if chunk.content:
+                    piece = think_filter.feed(chunk.content)
+                    if piece:
+                        has_content = True
+                        yield piece
+                if chunk.usage is not None:
+                    last_usage = chunk.usage
+                if chunk.model:
+                    last_model = chunk.model
+            tail = think_filter.flush()
+            if tail:
+                has_content = True
+                yield tail
+            if has_content:
+                break
+            if attempt + 1 < max_attempts:
+                think_filter = ThinkStreamFilter()
+                logger.warning(f"stream_chat: empty visible content (attempt {attempt + 1}), retrying")
         metrics.record(
             app_name,
             last_model,
