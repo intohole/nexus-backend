@@ -10,6 +10,7 @@ from nexus.logging import get_logger
 from nexus.llm_metrics import get_llm_metrics
 from nexus.circuit_breaker import get_llm_circuit
 from nexus.llm_utils import parse_llm_json, with_retry, LLMTimeoutError
+from nexus.streaming import ThinkStreamFilter
 from nexus.llm_helpers import (
     apply_output_discipline,
     convert_messages,
@@ -428,19 +429,23 @@ class LLMService:
         app_name: str = _resolve_app_name()
         start: float = time.monotonic()
         has_content: bool = False
-        reasoning_buffer: list[str] = []
+        think_filter = ThinkStreamFilter()
         last_usage: Optional[object] = None
         last_model: str = "unknown"
         async for chunk in chat_stream(messages=msgs, llm=llm_opts):
             if chunk.content:
-                has_content = True
-                yield chunk.content
-            elif chunk.reasoning:
-                reasoning_buffer.append(chunk.reasoning)
+                piece = think_filter.feed(chunk.content)
+                if piece:
+                    has_content = True
+                    yield piece
             if chunk.usage is not None:
                 last_usage = chunk.usage
             if chunk.model:
                 last_model = chunk.model
+        tail = think_filter.flush()
+        if tail:
+            has_content = True
+            yield tail
         metrics.record(
             app_name,
             last_model,
@@ -448,9 +453,9 @@ class LLMService:
             tokens=int(getattr(last_usage, "total_tokens", 0) or 0),
             error=None,
         )
-        if not has_content and reasoning_buffer:
-            logger.warning("stream_chat: no content, yielding reasoning fallback")
-            yield "".join(reasoning_buffer)
+        if not has_content:
+            logger.warning("stream_chat: no visible content after think-filter")
+            yield "抱歉，本次未能生成有效回答，请换个问法或稍后重试。"
 
     async def embed(
         self,
