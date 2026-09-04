@@ -145,6 +145,15 @@ from nexus.fastapi_setup import (
     register_internal_endpoints,
     AppLifecycle,
 )
+from nexus.datacenter import (
+    DatacenterClient,
+    get_datacenter_client,
+    DOMAIN_CAREER,
+    DOMAIN_KNOWLEDGE,
+    DOMAIN_CREATIVE,
+    DOMAIN_GROWTH,
+    DOMAIN_ASSET,
+)
 from nexus.llm_utils import (
     parse_llm_json,
     find_balanced_json,
