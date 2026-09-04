@@ -172,19 +172,24 @@ def create_auth_router(
         ) -> object:
             user_id: object = user_info.get("user_id")
             username: str = str(user_id) if user_id else ""
+            uc_user: dict[str, object] = {}
             try:
                 uc_resp: dict[str, object] = await uc_sdk_provider().get_current_user(
                     token=credentials.credentials
                 )
                 if isinstance(uc_resp, dict) and uc_resp.get("success"):
-                    uc_user: dict[str, object] = uc_resp.get("data") or {}
+                    uc_user = uc_resp.get("data") or {}
                     username = str(uc_user.get("username") or uc_user.get("id") or user_id)
             except Exception as exc:
                 logger.warning("获取用户名失败(user_id=%s): %s", user_id, exc)
             if me_transformer:
                 try:
                     user_id_str = str(user_id) if user_id else ""
-                    transformed = await me_transformer(user_info, user_id_str)
+                    enriched: dict[str, object] = dict(user_info)
+                    for key in ("username", "email", "phone"):
+                        if uc_user.get(key):
+                            enriched[key] = uc_user[key]
+                    transformed = await me_transformer(enriched, user_id_str)
                     return wrap_ok(transformed, "获取成功")
                 except Exception as exc:
                     logger.warning("me_transformer failed: %s", exc)
