@@ -51,7 +51,8 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                 status_code=500,
                 content={
                     "code": 500,
-                    "message": "Internal server error",
+                    "message": "服务开小差了，请稍后重试",
+                    "error_code": "INTERNAL_ERROR",
                     "trace_id": request_id,
                 },
             )
