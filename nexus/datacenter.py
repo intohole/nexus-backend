@@ -129,9 +129,10 @@ async def report_core(
     items: [{domain, asset_type, app, ref_id, title, summary?}]
     """
     if not user_token or not items:
-        return {"requested": 0, "succeeded": 0}
+        return {"requested": 0, "succeeded": 0, "new": 0}
     client: DatacenterClient = await get_datacenter_client()
     succeeded: int = 0
+    new_count: int = 0
     for item in items:
         result: dict[str, object] = await client.report(
             user_token,
@@ -144,7 +145,10 @@ async def report_core(
         )
         if result:
             succeeded += 1
-    return {"requested": len(items), "succeeded": succeeded}
+            info: dict[str, object] | None = result.get("data")
+            if isinstance(info, dict) and info.get("created"):
+                new_count += 1
+    return {"requested": len(items), "succeeded": succeeded, "new": new_count}
 
 
 _aggregated_client: Optional[DatacenterClient] = None
