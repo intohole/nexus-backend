@@ -120,6 +120,33 @@ class DatacenterClient:
             return False
 
 
+async def report_core(
+    user_token: str,
+    items: list[dict[str, object]],
+) -> dict[str, int]:
+    """批量幂等上报核心产出条目，供各应用\"同步我的产出\"复用。
+
+    items: [{domain, asset_type, app, ref_id, title, summary?}]
+    """
+    if not user_token or not items:
+        return {"requested": 0, "succeeded": 0}
+    client: DatacenterClient = await get_datacenter_client()
+    succeeded: int = 0
+    for item in items:
+        result: dict[str, object] = await client.report(
+            user_token,
+            domain=int(item["domain"]),
+            asset_type=str(item["asset_type"]),
+            app=str(item["app"]),
+            ref_id=str(item["ref_id"]),
+            title=str(item.get("title") or ""),
+            summary=str(item.get("summary") or "") if item.get("summary") else None,
+        )
+        if result:
+            succeeded += 1
+    return {"requested": len(items), "succeeded": succeeded}
+
+
 _aggregated_client: Optional[DatacenterClient] = None
 
 

@@ -148,6 +148,7 @@ from nexus.fastapi_setup import (
 from nexus.datacenter import (
     DatacenterClient,
     get_datacenter_client,
+    report_core,
     DOMAIN_CAREER,
     DOMAIN_KNOWLEDGE,
     DOMAIN_CREATIVE,
