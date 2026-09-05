@@ -46,6 +46,7 @@ class DatacenterClient:
         title: str,
         summary: Optional[str] = None,
         payload: Optional[dict[str, object]] = None,
+        occurred_at: Optional[str] = None,
     ) -> dict[str, object]:
         body: dict[str, object] = {
             "domain": domain,
@@ -56,6 +57,8 @@ class DatacenterClient:
             "summary": summary,
             "payload": payload,
         }
+        if occurred_at:
+            body["occurred_at"] = occurred_at
         try:
             resp: httpx.Response = await self._http.post(
                 "/api/datacenter/assets",
@@ -142,6 +145,7 @@ async def report_core(
             ref_id=str(item["ref_id"]),
             title=str(item.get("title") or ""),
             summary=str(item.get("summary") or "") if item.get("summary") else None,
+            occurred_at=str(item.get("occurred_at") or "") if item.get("occurred_at") else None,
         )
         if result:
             succeeded += 1
