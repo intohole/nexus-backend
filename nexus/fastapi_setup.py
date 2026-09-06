@@ -248,7 +248,7 @@ def setup_static_files(
     cfg: NexusConfig = get_settings()
     static_dir: str = directory or cfg.static_files.directory
     spa: bool = spa_fallback if spa_fallback is not None else cfg.static_files.spa_fallback
-    prefix: str = path_prefix or cfg.path_prefix
+    prefix: str = cfg.path_prefix if path_prefix is None else (path_prefix or "")
 
     static_path: Path = Path(static_dir)
     if not static_path.exists():
