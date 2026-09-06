@@ -14,6 +14,7 @@ from nexus.config import NexusConfig, get_settings
 from nexus.context import set_request_context
 from nexus.errors import AuthError
 from nexus.logging import get_logger
+from nexus.user_display import resolve_display_name
 
 logger = get_logger("nexus.auth")
 
@@ -264,6 +265,11 @@ def normalize_user_dict(user: dict[str, object]) -> dict[str, object]:
         "app_id": user.get("app_id"),
         "role": user.get("role", "user"),
         "vip_level": user.get("vip_level", 0),
+        "display_name": user.get("display_name", ""),
+        "nickname": user.get("nickname", ""),
+        "username": user.get("username", ""),
+        "full_name": user.get("full_name", ""),
+        "resolved_display_name": resolve_display_name(user),
     }
 
 
