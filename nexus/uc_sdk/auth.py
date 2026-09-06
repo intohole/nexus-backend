@@ -79,6 +79,7 @@ class AuthMixin:
             "app_id": payload.get("app_id"),
             "role": payload.get("role"),
             "vip_level": payload.get("vip_level"),
+            "display_name": payload.get("display_name", ""),
             "has_permission": True,
         }
 
@@ -135,6 +136,7 @@ class AuthMixin:
             "app_id": payload.get("app_id"),
             "role": payload.get("role"),
             "vip_level": payload.get("vip_level"),
+            "display_name": payload.get("display_name", ""),
             "has_permission": True
         }
 
@@ -166,6 +168,9 @@ class AuthMixin:
                 "app_id": inner.get("app_id"),
                 "role": inner.get("role"),
                 "vip_level": inner.get("vip_level"),
+                "username": inner.get("username", ""),
+                "nickname": inner.get("nickname", ""),
+                "display_name": inner.get("display_name", ""),
                 "has_permission": inner.get("has_permission", True),
             }
         return result

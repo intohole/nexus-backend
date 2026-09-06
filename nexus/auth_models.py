@@ -38,13 +38,8 @@ class RegisterRequest(BaseModel):
 
     @model_validator(mode="after")
     def _ensure_username(self) -> "RegisterRequest":
-        if not self.username:
-            if self.name:
-                self.username = self.name
-            elif self.phone:
-                self.username = f"用户{self.phone[-4:]}"
-        if not self.username or len(self.username) < 3:
-            raise ValueError("用户名至少3个字符（可通过 username、name 或 phone 自动生成）")
+        if not self.username and self.name:
+            self.username = self.name
         return self
 
 
@@ -106,6 +101,7 @@ class BindContactRequest(BaseModel):
 
 
 class UpdateUserRequest(BaseModel):
+    nickname: Optional[str] = Field(None, min_length=1, max_length=50)
     email: Optional[str] = None
     phone: Optional[str] = None
     old_password: Optional[str] = None

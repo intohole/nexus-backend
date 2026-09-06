@@ -171,7 +171,9 @@ def create_auth_router(
             credentials: HTTPAuthorizationCredentials = Depends(_security),
         ) -> object:
             user_id: object = user_info.get("user_id")
-            username: str = str(user_id) if user_id else ""
+            username: str = ""
+            nickname: str = ""
+            display_name: str = ""
             uc_user: dict[str, object] = {}
             try:
                 uc_resp: dict[str, object] = await uc_sdk_provider().get_current_user(
@@ -179,14 +181,16 @@ def create_auth_router(
                 )
                 if isinstance(uc_resp, dict) and uc_resp.get("success"):
                     uc_user = uc_resp.get("data") or {}
-                    username = str(uc_user.get("username") or uc_user.get("id") or user_id)
+                    username = str(uc_user.get("username") or "")
+                    nickname = str(uc_user.get("nickname") or "")
+                    display_name = str(uc_user.get("display_name") or "")
             except Exception as exc:
-                logger.warning("获取用户名失败(user_id=%s): %s", user_id, exc)
+                logger.warning("获取用户信息失败(user_id=%s): %s", user_id, exc)
             if me_transformer:
                 try:
                     user_id_str = str(user_id) if user_id else ""
                     enriched: dict[str, object] = dict(user_info)
-                    for key in ("username", "email", "phone"):
+                    for key in ("username", "nickname", "display_name", "email", "phone"):
                         if uc_user.get(key):
                             enriched[key] = uc_user[key]
                     transformed = await me_transformer(enriched, user_id_str)
@@ -197,6 +201,8 @@ def create_auth_router(
                 {
                     "id": user_id,
                     "username": username,
+                    "nickname": nickname,
+                    "display_name": display_name,
                     "role": user_info.get("role", "user"),
                     "vip_level": user_info.get("vip_level", 0),
                 },
@@ -354,6 +360,8 @@ def create_auth_router(
             credentials: HTTPAuthorizationCredentials = Depends(_security),
         ) -> object:
             update_data: dict[str, object] = {}
+            if request.nickname:
+                update_data["nickname"] = request.nickname
             if request.email:
                 update_data["email"] = request.email
             if request.phone:
