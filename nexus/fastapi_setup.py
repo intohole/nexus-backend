@@ -109,6 +109,9 @@ def create_app(
     if enable_loading_splash:
         app.add_middleware(LoadingSplashMiddleware, app_name=cfg.app_name)
 
+    from nexus.middleware_exception import setup_exception_handlers
+    setup_exception_handlers(app)
+
     setup_cors(app, cfg)
 
     setup_health_check(app, lifespan._health_registry, cfg)
@@ -162,6 +165,10 @@ def setup_middleware(
         app.add_middleware(LoadingSplashMiddleware, app_name=cfg.app_name)
     if enable_cors:
         setup_cors(app, cfg, origins=cors_origins)
+
+    if enable_error_handler:
+        from nexus.middleware_exception import setup_exception_handlers
+        setup_exception_handlers(app)
 
 
 def register_internal_endpoints(app: FastAPI) -> None:
