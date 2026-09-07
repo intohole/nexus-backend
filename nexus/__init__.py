@@ -240,7 +240,13 @@ from nexus.llm_rate_limiter import (
     get_llm_rate_limiter,
 )
 from nexus.resilient_llm import resilient_ask, resilient_extract, resilient_stream
-from nexus.scheduler import NexusScheduler, get_scheduler, setup_scheduler
+from nexus.scheduler import (
+    NexusScheduler,
+    NexusThreadScheduler,
+    get_scheduler,
+    get_thread_scheduler,
+    setup_scheduler,
+)
 from nexus.sanitize import sanitize_agent_output, sanitize_text_stream
 
 __version__ = "1.13.0"
@@ -454,6 +460,8 @@ __all__ = [
     "NexusScheduler",
     "get_scheduler",
     "setup_scheduler",
+    "NexusThreadScheduler",
+    "get_thread_scheduler",
     "sanitize_agent_output",
     "sanitize_text_stream",
 ]
