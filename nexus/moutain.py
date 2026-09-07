@@ -1,11 +1,13 @@
 """Moutain 望岳服务客户端: 统一封装智能内容监测的搜索/爬取/RSS能力."""
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional
 
 import httpx
 
 from nexus.infra import get_moutain_config
+from nexus.ironman import get_init_app_name
 from nexus.logging import get_logger
 
 logger = get_logger("nexus.moutain")
@@ -36,6 +38,9 @@ class MoutainClient:
         headers: Dict[str, str] = {"Content-Type": "application/json"}
         if service_token:
             headers["X-Service-Token"] = service_token
+        source_app = get_init_app_name() or os.environ.get("LION_NAMESPACE", "") or ""
+        if source_app:
+            headers["X-App-Name"] = source_app
         self._client = httpx.AsyncClient(timeout=30.0, headers=headers)
         self._configured_base_url = base_url
         self._configured_service_token = service_token
