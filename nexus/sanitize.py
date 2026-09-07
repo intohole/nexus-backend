@@ -43,6 +43,35 @@ _TAIL_HINTS: tuple[str, ...] = (
     "综上所述",
 )
 
+def strip_known_tool_traces(text: str, tool_names: list[str]) -> str:
+    """剥离正文中混入的内部工具调用痕迹(如 get_stock_price招商银行(SH600036))。
+
+    命中白名单工具名时删除工具名及其紧贴的参数串/动作词，保留行内正常正文。
+    """
+    if not text or not tool_names:
+        return text
+    names: list[str] = [n for n in tool_names if n]
+    if not names:
+        return text
+    out: list[str] = []
+    for line in text.split("\n"):
+        cleaned: str = line
+        for name in names:
+            while True:
+                start: int = cleaned.find(name)
+                if start < 0:
+                    break
+                head: str = cleaned[:start]
+                tail: str = cleaned[start + len(name):]
+                m = re.match(r"[^，,。.、；;:：\s]{0,40}", tail)
+                tail_clean: str = tail[m.end():] if m else tail
+                cleaned = (head + tail_clean).strip()
+        cleaned = cleaned.strip()
+        if cleaned:
+            out.append(cleaned.lstrip("，,。.、；;:： ").strip())
+    joined: str = "\n".join(out)
+    return re.sub(r"\n{3,}", "\n\n", joined).strip()
+
 
 def _strip_trace_lines(text: str) -> str:
     out: List[str] = []
