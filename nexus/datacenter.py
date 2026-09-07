@@ -122,6 +122,41 @@ class DatacenterClient:
             logger.error("Datacenter delete failed: %s", str(exc))
             return False
 
+    async def delete_by_ref(
+        self,
+        user_token: str,
+        domain: int,
+        asset_type: str,
+        app: str,
+        ref_id: str,
+    ) -> int:
+        deleted: int = 0
+        try:
+            page: int = 1
+            while True:
+                result = await self.list_assets(
+                    user_token,
+                    domain=domain,
+                    asset_type=asset_type,
+                    app=app,
+                    page=page,
+                    page_size=50,
+                )
+                items: list = (result or {}).get("data", {}).get("items", [])
+                if not items:
+                    break
+                for asset in items:
+                    if str(asset.get("ref_id", "")) == str(ref_id):
+                        if await self.delete(user_token, int(asset["id"])):
+                            deleted += 1
+                total: int = (result or {}).get("data", {}).get("total", 0)
+                if page * 50 >= total:
+                    break
+                page += 1
+        except Exception as exc:
+            logger.error("Datacenter delete_by_ref failed: %s", str(exc))
+        return deleted
+
 
 async def report_core(
     user_token: str,
