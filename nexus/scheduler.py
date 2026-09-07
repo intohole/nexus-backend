@@ -1,3 +1,8 @@
+"""调度器抽象：AsyncIOScheduler(事件循环内) 与 BackgroundScheduler(线程) 两种模式。
+
+- NexusScheduler       : async 任务调度（asyncio 事件循环内执行）
+- NexusThreadScheduler : 同步/阻塞型周期任务调度（后台线程，不阻塞事件循环）
+"""
 from __future__ import annotations
 
 import asyncio
