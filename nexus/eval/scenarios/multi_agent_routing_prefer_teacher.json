@@ -1,0 +1,10 @@
+{
+  "id": "multi_agent_routing_prefer_teacher",
+  "desc": "学生问未答问题后导演二次决策仍路由teacher，验证不提前END",
+  "config": {"mode": "multi_agent", "agents": ["teacher", "student"]},
+  "conversation": [
+    {"role": "user", "content": "AI会取代人类吗？"},
+    {"role": "assistant", "content": "好的，这是个值得探讨的问题。"}
+  ],
+  "expect": {"first_speaker": "teacher", "answer_content": false}
+}

@@ -1,0 +1,9 @@
+{
+  "id": "multi_agent_answer_content",
+  "desc": "学生问化学方程式配平，期望 teacher 首句直接作答",
+  "config": {"mode": "multi_agent", "agents": ["teacher", "student"]},
+  "conversation": [
+    {"role": "user", "content": "配平这个方程式: KMnO4 + HCl -> KCl + MnCl2 + Cl2 + H2O"}
+  ],
+  "expect": {"first_speaker": "teacher", "answer_content": true}
+}
