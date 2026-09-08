@@ -1,3 +1,4 @@
+"""LLM质检裁判 — 对一次AI课堂对话打分,产出内容质量与路由质量判定。"""
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 

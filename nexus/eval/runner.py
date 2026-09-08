@@ -1,3 +1,4 @@
+"""LLM质检门禁 — 遍历场景跑裁判打分,产出markdown报告,gate模式作为部署前回归检查。"""
 import argparse
 import asyncio
 import json
