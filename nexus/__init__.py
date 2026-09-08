@@ -247,7 +247,7 @@ from nexus.scheduler import (
     get_thread_scheduler,
     setup_scheduler,
 )
-from nexus.sanitize import sanitize_agent_output, sanitize_text_stream
+from nexus.sanitize import sanitize_agent_output, sanitize_platform_text, sanitize_text_stream
 
 __version__ = "1.13.0"
 

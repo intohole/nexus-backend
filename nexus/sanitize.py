@@ -22,6 +22,19 @@ _TOOL_TRACE_RE: re.Pattern[str] = re.compile(
     r"|(专门|主要)?用于(获取|查询|展示|处理)[\u4e00-\u9fa5A-Za-z0-9_()（）]{0,20}(功能|工具|能力|数据)"
     r"|\b[a-zA-Z][a-zA-Z0-9_]{2,30}\.[a-zA-Z]\w+\b"
 )
+
+_FUNC_LIKE_RE: re.Pattern[str] = re.compile(
+    r"(?<![A-Za-z0-9_])[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}"
+)
+
+_LEAK_PHRASES: tuple[str, ...] = (
+    "不在本次注入", "注入的可参考", "可参考院校数据内",
+    "以上是内部", "系统提示词残留", "内部函数名", "内部工具名",
+)
+
+_INTERNAL_LABEL_RE: re.Pattern[str] = re.compile(
+    r"[（(]?(?:内部|底层|后台)[)）]?\s*(?:函数|接口|方法|工具)[名]?\s*[:：]?\s*[A-Za-z_][A-Za-z0-9_]*"
+)
 _DEFINITELY_TRACE_RE: re.Pattern[str] = re.compile(
     r"(功能|工具|能力|接口)[\u4e00-\u9fa5A-Za-z0-9_()（）]{0,20}(专门|主要)?用于"
     r"|(专门|主要)?用于(获取|查询|展示|处理)"
@@ -124,3 +137,28 @@ async def sanitize_text_stream(chunks: AsyncIterator[str]) -> AsyncIterator[str]
             buf = []
     if not released:
         yield sanitize_agent_output("".join(buf))
+
+
+def sanitize_platform_text(text: str) -> str:
+    """平台级输出脱敏：对所有 AI 对话出口统一剥离内部实现泄漏。
+
+    覆盖三类泄漏：
+    - 工具函数名(get_stock_price / goldenstock_market_overview / build_score_school_data)
+    - 内部注入/差异提示话术("不在本次注入"等)
+    - "内部函数 xxx"式标签
+    """
+    if not text or not text.strip():
+        return text
+    cleaned: str = sanitize_agent_output(text)
+    cleaned = _FUNC_LIKE_RE.sub("", cleaned)
+    for phrase in _LEAK_PHRASES:
+        cleaned = cleaned.replace(phrase, "")
+    cleaned = _INTERNAL_LABEL_RE.sub("", cleaned)
+    cleaned = cleaned.replace("『』", "").replace("「」", "")
+    cleaned = re.sub(r"(?<=[，,。.、；;:：])\s*[」』]", "", cleaned)
+    cleaned = re.sub(r"[」』，,。.、；;:：\s]{2,}", " ", cleaned)
+    cleaned = re.sub(r"(?<=[」』，,。.、；;:：\s])(?:的|为)(?=[」』，,。.、；;:：\s])", "", cleaned)
+    cleaned = re.sub(r"[\u3002\uff0c\uff1b\uff1a\uff01\uff1f，,。.;；:]{2,}", lambda m: m.group(0)[-1], cleaned)
+    cleaned = re.sub(r" +", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
