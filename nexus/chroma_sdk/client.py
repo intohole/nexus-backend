@@ -115,6 +115,16 @@ class ChromaSDK:
     async def get_collection(self, name: str) -> dict[str, object]:
         return await self._request("GET", f"/api/v1/collections/{name}")
 
+    async def ensure_collection(
+        self,
+        name: str,
+        metadata: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        result = await self.get_collection(name)
+        if isinstance(result, dict) and result.get("success") is False and "404" in str(result.get("detail", "")):
+            return await self.create_collection(name, metadata)
+        return result
+
     async def delete_collection(self, name: str) -> dict[str, object]:
         return await self._request("DELETE", f"/api/v1/collections/{name}")
 
