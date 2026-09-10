@@ -13,6 +13,16 @@
     data: {"type": "done", "content": "完整文本"}\n\n
     data: {"type": "error", "message": "..."}\n\n
 
+消息内组件事件（组件协议，前端 nux-ai-chat 自动路由渲染）：
+    data: {"type": "widget", "id": "w1", "widget": "table", "title": "技术指标",
+           "data": {"summary": {"信号": "买入"}, "columns": ["指标", "数值"], "rows": [...]}}\n\n
+    data: {"type": "widget_update", "id": "w1", "data": {...}}\n\n
+    widget 取值: table(数据表) / cards(卡片列表) / steps(步骤时间线) /
+                 related(相关追问, data.items[{text,value}], 点击自动追问) /
+                 choice(选项选择, data.options[{label,value,recommended}]) /
+                 feedback(赞踩反馈)
+    widget_update 用于流式填充或更新已下发组件的 data（按 id 定位）。
+
 若 ironman 暂不支持原生 streaming，调用方可先用 `chunked_text_stream`
 将完整文本切块后 yield，模拟流式 UX。
 """
@@ -120,13 +130,31 @@ def sse_event_dict(event_type: str, payload: Optional[dict[str, Any]] = None) ->
 
     统一约定：所有事件必须带 type 字段，取值如
     start / delta / content / thinking / tool_executed / references /
-    queue / queue_ready / done / error。
+    widget / widget_update / queue / queue_ready / done / error。
     error 事件统一为 {"type":"error", "message": "..."}。
     """
     data: dict[str, Any] = {"type": event_type}
     if payload:
         data.update(payload)
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def sse_widget(widget_id: str, widget_type: str, data: dict[str, Any],
+               title: str = "") -> str:
+    """格式化消息内组件事件，前端 nux-ai-chat 自动路由渲染。
+
+    用法:
+        yield sse_widget("tech", "table", {"columns": [...], "rows": [...]}, "技术指标")
+    """
+    payload: dict[str, Any] = {"id": widget_id, "widget": widget_type, "data": data}
+    if title:
+        payload["title"] = title
+    return sse_event_dict("widget", payload)
+
+
+def sse_widget_update(widget_id: str, data: dict[str, Any]) -> str:
+    """格式化组件更新事件，按 id 流式填充组件 data。"""
+    return sse_event_dict("widget_update", {"id": widget_id, "data": data})
 
 
 def sse_response(
@@ -413,6 +441,8 @@ __all__ = [
     "SSE_HEADERS",
     "sse_event",
     "sse_event_dict",
+    "sse_widget",
+    "sse_widget_update",
     "sse_response",
     "sse_chat_stream",
     "sse_chat_stream_v2",
