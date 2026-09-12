@@ -12,6 +12,11 @@ from nexus.context import get_request_id
 from nexus.errors import NexusError
 from nexus.logging import get_logger
 
+try:
+    from sqlalchemy.exc import SQLAlchemyError
+except ImportError:
+    SQLAlchemyError = None
+
 _NOT_FOUND_HTML = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -42,6 +47,36 @@ def _wants_html(request: Request) -> bool:
     return "text/html" in accept and "application/json" not in accept
 
 
+_HTTP_ERROR_CODES: dict[int, str] = {
+    400: "BAD_REQUEST",
+    401: "AUTH_ERROR",
+    403: "FORBIDDEN",
+    404: "NOT_FOUND",
+    409: "CONFLICT",
+    422: "VALIDATION_ERROR",
+    429: "RATE_LIMIT_EXCEEDED",
+    500: "INTERNAL_ERROR",
+    502: "EXTERNAL_SERVICE_ERROR",
+    503: "SERVICE_UNAVAILABLE",
+    "default": "HTTP_ERROR",
+}
+
+_VALIDATION_MSG_MAP: dict[str, str] = {
+    "Field required": "该字段必填",
+    "field required": "该字段必填",
+    "Input should be a valid integer": "应为整数",
+    "Input should be a valid number": "应为数字",
+    "Input should be a valid string": "应为字符串",
+    "Input should be 'true' or 'false'": "应为布尔值",
+    "String should have at most 1 character": "最大长度1",
+    "extra fields not permitted": "不允许的额外字段",
+}
+
+
+def _chinese_validation_msg(raw: str) -> str:
+    return _VALIDATION_MSG_MAP.get(raw, raw)
+
+
 class ErrorHandlerMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self,
@@ -70,6 +105,22 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                 },
             )
         except Exception as exc:
+            if SQLAlchemyError is not None and isinstance(exc, SQLAlchemyError):
+                logger.error(
+                    "Database error [req_id=%s]: %s",
+                    request_id,
+                    str(exc),
+                    exc_info=True,
+                )
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "code": 500,
+                        "message": "数据库操作失败，请稍后重试",
+                        "error_code": "DATABASE_ERROR",
+                        "trace_id": request_id,
+                    },
+                )
             logger.error(
                 "Unhandled exception [req_id=%s]: %s",
                 request_id,
@@ -104,6 +155,7 @@ def setup_exception_handlers(app: FastAPI) -> None:
             content={
                 "code": exc.status_code,
                 "message": str(exc.detail),
+                "error_code": _HTTP_ERROR_CODES.get(exc.status_code, _HTTP_ERROR_CODES["default"]),
                 "trace_id": request_id,
             },
         )
@@ -111,6 +163,14 @@ def setup_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def _validation_exc_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
         request_id: str = get_request_id() or getattr(request.state, "request_id", "-")
+        first = exc.errors()[0] if exc.errors() else {}
+        loc = [str(x) for x in first.get("loc", []) if x != "body"]
+        field = loc[-1] if loc else ""
+        msg = _chinese_validation_msg(first.get("msg", ""))
+        if field:
+            message = f"参数有误：{field} {msg}"
+        else:
+            message = "请求参数校验失败"
         logger.warning(
             "Validation error [req_id=%s]: %s %s: %s",
             request_id, request.method, request.url.path, str(exc.errors())[:200],
@@ -119,9 +179,16 @@ def setup_exception_handlers(app: FastAPI) -> None:
             status_code=422,
             content={
                 "code": 422,
-                "message": "Request validation error",
+                "message": message,
+                "error_code": "VALIDATION_ERROR",
                 "trace_id": request_id,
-                "errors": exc.errors(),
+                "errors": [
+                    {
+                        "field": "".join([f"[{x}]" if isinstance(x, int) else f".{x}" for x in e.get("loc", []) if x != "body"]).lstrip("."),
+                        "message": _chinese_validation_msg(e.get("msg", "")),
+                    }
+                    for e in exc.errors()
+                ],
             },
         )
 
@@ -137,6 +204,7 @@ def setup_exception_handlers(app: FastAPI) -> None:
             content={
                 "code": 400,
                 "message": str(exc),
+                "error_code": "BAD_REQUEST",
                 "trace_id": request_id,
             },
         )
