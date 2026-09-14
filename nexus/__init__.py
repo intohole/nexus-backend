@@ -199,6 +199,7 @@ from nexus.ironman import (
     get_init_app_name,
 )
 from nexus.moutain import MoutainClient, get_moutain_client
+from nexus.jwt_utils import sign_jwt, verify_jwt
 from nexus.web_search import (
     WebSearchService,
     get_web_search_service,
@@ -219,6 +220,7 @@ from nexus.streaming import (
     SSE_HEADERS,
     sse_event,
     sse_event_dict,
+    sse_data_line,
     sse_response,
     sse_chat_stream,
     sse_chat_stream_v2,
@@ -402,6 +404,8 @@ __all__ = [
     "get_auth_config",
     "get_llm_quota_config",
     "get_moutain_client",
+    "sign_jwt",
+    "verify_jwt",
     "get_moutain_config",
     "create_app",
     "setup_middleware",
@@ -454,6 +458,7 @@ __all__ = [
     "clear_history_cache",
     "sse_event",
     "sse_event_dict",
+    "sse_data_line",
     "sse_response",
     "sse_chat_stream",
     "sse_chat_stream_v2",

@@ -233,9 +233,74 @@ def configure(
     return ConfigFactory.get()
 
 
-def load_project_config(config_path: str | Path) -> NexusConfig:
-    path: Path = Path(config_path)
-    if path.exists():
+_ENV_SUB_PATTERN = re.compile(r"\$\{(\w+)(?::-([^}]*))?\}")
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def _resolve_env_mode(value: str, missing: str) -> str:
+    def _replacer(match: re.Match) -> str:
+        name, default = match.group(1), match.group(2)
+        val = os.environ.get(name)
+        if val is not None:
+            return val
+        if default is not None:
+            return default
+        return "" if missing == "empty" else match.group(0)
+    return _ENV_SUB_PATTERN.sub(_replacer, value)
+
+
+def _resolve_env_tree_mode(data: object, missing: str) -> object:
+    if isinstance(data, dict):
+        return {k: _resolve_env_tree_mode(v, missing) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_resolve_env_tree_mode(i, missing) for i in data]
+    if isinstance(data, str):
+        return _resolve_env_mode(data, missing)
+    return data
+
+
+def load_project_config(
+    config_path: str | Path | list[str | Path] | None = None,
+    *,
+    merge: bool = False,
+    raw: bool = False,
+    resolve_env: bool = True,
+    missing: str = "keep",
+) -> NexusConfig | dict[str, object]:
+    if missing not in ("keep", "empty"):
+        raise ValueError("missing must be 'keep' or 'empty'")
+    if raw:
+        if isinstance(config_path, (list, tuple)) and not merge:
+            raise ValueError("load_project_config: multi-file merge requires merge=True")
+        paths: list[str | Path] = config_path if isinstance(config_path, (list, tuple)) else [config_path]
+        merged: dict[str, object] = {}
+        for p in paths:
+            if not p:
+                continue
+            path: Path = Path(p)
+            if not path.exists():
+                continue
+            with open(path, "r", encoding="utf-8") as f:
+                data: object = yaml.safe_load(f) or {}
+            if not isinstance(data, dict):
+                continue
+            if resolve_env:
+                data = _resolve_env_tree_mode(data, missing)
+            merged = _deep_merge(merged, data)
+        return merged
+    if isinstance(config_path, (list, tuple)):
+        raise ValueError("load_project_config: multi-file merge requires raw=True")
+    path: Path = Path(config_path) if config_path else None
+    if path is not None and path.exists():
         return ConfigFactory.load_from_yaml(path)
     return ConfigFactory.get()
 
