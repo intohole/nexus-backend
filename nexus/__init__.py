@@ -166,6 +166,7 @@ from nexus.llm import (
     LLMService,
     get_llm_service,
 )
+from nexus.llm_client import LLMJsonClient
 from nexus.image import (
     ImageService,
     get_image_service,
@@ -401,6 +402,7 @@ __all__ = [
     "LLMTimeoutError",
     "LLMService",
     "get_llm_service",
+    "LLMJsonClient",
     "ImageService",
     "get_image_service",
     "VisionService",
