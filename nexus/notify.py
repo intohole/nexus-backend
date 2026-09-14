@@ -280,6 +280,67 @@ async def send_sms(
     )
 
 
+async def send_webhook_robot(
+    channel: str,
+    webhook_url: str,
+    title: str,
+    content: str,
+    level: str = "info",
+    *,
+    api_key: str = "",
+    chat_id: str = "",
+) -> bool:
+    """群机器人 webhook 告警发送：支持 wechat / dingtalk / telegram / bark。
+
+    统一 httpx 发送与结果判定，吸收各项目自建渠道样板。
+    """
+    import httpx as _httpx
+
+    try:
+        if channel == "wechat":
+            if not webhook_url:
+                return False
+            payload: dict[str, object] = {
+                "msgtype": "markdown",
+                "markdown": {"content": f"### {title}\n\n{content}\n\n> 级别: {level}"},
+            }
+            async with _httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(webhook_url, json=payload)
+                return resp.json().get("errcode", -1) == 0
+        elif channel == "dingtalk":
+            if not webhook_url:
+                return False
+            payload = {
+                "msgtype": "markdown",
+                "markdown": {"title": title, "text": f"### {title}\n\n{content}\n\n> 级别: {level}"},
+            }
+            async with _httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(webhook_url, json=payload)
+                return resp.json().get("errcode", -1) == 0
+        elif channel == "telegram":
+            if not api_key or not chat_id:
+                return False
+            url = f"https://api.telegram.org/bot{api_key}/sendMessage"
+            payload = {
+                "chat_id": chat_id,
+                "text": f"*{title}*\n\n{content}\n\n_级别: {level}_",
+                "parse_mode": "Markdown",
+            }
+            async with _httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(url, json=payload)
+                return resp.json().get("ok", False)
+        elif channel == "bark":
+            if not api_key:
+                return False
+            url = f"https://api.day.app/{api_key}/{title}/{content}"
+            async with _httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url)
+                return resp.json().get("code", -1) == 200
+        return False
+    except Exception:
+        return False
+
+
 def register_notify_proxy(app: FastAPI) -> None:
     """在任意 FastAPI app 上注册 /api/notify/* 反向代理到 notifyCenter。
 
