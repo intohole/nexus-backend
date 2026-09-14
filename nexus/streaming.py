@@ -139,6 +139,15 @@ def sse_event_dict(event_type: str, payload: Optional[dict[str, Any]] = None) ->
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+def sse_data_line(payload: dict[str, Any]) -> str:
+    """将字典序列化为单条 data 行 SSE 事件。
+
+    适用于已有 type 字段的 payload（如 {type: "done", ...}），
+    与 sse_event_dict 的区别是不再注入 type 字段。
+    """
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
 def sse_widget(widget_id: str, widget_type: str, data: dict[str, Any],
                title: str = "") -> str:
     """格式化消息内组件事件，前端 nux-ai-chat 自动路由渲染。

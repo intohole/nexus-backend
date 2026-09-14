@@ -109,6 +109,7 @@ from nexus.uc_sdk_helper import (
     standard_err,
 )
 from nexus.repository import BaseRepository, StatelessRepository
+from nexus.storage import read_limited, save_upload
 from nexus.service import BaseService
 from nexus.api_decorators import handle_api_errors
 from nexus.lion import (
@@ -364,6 +365,8 @@ __all__ = [
     "standard_err",
     "BaseRepository",
     "StatelessRepository",
+    "read_limited",
+    "save_upload",
     "BaseService",
     "handle_api_errors",
     "LionIntegration",
