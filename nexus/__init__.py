@@ -199,7 +199,12 @@ from nexus.ironman import (
     get_init_app_name,
 )
 from nexus.moutain import MoutainClient, get_moutain_client
-from nexus.web_search import WebSearchService, get_web_search_service
+from nexus.web_search import (
+    WebSearchService,
+    get_web_search_service,
+    SpiderSearchResult,
+    SpiderSearchResponse,
+)
 from nexus.deep_research import DeepResearchService, get_deep_research_service
 from nexus.dialogue_history import (
     HistoryStrategy,
@@ -436,6 +441,8 @@ __all__ = [
     "get_init_app_name",
     "WebSearchService",
     "get_web_search_service",
+    "SpiderSearchResult",
+    "SpiderSearchResponse",
     "DeepResearchService",
     "get_deep_research_service",
     "HistoryStrategy",

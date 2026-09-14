@@ -107,3 +107,41 @@ def get_web_search_service() -> WebSearchService:
     if _web_search_service is None:
         _web_search_service = WebSearchService()
     return _web_search_service
+
+
+class SpiderSearchResult:
+    """单条搜索结果，统一业务侧搜索结果包装。"""
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        self.title = data.get("title", "")
+        self.content = data.get("content", "")
+        self.link = data.get("link", "")
+        self.media = data.get("media", "")
+        self.refer = data.get("refer", "")
+        self.publish_date = data.get("publish_date", "")
+
+
+class SpiderSearchResponse:
+    """搜索响应集合，统一业务侧搜索结果集合。"""
+
+    def __init__(
+        self,
+        query: str,
+        results: Optional[list[SpiderSearchResult]] = None,
+        error: str = "",
+    ) -> None:
+        self.query = query
+        self.success = bool(results) and not error
+        self.results = results or []
+        self.error = error
+
+    def format_for_llm(self) -> str:
+        """格式化为 LLM 可读的上下文文本。"""
+        lines: list[str] = []
+        for i, r in enumerate(self.results, 1):
+            lines.append(f"[{i}] {r.title}")
+            if r.content:
+                lines.append(f"   {r.content[:300]}")
+            if r.link:
+                lines.append(f"   来源: {r.link}")
+        return "\n".join(lines)
