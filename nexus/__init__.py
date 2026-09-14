@@ -247,6 +247,18 @@ from nexus.scheduler import (
     get_thread_scheduler,
     setup_scheduler,
 )
+from nexus.automation import (
+    AutomationContext,
+    AutomationResult,
+    Action,
+    Condition,
+    Trigger,
+    AutomationEngine,
+    RunOutcome,
+    StrategyRegistry,
+    EventTrigger,
+    ScheduleTrigger,
+)
 from nexus.sanitize import sanitize_agent_output, sanitize_platform_text, sanitize_text_stream
 
 __version__ = "1.13.0"
@@ -462,6 +474,16 @@ __all__ = [
     "setup_scheduler",
     "NexusThreadScheduler",
     "get_thread_scheduler",
+    "AutomationContext",
+    "AutomationResult",
+    "Action",
+    "Condition",
+    "Trigger",
+    "AutomationEngine",
+    "RunOutcome",
+    "StrategyRegistry",
+    "EventTrigger",
+    "ScheduleTrigger",
     "sanitize_agent_output",
     "sanitize_text_stream",
 ]
