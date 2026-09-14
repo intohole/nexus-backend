@@ -247,6 +247,7 @@ from nexus.resilient_llm import resilient_ask, resilient_extract, resilient_stre
 from nexus.scheduler import (
     NexusScheduler,
     NexusThreadScheduler,
+    JobManager,
     get_scheduler,
     get_thread_scheduler,
     setup_scheduler,
@@ -483,6 +484,7 @@ __all__ = [
     "get_scheduler",
     "setup_scheduler",
     "NexusThreadScheduler",
+    "JobManager",
     "get_thread_scheduler",
     "AutomationContext",
     "AutomationResult",
