@@ -110,6 +110,8 @@ from nexus.uc_sdk_helper import (
 )
 from nexus.repository import BaseRepository, StatelessRepository
 from nexus.storage import read_limited, save_upload
+from nexus.lifespan import create_standard_lifespan
+from nexus.background import TaskManager, background_tasks
 from nexus.service import BaseService
 from nexus.api_decorators import handle_api_errors
 from nexus.lion import (
@@ -367,6 +369,9 @@ __all__ = [
     "StatelessRepository",
     "read_limited",
     "save_upload",
+    "create_standard_lifespan",
+    "TaskManager",
+    "background_tasks",
     "BaseService",
     "handle_api_errors",
     "LionIntegration",
