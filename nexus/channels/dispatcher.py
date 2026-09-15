@@ -28,7 +28,12 @@ class ChannelDispatcher:
         if self._initialized:
             return
         self._channels["webhook"] = WebhookChannel()
-        logger.info("Webhook channel registered")
+        try:
+            from nexus.channels.email import EmailChannel
+            self._channels["email"] = EmailChannel()
+        except Exception as exc:
+            logger.warning("Email channel init failed: %s", exc)
+        logger.info("Default channels registered")
         self._initialized = True
 
     def _filter_channels(self, channels: list[str]) -> list[str]:
@@ -97,4 +102,28 @@ class ChannelDispatcher:
         return list(self._channels.keys()) + (["in_app"] if self._sse_manager else [])
 
 
-__all__ = ["ChannelDispatcher"]
+_dispatcher: ChannelDispatcher | None = None
+
+
+def get_dispatcher(sse_manager: Optional[SSEManager] = None) -> ChannelDispatcher:
+    global _dispatcher
+    if _dispatcher is None:
+        _dispatcher = ChannelDispatcher(sse_manager=sse_manager)
+        _dispatcher.init_default_channels()
+    if sse_manager is not None:
+        _dispatcher.set_sse_manager(sse_manager)
+    return _dispatcher
+
+
+async def dispatch(
+    notification_dict: dict[str, object],
+    channels: list[str] | None = None,
+    user_id: str = "0",
+    sse_manager: Optional[SSEManager] = None,
+) -> list[str]:
+    return await get_dispatcher(sse_manager).dispatch(
+        notification_dict, channels or ["in_app"], user_id
+    )
+
+
+__all__ = ["ChannelDispatcher", "get_dispatcher", "dispatch"]
