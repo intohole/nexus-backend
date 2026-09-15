@@ -11,7 +11,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from nexus.config import NexusConfig, get_settings
-from nexus.context import set_request_context
+from nexus.context import set_request_context, get_org_id
 from nexus.errors import AuthError
 from nexus.logging import get_logger
 from nexus.user_display import resolve_display_name
@@ -120,9 +120,7 @@ class AuthDependencies:
         token_key: str = _hash_token(token)
         cached: Optional[dict[str, object]] = self._token_cache.get(token_key)
         if cached is not None:
-            user_id_raw: object = cached.get("user_id")
-            if user_id_raw is not None:
-                set_request_context(user_id=str(user_id_raw))
+            self._apply_request_context(cached)
             if self._local_user_sync:
                 try:
                     await self._local_user_sync(cached)
@@ -136,9 +134,7 @@ class AuthDependencies:
         try:
             result: dict[str, object] = await sdk.verify_token(token)
             if result and result.get("success", True) is not False:
-                user_id_raw: object = result.get("user_id")
-                if user_id_raw is not None:
-                    set_request_context(user_id=str(user_id_raw))
+                self._apply_request_context(result)
                 if self._local_user_sync:
                     try:
                         await self._local_user_sync(result)
@@ -150,6 +146,15 @@ class AuthDependencies:
         except Exception as exc:
             logger.warning("Token validation failed: %s", str(exc))
             return None
+
+    @staticmethod
+    def _apply_request_context(user: dict[str, object]) -> None:
+        user_id_raw: object = user.get("user_id")
+        org_id_raw: object = user.get("org_id")
+        if user_id_raw is not None:
+            set_request_context(user_id=str(user_id_raw))
+        if org_id_raw is not None:
+            set_request_context(org_id=str(org_id_raw))
 
     def invalidate_token_cache(self, token: Optional[str] = None) -> None:
         if token is None:
@@ -226,6 +231,56 @@ def configure_uc_sdk(sdk: object) -> None:
     get_auth_deps().set_sdk(sdk)
 
 
+def require_permission(permission_code: str) -> Callable:
+    """返回 FastAPI 依赖，校验当前用户是否具备指定权限码。
+
+    用法: async def ep(user = Depends(require_permission("adsmart.campaign.manage"))): ...
+    """
+    from nexus.permissions import get_permission_deps as _deps
+    async def dependency(
+        credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
+    ) -> dict[str, object]:
+        if credentials is None:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        user: dict[str, object] = await get_auth_deps().get_user_full(credentials)
+        has: bool = await _deps().user_has_permission(
+            credentials, permission_code
+        )
+        if not has:
+            raise HTTPException(status_code=403, detail=f"权限不足: {permission_code}")
+        return user
+    return dependency
+
+
+async def get_current_org_id_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
+) -> Optional[str]:
+    from nexus.permissions import get_permission_deps as _deps
+    return await _deps().get_user_org_id(credentials)
+
+
+async def get_current_org_id_required(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
+) -> str:
+    from nexus.permissions import get_permission_deps as _deps
+    org_id: Optional[str] = await _deps().get_user_org_id(credentials)
+    if not org_id:
+        raise HTTPException(status_code=403, detail="当前用户未加入组织")
+    return org_id
+
+
+def require_org_membership() -> Callable:
+    """返回 FastAPI 依赖，要求当前用户已进入组织上下文（token 携带 org_id）。
+
+    业务侧用返回的 org_id 过滤数据（org 租户隔离）。
+    """
+    async def dependency(
+        credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
+    ) -> str:
+        return await get_current_org_id_required(credentials)
+    return dependency
+
+
 def extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
     """从 Authorization 头提取 Bearer token。"""
     if not authorization:
@@ -263,6 +318,7 @@ def normalize_user_dict(user: dict[str, object]) -> dict[str, object]:
     return {
         "user_id": str(user.get("user_id", "")),
         "app_id": user.get("app_id"),
+        "org_id": user.get("org_id"),
         "role": user.get("role", "user"),
         "vip_level": user.get("vip_level", 0),
         "display_name": user.get("display_name", ""),
@@ -298,3 +354,23 @@ async def get_current_user_id_int(
     user_id: str = Depends(get_current_user_id_required),
 ) -> int:
     return parse_user_id(user_id)
+
+
+def require_api_key(scope: Optional[str] = None) -> Callable:
+    """返回 FastAPI 依赖，校验开放 API Key（Authorization: Bearer / X-Api-Key）。
+
+    用法: async def ep(info = Depends(require_api_key("adsmart.campaign.read"))): ...
+    """
+    from nexus.permissions import get_api_key_deps
+    async def dependency(
+        authorization: Optional[str] = None,
+        x_api_key: Optional[str] = None,
+    ) -> dict[str, object]:
+        api_key: str = x_api_key or extract_bearer_token(authorization or "")
+        if not api_key:
+            raise HTTPException(status_code=401, detail="缺少 API Key")
+        info: Optional[dict[str, object]] = await get_api_key_deps().verify(api_key, scope)
+        if not info:
+            raise HTTPException(status_code=401, detail="API Key 无效或不具备所需权限")
+        return info
+    return dependency
