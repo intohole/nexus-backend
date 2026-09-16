@@ -16,6 +16,7 @@ from .auth import AuthMixin
 from .mixins import (
     UserMixin, AppMixin, VipMixin, InviteCodeMixin,
     ThirdPartyMixin, DiscoveryMixin, ApiTokenMixin, SessionMixin, AuditMixin,
+    QuotaMixin,
 )
 
 logger = logging.getLogger(__name__)
@@ -96,7 +97,8 @@ class BlacklistCache:
 
 
 class UserCenterSDK(AuthMixin, UserMixin, AppMixin, VipMixin, InviteCodeMixin,
-                    ThirdPartyMixin, DiscoveryMixin, ApiTokenMixin, SessionMixin, AuditMixin):
+                    ThirdPartyMixin, DiscoveryMixin, ApiTokenMixin, SessionMixin, AuditMixin,
+                    QuotaMixin):
     def __init__(self, base_url: str = "", app_key: str = None, app_secret: str = None,
                  client_id: str = None, jwt_secret_key: str = None, timeout: float = 10.0):
         if not base_url:

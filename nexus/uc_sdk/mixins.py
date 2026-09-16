@@ -238,3 +238,19 @@ class AuditMixin:
         if app_id is not None:
             params["app_id"] = app_id
         return await self._request("GET", "/api/audit/stats", params=params)
+
+
+class QuotaMixin:
+    async def consume_quota(self, app_key: str, token: str = None) -> dict:
+        return await self._request("POST", "/api/quota/consume",
+                                   json={"app_key": app_key}, token=token)
+
+    async def refund_quota(self, app_key: str, token: str = None) -> dict:
+        return await self._request("POST", "/api/quota/refund",
+                                   json={"app_key": app_key}, token=token)
+
+    async def get_quota_summary(self, app_key: str = None, token: str = None) -> dict:
+        path = "/api/quota/summary"
+        if app_key:
+            path += f"?app_key={app_key}"
+        return await self._request("GET", path, token=token)
