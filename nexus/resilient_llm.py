@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import random
 from collections.abc import AsyncGenerator
-from typing import Awaitable, Callable, Optional
+from typing import Callable, Optional
 
 from nexus.circuit_breaker import (
     CircuitBreakerConfig,

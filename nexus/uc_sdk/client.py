@@ -11,7 +11,6 @@ try:
 except ImportError:
     _JWT_AVAILABLE = False
 
-from .pkce import PKCEHelper
 from .auth import AuthMixin
 from .mixins import (
     UserMixin, AppMixin, VipMixin, InviteCodeMixin,
@@ -193,13 +192,11 @@ class UserCenterSDK(AuthMixin, UserMixin, AppMixin, VipMixin, InviteCodeMixin,
         if use_token:
             headers["Authorization"] = f"Bearer {use_token}"
 
-        last_error = None
         for attempt in range(self._max_retries + 1):
             try:
                 response = await client.request(method, path, headers=headers, **kwargs)
                 break
             except httpx.ConnectError as e:
-                last_error = e
                 logger.warning(f"UC连接失败(attempt={attempt + 1}): {e}")
                 if attempt < self._max_retries:
                     await self._sleep(0.5 * (attempt + 1))
@@ -207,7 +204,6 @@ class UserCenterSDK(AuthMixin, UserMixin, AppMixin, VipMixin, InviteCodeMixin,
                 self._circuit_breaker.record_failure()
                 return {"success": False, "detail": "认证服务连接失败，请稍后重试"}
             except httpx.TimeoutException as e:
-                last_error = e
                 logger.warning(f"UC请求超时(attempt={attempt + 1}): {e}")
                 if attempt < self._max_retries:
                     await self._sleep(0.5 * (attempt + 1))
@@ -215,7 +211,6 @@ class UserCenterSDK(AuthMixin, UserMixin, AppMixin, VipMixin, InviteCodeMixin,
                 self._circuit_breaker.record_failure()
                 return {"success": False, "detail": "认证服务响应超时，请稍后重试"}
             except httpx.RequestError as e:
-                last_error = e
                 logger.error(f"UC请求异常: {e}")
                 self._circuit_breaker.record_failure()
                 return {"success": False, "detail": "认证服务请求异常，请稍后重试"}

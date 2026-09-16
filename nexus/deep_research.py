@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any, Optional
 
-from nexus.llm import LLMService, get_llm_service
+from nexus.llm import get_llm_service
 from nexus.llm_utils import strip_code_fence
 from nexus.logging import get_logger
 from nexus.web_search import get_web_search_service

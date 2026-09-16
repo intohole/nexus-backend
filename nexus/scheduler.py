@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from typing import Awaitable, Callable, Optional, Union
+from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Union
 
 from nexus.logging import get_logger
+
+if TYPE_CHECKING:
+    from nexus.fastapi_setup import AppLifecycle
 
 logger = get_logger("nexus.scheduler")
 
@@ -311,8 +314,6 @@ def get_thread_scheduler() -> NexusThreadScheduler:
 def setup_scheduler(
     lifecycle: "AppLifecycle",
 ) -> NexusScheduler:
-    from nexus.fastapi_setup import AppLifecycle as _AppLifecycle
-
     scheduler = get_scheduler()
 
     async def _start_scheduler():

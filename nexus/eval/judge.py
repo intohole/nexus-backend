@@ -1,6 +1,6 @@
 """LLM质检裁判 — 对一次AI课堂对话打分,产出内容质量与路由质量判定。"""
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List
 
 from nexus.llm import get_llm_service
 from nexus.logging import get_logger

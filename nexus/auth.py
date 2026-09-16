@@ -2,17 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import os
-import time
 from typing import Awaitable, Callable, Optional
 
 from cachetools import TTLCache
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from nexus.config import NexusConfig, get_settings
-from nexus.context import set_request_context, get_org_id
-from nexus.errors import AuthError
+from nexus.context import set_request_context
 from nexus.logging import get_logger
 from nexus.user_display import resolve_display_name
 

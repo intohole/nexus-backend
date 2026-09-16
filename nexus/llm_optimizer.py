@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 CJK_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf]")
 ASCII_WORD_RE = re.compile(r"[A-Za-z0-9_]+")

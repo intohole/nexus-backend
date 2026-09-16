@@ -9,7 +9,7 @@ from nexus.context import get_request_id
 from nexus.logging import get_logger
 from nexus.llm_metrics import get_llm_metrics
 from nexus.circuit_breaker import get_llm_circuit
-from nexus.llm_utils import parse_llm_json, with_retry, LLMTimeoutError
+from nexus.llm_utils import parse_llm_json, with_retry
 from nexus.streaming import ThinkStreamFilter
 from nexus.llm_helpers import (
     apply_output_discipline,
@@ -22,7 +22,6 @@ from nexus.llm_budget import OutputMode, TASK_BUDGETS
 from nexus.llm_cache import PromptCache, get_prompt_cache
 from nexus.llm_config import (
     configure_ironman,
-    mark_ironman_configured,
     _effective_retries,
     _resolve_app_name,
 )
@@ -128,7 +127,7 @@ class LLMService:
     ) -> str:
         await configure_ironman()
         from ironman import chat as _chat
-        from ironman.types import LLMOptions, Message, Role
+        from ironman.types import LLMOptions
 
         request_id: str = get_request_id() or "-"
         app_name: str = _resolve_app_name()
