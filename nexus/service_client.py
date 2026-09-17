@@ -93,15 +93,22 @@ class ServiceClient:
 
     async def _refresh(self) -> None:
         app_key, app_secret = await self._load_uc_credentials()
-        if not app_key or not app_secret:
-            legacy: str = os.getenv("SERVICE_TOKEN", "")
-            if legacy:
-                self._token = legacy
-                self._expires_at = time.time() + _SERVICE_TOKEN_TTL
-                logger.warning("UC 凭证不可用，回退 SERVICE_TOKEN 兼容调用")
-            else:
-                logger.warning("UC 凭证与 SERVICE_TOKEN 均不可用，服务间调用将失败")
-            return
+        if app_key and app_secret:
+            token, expires_in = await self._exchange_token(app_key, app_secret)
+            if token:
+                self._token = token
+                self._expires_at = time.time() + expires_in
+                logger.info("service token 续期成功 ttl=%ss", expires_in)
+                return
+        legacy: str = os.getenv("SERVICE_TOKEN", "")
+        if legacy:
+            self._token = legacy
+            self._expires_at = time.time() + _SERVICE_TOKEN_TTL
+            logger.warning("UC 凭证换取失败或不可用，回退 SERVICE_TOKEN 兼容调用")
+        else:
+            logger.warning("UC 凭证与 SERVICE_TOKEN 均不可用，服务间调用将失败")
+
+    async def _exchange_token(self, app_key: str, app_secret: str) -> tuple[str, int]:
         base_url: str = self._uc_base_url()
         try:
             client = await self._get_client()
@@ -115,19 +122,18 @@ class ServiceClient:
             )
             if resp.status_code != 200:
                 logger.warning("service token 获取失败: status=%s", resp.status_code)
-                return
+                return "", 0
             data: dict = resp.json()
             payload: dict = data.get("data") if isinstance(data, dict) else {}
             token: str = str(payload.get("access_token") or "")
             expires_in: int = int(payload.get("expires_in") or _SERVICE_TOKEN_TTL)
             if not token:
                 logger.warning("service token 响应缺少 access_token")
-                return
-            self._token = token
-            self._expires_at = time.time() + expires_in
-            logger.info("service token 续期成功 ttl=%ss", expires_in)
+                return "", 0
+            return token, expires_in
         except Exception as exc:
             logger.warning("service token 获取异常: %s", exc)
+            return "", 0
 
     async def header(self) -> dict[str, str]:
         token = await self.get_token()
