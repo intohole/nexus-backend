@@ -115,13 +115,14 @@ edge-01/edge-03 安全组为「全端口 0.0.0.0/0 放行」，内网服务端�
   UC app_secret 全量轮换（audit 2026-09-17 03:52 UTC）。门禁插件 env_placeholder_resolved 已注册四节点。
 - LLM 网关（8400）healthz 200 正常。
 
-### 新增发现（上轮遗漏，需用户侧处理）
-- `promptManager/business/provider_keys` 仍明文存两条**模型直连 key**（网信办通报的同类泄露面，完整值见线上 lion 配置）：
-  - 智谱 zhipu：`5f0f260f…`（上轮已标注未覆盖）
-  - **DeepSeek：`sk-e0ee85d3…`（上轮未发现未轮换）**
-  - 该配置最后修改 2026-09-15 13:05（UTC），早于 9-17 gw- 轮换波次，两 key 均视为泄露需控制台轮换，
-    换新后回填 lion 该配置并重启 promptManager（8400）加载。
-- 轮换清单（全部需用户在对应控制台操作）：智谱 key、DeepSeek key、腾讯云 API 密钥（本对话明文传递）。
+### 新增发现（上轮遗漏，需用户侧处理）——已轮换（2026-09-17 第五波后续）
+- `promptManager/business/provider_keys` 曾明文存两条**模型直连 key**（网信办通报的同类泄露面）：
+  - 智谱 zhipu：`5f0f260f…`、DeepSeek：`sk-e0ee85d3…`
+  - 该配置最后修改 2026-09-15 13:05（UTC），早于 9-17 gw- 轮换波次，两 key 均视为泄露。
+- **已处理**：走 lion API（保留审计 id=1052）替换为智谱/DeepSeek 控制台新 key → 平台 agent 重启 promptManager(8400)
+  → 真实调用验证 glm-4.5-air 与 deepseek-flash 均 200（新 key 生效，网关 DB Fernet 加密存储）。
+- 待用户控制台**停用旧 key**：智谱 `5f0f260f…`、DeepSeek `sk-e0ee85d3…`。
+- 轮换清单剩余：腾讯云 API 密钥（对话明文传递）、SERVICE_TOKEN（见下，未轮换）。
 
 ### 经验补充
 - 安全组/防火墙类 API 的坑：安全组查询走 `vpc.tencentcloudapi.com`（非 cvm）；`Limit`/`Offset` 参数类型因接口而异
