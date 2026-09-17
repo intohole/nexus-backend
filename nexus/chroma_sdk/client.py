@@ -5,6 +5,8 @@ import os
 
 import httpx
 
+from nexus.service_client import get_service_token
+
 
 class ChromaSDK:
 
@@ -18,21 +20,15 @@ class ChromaSDK:
         if not base_url:
             base_url = os.environ.get("CHROMA_BASE_URL", "${CHROMA_BASE_URL}")
         self._base_url = base_url.rstrip("/")
-        self._service_token = service_token or os.environ.get("SERVICE_TOKEN")
+        self._service_token = service_token
         self._api_key = api_key or os.environ.get("CHROMA_API_KEY")
         self._timeout = timeout
         self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            headers: dict[str, str] = {"Content-Type": "application/json"}
-            if self._service_token:
-                headers["X-Service-Token"] = self._service_token
-            if self._api_key:
-                headers["X-API-Key"] = self._api_key
             self._client = httpx.AsyncClient(
                 base_url=self._base_url,
-                headers=headers,
                 timeout=httpx.Timeout(self._timeout, connect=5.0),
                 limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
             )
@@ -63,8 +59,14 @@ class ChromaSDK:
         params: dict[str, object] | None = None,
     ) -> dict[str, object]:
         client = await self._get_client()
+        headers: dict[str, str] = {}
+        token: str = self._service_token or await get_service_token()
+        if token:
+            headers["X-Service-Token"] = token
+        if self._api_key:
+            headers["X-API-Key"] = self._api_key
         try:
-            response = await client.request(method, path, json=json_data, params=params)
+            response = await client.request(method, path, headers=headers, json=json_data, params=params)
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as e:

@@ -62,15 +62,13 @@ async def get_spider_base_url() -> str:
 async def get_spider_config() -> dict[str, str]:
     config = await _get_infra("spider")
     base_url = await _infra_url("spider", "SPIDER_BASE_URL", "")
-    service_token = str(config.get("service_token") or "") or os.getenv("SERVICE_TOKEN", "")
-    return {"base_url": base_url, "service_token": service_token}
+    return {"base_url": base_url}
 
 
 async def get_moutain_config() -> dict[str, str]:
     config = await _get_infra("moutain")
     base_url = await _infra_url("moutain", "MOUTAIN_BASE_URL", "")
-    service_token = str(config.get("service_token") or "") or os.getenv("SERVICE_TOKEN", "")
-    return {"base_url": base_url, "service_token": service_token}
+    return {"base_url": base_url}
 
 
 async def get_promptmanager_config() -> dict[str, str]:

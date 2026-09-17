@@ -3,6 +3,8 @@ import logging
 import httpx
 from typing import Dict, List, Optional
 
+from nexus.service_client import get_service_token
+
 logger = logging.getLogger(__name__)
 
 _UNAVAILABLE_RESULT: Dict[str, bool] = {"success": False, "unavailable": True}
@@ -19,21 +21,17 @@ class BeeMemorySDK:
         if not base_url:
             base_url = os.environ.get("BEEMEMORY_BASE_URL", "${BEE_MEMORY_BASE_URL}")
         self.base_url: str = base_url.rstrip("/")
-        self.service_token: Optional[str] = service_token or os.environ.get("SERVICE_TOKEN")
+        self.service_token: Optional[str] = service_token
         self.app_name: str = app_name
         self._timeout: float = timeout
         self._client: Optional[httpx.AsyncClient] = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            headers: Dict[str, str] = {"Content-Type": "application/json"}
-            if self.service_token:
-                headers["X-Service-Token"] = self.service_token
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
                 timeout=httpx.Timeout(self._timeout, connect=5.0),
                 limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
-                headers=headers,
             )
         return self._client
 
@@ -62,8 +60,12 @@ class BeeMemorySDK:
             params["user_id"] = str(params["user_id"])
 
         client = await self._get_client()
+        headers: Dict[str, str] = {}
+        token: str = self.service_token or await get_service_token()
+        if token:
+            headers["X-Service-Token"] = token
         try:
-            response = await client.request(method, endpoint, json=data, params=params)
+            response = await client.request(method, endpoint, headers=headers, json=data, params=params)
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as e:

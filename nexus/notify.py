@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request, Response
 from nexus.defaults import DEFAULT_NOTIFY_CENTER_URL
 from nexus.infra import get_notify_center_url
 from nexus.logging import get_logger
+from nexus.service_client import get_service_token
 from nexus.utils import HttpClient
 
 logger = get_logger("nexus.notify")
@@ -25,19 +26,20 @@ class NotifyClient:
             base_url
             or os.environ.get("NOTIFY_CENTER_URL", DEFAULT_NOTIFY_CENTER_URL)
         )
-        self._service_token: str = service_token or os.environ.get(
-            "SERVICE_TOKEN", ""
-        )
+        self._service_token: str = service_token
         self._timeout: float = timeout
         self._http: HttpClient = HttpClient(
             base_url=self._base_url,
             timeout=self._timeout,
-            headers={"X-Service-Token": self._service_token},
         )
 
     @property
     def base_url(self) -> str:
         return self._base_url
+
+    async def _headers(self) -> dict[str, str]:
+        token: str = self._service_token or await get_service_token()
+        return {"X-Service-Token": token} if token else {}
 
     async def send(
         self,
@@ -66,6 +68,7 @@ class NotifyClient:
             resp: httpx.Response = await self._http.post(
                 "/api/notify/send",
                 json=payload,
+                headers=await self._headers(),
             )
             resp.raise_for_status()
             return resp.json()

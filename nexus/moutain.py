@@ -9,6 +9,7 @@ import httpx
 from nexus.infra import get_moutain_config
 from nexus.ironman import get_init_app_name
 from nexus.logging import get_logger
+from nexus.service_client import get_service_token
 
 logger = get_logger("nexus.moutain")
 
@@ -22,34 +23,38 @@ class MoutainClient:
     def __init__(self) -> None:
         self._client: Optional[httpx.AsyncClient] = None
         self._configured_base_url: str = ""
-        self._configured_service_token: str = ""
 
     async def _ensure_client(self) -> httpx.AsyncClient:
         cfg = await get_moutain_config()
         base_url = (cfg.get("base_url") or "").rstrip("/")
-        service_token = cfg.get("service_token") or ""
         if (
             self._client is not None
             and not self._client.is_closed
             and self._configured_base_url == base_url
-            and self._configured_service_token == service_token
         ):
             return self._client
+        self._client = httpx.AsyncClient(timeout=30.0)
+        self._configured_base_url = base_url
+        return self._client
+
+    async def _auth_headers(self) -> Dict[str, str]:
         headers: Dict[str, str] = {"Content-Type": "application/json"}
-        if service_token:
-            headers["X-Service-Token"] = service_token
+        token: str = await get_service_token()
+        if token:
+            headers["X-Service-Token"] = token
         source_app = get_init_app_name() or os.environ.get("LION_NAMESPACE", "") or ""
         if source_app:
             headers["X-App-Name"] = source_app
-        self._client = httpx.AsyncClient(timeout=30.0, headers=headers)
-        self._configured_base_url = base_url
-        self._configured_service_token = service_token
-        return self._client
+        return headers
 
     async def _post(self, path: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         client = await self._ensure_client()
         try:
-            resp = await client.post(f"{self._configured_base_url}{path}", json=payload)
+            resp = await client.post(
+                f"{self._configured_base_url}{path}",
+                json=payload,
+                headers=await self._auth_headers(),
+            )
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPStatusError as exc:
@@ -66,7 +71,11 @@ class MoutainClient:
     async def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         client = await self._ensure_client()
         try:
-            resp = await client.get(f"{self._configured_base_url}{path}", params=params)
+            resp = await client.get(
+                f"{self._configured_base_url}{path}",
+                params=params,
+                headers=await self._auth_headers(),
+            )
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPStatusError as exc:

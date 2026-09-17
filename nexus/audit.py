@@ -7,7 +7,9 @@ from urllib.parse import urljoin
 
 import httpx
 
+from nexus.defaults import DEFAULT_UC_BASE_URL
 from nexus.logging import get_logger
+from nexus.service_client import get_service_token
 
 logger = get_logger("nexus.audit")
 
@@ -37,11 +39,7 @@ async def close_client() -> None:
 
 
 def _base_url() -> str:
-    return os.getenv("UC_BASE_URL", "http://localhost:8901").rstrip("/")
-
-
-def _service_token() -> str:
-    return os.getenv("SERVICE_TOKEN", "")
+    return os.getenv("UC_BASE_URL", DEFAULT_UC_BASE_URL).rstrip("/")
 
 
 async def log_audit(
@@ -56,9 +54,9 @@ async def log_audit(
     status_code: int | None = None,
 ) -> bool:
     """上报业务审计到 usercenter（失败仅记日志，不影响主流程）"""
-    token = _service_token()
+    token = await get_service_token()
     if not token:
-        logger.debug("SERVICE_TOKEN 未配置, 跳过审计上报 action=%s", action)
+        logger.debug("service token 未配置, 跳过审计上报 action=%s", action)
         return False
     try:
         async with _get_lock():

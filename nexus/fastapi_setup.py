@@ -173,18 +173,29 @@ def setup_middleware(
         setup_exception_handlers(app)
 
 
-def require_service_token(request: Request) -> None:
-    """内部端点校验：仅接受与服务令牌一致的 X-Service-Token / Bearer 令牌。"""
+async def require_service_token(request: Request) -> None:
+    """内部端点校验：接受 UC 签发的服务 JWT（验签）或过渡期静态 SERVICE_TOKEN。"""
     from fastapi import HTTPException
 
-    expected: str = os.environ.get("SERVICE_TOKEN", "")
     supplied: str = request.headers.get("X-Service-Token", "")
     if not supplied:
         auth: str = request.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
             supplied = auth[7:].strip()
-    if not expected or not supplied or not hmac.compare_digest(supplied, expected):
+    if not supplied:
         raise HTTPException(status_code=401, detail="Invalid service token")
+
+    from nexus.middleware_auth import build_default_verifier
+
+    verifier = build_default_verifier()
+    if verifier.configured and await verifier.verify_service(supplied):
+        return
+
+    expected: str = os.environ.get("SERVICE_TOKEN", "")
+    if expected and hmac.compare_digest(supplied, expected):
+        return
+
+    raise HTTPException(status_code=401, detail="Invalid service token")
 
 
 def register_internal_endpoints(app: FastAPI) -> None:

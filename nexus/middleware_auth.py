@@ -38,7 +38,11 @@ _USER_TOKEN_CACHE_MAXSIZE: int = 2000
 
 
 class UserTokenVerifier:
-    """用户 JWT 验签：RS256(UC JWKS) 优先，HS256(UC_JWT_SECRET) 兜底，验签通过结果短期缓存。"""
+    """JWT 验签：RS256(UC JWKS) 优先，HS256(UC_JWT_SECRET) 兜底，验签通过结果短期缓存。
+
+    - verify: 用户 JWT 验签（allow_user_tokens 场景）；
+    - verify_service: 服务 JWT 验签（role=service 或 sub=app_*），供服务间认证使用。
+    """
 
     def __init__(self, base_url: str = "", jwt_secret: str = "") -> None:
         self._base_url: str = (base_url or "").rstrip("/")
@@ -46,6 +50,7 @@ class UserTokenVerifier:
         self._jwks: Dict[str, Dict[str, object]] = {}
         self._jwks_fetched_at: float = 0.0
         self._cache: TTLCache = TTLCache(maxsize=_USER_TOKEN_CACHE_MAXSIZE, ttl=_USER_TOKEN_CACHE_TTL)
+        self._service_cache: TTLCache = TTLCache(maxsize=_USER_TOKEN_CACHE_MAXSIZE, ttl=_USER_TOKEN_CACHE_TTL)
         self._logger = get_logger("nexus.user_token")
 
     @property
@@ -62,6 +67,23 @@ class UserTokenVerifier:
         if payload is None:
             return False
         self._cache[cache_key] = True
+        return True
+
+    async def verify_service(self, token: str) -> bool:
+        """验签服务 JWT：仅放行 UC 签发的 role=service / sub=app_* 令牌。"""
+        if not token:
+            return False
+        cache_key: str = hashlib.sha256(token.encode()).hexdigest()
+        if cache_key in self._service_cache:
+            return True
+        payload: Optional[Dict[str, object]] = await self._decode(token)
+        if payload is None:
+            return False
+        sub: str = str(payload.get("sub") or "")
+        role: str = str(payload.get("role") or "")
+        if role != "service" and not sub.startswith("app_"):
+            return False
+        self._service_cache[cache_key] = True
         return True
 
     async def _decode(self, token: str) -> Optional[Dict[str, object]]:
@@ -137,7 +159,8 @@ def build_default_verifier() -> UserTokenVerifier:
 class ServiceAuthMiddleware(BaseHTTPMiddleware):
     """内部服务认证网关。
 
-    - 服务间调用：X-Service-Token / Bearer<service_token> / service_token cookie 必须与服务令牌完全一致；
+    - 服务间调用：X-Service-Token / Bearer 必须是 UC 签发的服务 JWT（role=service / sub=app_*）验签通过，
+      静态 SERVICE_TOKEN 比对仅作过渡期兜底；
     - 终端用户调用（allow_user_tokens=True）：仅放行 UC 真实验签通过的用户 JWT，其余一律 401；
     - 文档路径（/docs /redoc /openapi.json）不属于默认放行范围。
     """
@@ -223,7 +246,10 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
             )
 
         token: str = self._extract_token(request)
-        if token and hmac.compare_digest(token, service_token):
+        if token and await self._verifier.verify_service(token):
+            return await call_next(request)
+
+        if token and service_token and hmac.compare_digest(token, service_token):
             return await call_next(request)
 
         bearer: str = self._bearer_token(request)

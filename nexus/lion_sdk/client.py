@@ -5,6 +5,8 @@ import os
 
 import httpx
 
+from nexus.service_client import get_service_token
+
 _ALLOWED_ENV_PREFIXES: tuple[str, ...] = (
     "ZHIPU_", "OPENAI_", "LLM_", "EMBEDDING_", "PROMPTFORGE_",
     "LION_", "SMARTLLM_", "DEEPSEEK_", "QWEN_", "GLM_",
@@ -36,7 +38,7 @@ class LionSDK:
         self._base_url = base_url.rstrip("/")
         self._namespace = namespace
         self._fallback_namespace = fallback_namespace
-        self._service_token = service_token or os.environ.get("SERVICE_TOKEN")
+        self._service_token = service_token
         self._timeout = timeout
         self._client: httpx.AsyncClient | None = None
 
@@ -75,8 +77,9 @@ class LionSDK:
     ) -> dict[str, object]:
         client = await self._get_client()
         headers: dict[str, str] = {}
-        if self._service_token:
-            headers["Authorization"] = f"Bearer {self._service_token}"
+        token: str = self._service_token or await get_service_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         try:
             if method == "GET":
                 response = await client.get(path, headers=headers, params=params)

@@ -7,6 +7,7 @@ from typing import Any, Optional
 from nexus.infra import get_spider_config
 from nexus.logging import get_logger
 from nexus.ironman import get_init_app_name
+from nexus.service_client import get_service_token
 
 logger = get_logger("nexus.web_search")
 
@@ -25,7 +26,6 @@ class WebSearchService:
     _instance: Optional["WebSearchService"] = None
     _tool: Optional[object] = None
     _configured_base_url: str = ""
-    _configured_token: str = ""
     _configured_source: str = ""
 
     def __new__(cls) -> "WebSearchService":
@@ -36,21 +36,19 @@ class WebSearchService:
     async def _ensure_tool(self) -> object:
         cfg = await get_spider_config()
         base_url = cfg.get("base_url", "http://${NOTIFY_BASE_URL}")
-        token = cfg.get("service_token", "")
         source_app = get_init_app_name() or os.environ.get("LION_NAMESPACE", "") or ""
-        if self._tool is not None and self._configured_base_url == base_url and self._configured_token == token and self._configured_source == source_app:
+        if self._tool is not None and self._configured_base_url == base_url and self._configured_source == source_app:
             return self._tool
         from ironman.tools.websearch_tool import WebSearchTool
 
         self._tool = WebSearchTool(
             spider_base_url=base_url,
-            service_token=token,
+            service_token="",
             timeout=30.0,
             source_app=source_app,
         )
         self._configured_base_url = base_url
         self._configured_source = source_app
-        self._configured_token = token
         return self._tool
 
     async def search(
@@ -62,6 +60,9 @@ class WebSearchService:
         if not query or not query.strip():
             return []
         tool = await self._ensure_tool()
+        update = getattr(tool, "update_token", None)
+        if update is not None:
+            update(await get_service_token())
         try:
             return await tool.search_raw(query, count, recency=recency)
         except Exception as e:

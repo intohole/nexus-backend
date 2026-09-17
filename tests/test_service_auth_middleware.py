@@ -17,12 +17,16 @@ KID = "test-kid"
 
 
 class StubVerifier:
-    def __init__(self, accepted: set[str]) -> None:
+    def __init__(self, accepted: set[str], service_accepted: set[str] | None = None) -> None:
         self._accepted = accepted
+        self._service_accepted = service_accepted or set()
         self.configured = True
 
     async def verify(self, token: str) -> bool:
         return token in self._accepted
+
+    async def verify_service(self, token: str) -> bool:
+        return token in self._service_accepted
 
 
 def build_app(**kwargs) -> FastAPI:
@@ -96,6 +100,25 @@ async def test_user_token_denied_when_user_tokens_disabled() -> None:
     app = build_app(allow_user_tokens=False, token_verifier=StubVerifier({"real-user-token"}))
     resp = await call(app, "/api/v1/namespaces", {"Authorization": "Bearer real-user-token"})
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_service_jwt_accepted_via_verifier() -> None:
+    app = build_app(
+        token_verifier=StubVerifier({"real-user-token"}, service_accepted={"svc-jwt-token"}),
+    )
+    assert (await call(app, "/api/v1/namespaces", {"X-Service-Token": "svc-jwt-token"})).status_code == 200
+    assert (await call(app, "/api/v1/namespaces", {"Authorization": "Bearer svc-jwt-token"})).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_user_token_not_accepted_as_service_when_service_verifier_configured() -> None:
+    app = build_app(
+        allow_user_tokens=True,
+        token_verifier=StubVerifier({"real-user-token"}, service_accepted={"svc-jwt-token"}),
+    )
+    assert (await call(app, "/api/v1/namespaces", {"X-Service-Token": "real-user-token"})).status_code == 401
+    assert (await call(app, "/api/v1/namespaces", {"Authorization": "Bearer real-user-token"})).status_code == 200
 
 
 @pytest.mark.asyncio

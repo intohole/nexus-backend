@@ -140,6 +140,11 @@ from nexus.infra import (
     get_auth_config,
     get_llm_quota_config,
 )
+from nexus.service_client import (
+    ServiceClient,
+    get_service_client,
+    get_service_token,
+)
 from nexus.fastapi_setup import (
     create_app,
     setup_middleware,
