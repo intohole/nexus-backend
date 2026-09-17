@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 
-VALID_CHANNELS: list[str] = ["in_app", "email", "webhook"]
+VALID_CHANNELS: list[str] = ["in_app", "email", "webhook", "wecom"]
 
 
 class NotificationChannel(ABC):
