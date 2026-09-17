@@ -40,3 +40,15 @@ edge-01/edge-03 安全组为「全端口 0.0.0.0/0 放行」，内网服务端�
 - 认证网关的「结构校验」（存在头/三段式）等价于无认证；必须验签或常量时间比对登记态令牌。
 - 敏感配置一律 `${VAR}` 占位符（lion 模板已如此），禁止落字面量；配置中心自身也是泄露面。
 - 内部端口不要暴露公网：单点鉴权失效即全量数据泄露。
+
+## 全站入口收口（第二波）
+- 生成器统一拦截：`_security_guard_blocks`（miniDeploy/app/core/nginx_security_blocks.py）为每个应用前缀、门户根路径、
+  biz 域名生成 `/docs` `/redoc` `/openapi.json` 与 `/api/_internal/` 的 404 规则；文档仍可经门户代理（需登录）查看。
+- 验证：主控入口全站 404；992 次匿名敏感路径探测（31 应用 × 16 路径 × 匿名/伪JWT）零泄露。
+- **节点侧坑**：worker 节点（edge-02/03/04）自带 nginx 也会被公网直连（曾直连 IP 拿到 `/wisepath/docs` 200）。
+  根因是节点上平台代码存在**未提交的本地改动**（nginx_location_blocks / nginx_biz_builder / nginx_config_builder 等 24~45 个文件），
+  无法与上游 fast-forward，收口规则没进节点生成器。
+- 处置：① edge-02 走轻量云防火墙把 80/443 收敛到内网 CIDR（`ModifyFirewallRules` 是**整表替换**语义，误删了 22，
+  已用 CreateFirewallRules 恢复 22/51820/ICMP）；② edge-03/04 用 iptables 仅放行 `10.100.0.0/24` 访问 80/443，
+  并用 `md-net-guard.service`(oneshot + iptables-restore) 做开机持久化。
+- 待办：节点侧本地改动需与上游对齐（否则节点生成器长期缺收口规则）；对齐后应把公网 80/443 在云侧关闭（对外统一走主控 nginx）。
