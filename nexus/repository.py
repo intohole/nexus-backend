@@ -270,8 +270,15 @@ class StatelessRepository(Generic[ModelT]):
         stmt = stmt.offset(skip).limit(limit)
         return await self._scalars_all(session, stmt)
 
-    async def count(self, session: AsyncSession) -> int:
+    async def count(
+        self,
+        session: AsyncSession,
+        filters: Optional[dict[str, object]] = None,
+    ) -> int:
         stmt = select(func.count()).select_from(self._model)  # type: ignore[arg-type]
+        for key, value in (filters or {}).items():
+            if hasattr(self._model, key):
+                stmt = stmt.where(getattr(self._model, key) == value)
         result: int | None = await session.scalar(stmt)
         return result or 0
 
