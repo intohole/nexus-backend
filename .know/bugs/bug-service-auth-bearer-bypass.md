@@ -97,7 +97,7 @@ edge-01/edge-03 安全组为「全端口 0.0.0.0/0 放行」，内网服务端�
 ### 未覆盖（需用户侧）
 - 智谱 provider key（lion `promptManager/business/provider_keys`）：需智谱控制台换 key 后回填。
 - 腾讯云 API 密钥（本次任务在对话中以明文传递）：控制台轮换。
-- edge-04 云安全组公网 80/443（不在账号内）。
+- edge-04 云安全组公网 80/443（不在账号内）——已解决（见下第五波）。
 
 ## 第四波复核（2026-09-17，网信办文档送达后系统化复查）
 ### 复核结论：三波处置全部落地生效，公网零暴露
@@ -129,3 +129,13 @@ edge-01/edge-03 安全组为「全端口 0.0.0.0/0 放行」，内网服务端�
   必须打印原始 Response 校验 `Error`。
 - 复核敏感配置盘点要用**脱敏脚本**（值只显示前缀+长度），且掩码正则要覆盖 `"keyname": "value"` 形态
   （只匹配 key/secret/token 字段名会漏掉 zhipu/deepseek 这类 provider 名）。
+
+## 第五波：edge-04 云侧收敛（2026-09-17）
+- edge-04（106.54.15.201）为**独立腾讯云账号**的轻量云 `lhins-k42ft2tk`（ap-shanghai，用户新提供密钥）。
+  云侧防火墙原状：22/80/ICMP 全 0.0.0.0/0 开放，80 公网可达（此前仅靠节点 iptables 兜底）。
+- 收敛动作（`DeleteFirewallRules`+`CreateFirewallRules` 增量，避开 ModifyFirewallRules 整表替换陷阱）：
+  80/443 → 仅 `10.100.0.0/24`；补 `UDP 51820 → 0.0.0.0/0`（WireGuard mesh 入向）；保留 22/ICMP。
+- 验证：edge-04 公网 80/443 均 closed；master↔edge-04 WG 双 peer 活跃（handshake <2min、GB 级流量）；
+  nginx 内网 200；7 个业务端口（8001/8002/8004/8005/8220/8610/8900）正常。节点 iptables 兜底保留（双保险）。
+- 至此四节点云侧+节点侧全部收敛：master sg-hfu0bvqa、edge-03 sg-bvcrptm2、edge-02 轻量防火墙、edge-04 轻量防火墙。
+- 备注：第一账号另有北京轻量 `lhins-1bkcdlbe`(82.156.91.172) 非集群节点，8080/80 公网开放，未擅自改动（非业务资源，待用户决定）。
