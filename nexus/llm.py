@@ -477,9 +477,9 @@ class LLMService:
             return await _embed(text=texts)
 
         try:
-            return await with_retry(_do, timeout, max_retries)
+            return await with_retry(_do, timeout, _effective_retries(max_retries))
         except Exception as e:
-            logger.error("Embed failed: %s", e)
+            logger.error("Embed failed: %s: %s", type(e).__name__, e or "(无错误详情)")
             if raise_on_error:
                 raise
             return None

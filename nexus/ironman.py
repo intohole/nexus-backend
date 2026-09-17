@@ -147,8 +147,8 @@ def _instrument_ironman() -> None:
         metrics.record(app_name, model, latency, tokens=0, error=error_type)
         log_fn = logger.warning if error_type == "CircuitBreakerOpenError" else logger.error
         log_fn(
-            "LLM %s failed [req_id=%s, app=%s, latency=%.2fs]: %s",
-            op, req_id, app_name, latency, e,
+            "LLM %s failed [req_id=%s, app=%s, latency=%.2fs]: %s: %s",
+            op, req_id, app_name, latency, error_type, e or "(无错误详情)",
         )
 
     async def _wrapped_chat(messages: object, llm: object = None, tools: object = None) -> object:
