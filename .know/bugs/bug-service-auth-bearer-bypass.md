@@ -95,7 +95,7 @@ edge-01/edge-03 安全组为「全端口 0.0.0.0/0 放行」，内网服务端�
   改造会让全站 LLM 调用拿字面量 key 直接 401；Lion 本身即权威配置源，风险由「轮换 + 入口收紧 + 门禁」覆盖。
 
 ### 未覆盖（需用户侧）
-- 智谱 provider key（lion `promptManager/business/provider_keys`）：需智谱控制台换 key 后回填。
+- ~~智谱 provider key（lion `promptManager/business/provider_keys`）：需智谱控制台换 key 后回填。~~ 已轮换+旧 key 下线（2026-09-17）。
 - 腾讯云 API 密钥（本次任务在对话中以明文传递）：控制台轮换。
 - edge-04 云安全组公网 80/443（不在账号内）——已解决（见下第五波）。
 
@@ -121,7 +121,7 @@ edge-01/edge-03 安全组为「全端口 0.0.0.0/0 放行」，内网服务端�
   - 该配置最后修改 2026-09-15 13:05（UTC），早于 9-17 gw- 轮换波次，两 key 均视为泄露。
 - **已处理**：走 lion API（保留审计 id=1052）替换为智谱/DeepSeek 控制台新 key → 平台 agent 重启 promptManager(8400)
   → 真实调用验证 glm-4.5-air 与 deepseek-flash 均 200（新 key 生效，网关 DB Fernet 加密存储）。
-- 待用户控制台**停用旧 key**：智谱 `5f0f260f…`、DeepSeek `sk-e0ee85d3…`。
+- **已下线**：智谱旧 key `5f0f260f…`、DeepSeek 旧 key `sk-e0ee85d3…` 已于 2026-09-17 在厂商控制台完成下线，第三方侧旧凭证全部清理。
 - 轮换清单剩余：腾讯云 API 密钥（对话明文传递）、SERVICE_TOKEN（见下，未轮换）。
 
 ### 经验补充
