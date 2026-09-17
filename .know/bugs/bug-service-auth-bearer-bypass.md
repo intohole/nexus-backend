@@ -52,3 +52,49 @@ edge-01/edge-03 安全组为「全端口 0.0.0.0/0 放行」，内网服务端�
   已用 CreateFirewallRules 恢复 22/51820/ICMP）；② edge-03/04 用 iptables 仅放行 `10.100.0.0/24` 访问 80/443，
   并用 `md-net-guard.service`(oneshot + iptables-restore) 做开机持久化。
 - 待办：节点侧本地改动需与上游对齐（否则节点生成器长期缺收口规则）；对齐后应把公网 80/443 在云侧关闭（对外统一走主控 nginx）。
+
+## 收尾处置（第三波，2026-09-17）
+### 节点侧代码对齐（已完成）
+- 判定「节点本地改动是否为独有工作」的决定性方法：导出节点 `git ls-files -s` 的 blob 哈希，逐个 `git cat-file --batch-check`
+  在上游对象库校验——**全部命中即证明内容来自上游历史**（本次 317/329/328 个文件 0 独有），可安全对齐。
+- 对齐流程：`git diff HEAD > 备份.patch` → `git stash push` → `git checkout -B main origin/main`；仅 3 个与 main 内容
+  完全一致的未跟踪产物文件（portal-apps.js/robots.txt/sitemap.xml）需先移除。重启平台服务后节点生成器即带收口规则
+  （apps.conf 中 `return 404` 计数：edge-02 126 / edge-03 105 / edge-04 91）。
+- 平台自身重启的授权现实：worker 用 `sudo -n systemctl restart minideploy-{god,edge03}.service`；master 的 sudo 白名单
+  只有 nginx，靠 `Restart=always` + `kill <MainPID>`（进程属主即登录用户）自动拉起。重启后平台会自动拉起其托管应用，
+  应用恢复需数十秒（期间 health 000/404 属启动窗口，非故障）。
+
+### 云侧网络收敛（已完成/部分）
+- edge-03 从共用安全组 `sg-hfu0bvqa`（与 master 共享）拆出独立组 `sg-bvcrptm2`：公网仅 22/51820，80/443 限 `10.100.0.0/24`。
+- **API 陷阱**：本账号 tccli 内置模型缺少 `VpcId`/`AssociateSecurityGroups`，且 VPC 服务返回 `InvalidAction`；
+  绑定/解绑安全组实际由 **cvm 服务** 的同名动作提供（`AssociateSecurityGroups`/`DisassociateSecurityGroups`），
+  直接用 TC3 签名脚本调用可绕开模型缺失；`CreateSecurityGroupPolicies` 不支持同时传 Ingress+Egress，需分两次调用。
+  另注意 tccli 不传 `--region` 会落到默认地域（曾把安全组误建到广州，已删除）。
+- 同一账号内 CVM 仅 edge-01(ins-mdisasdp)/edge-03(ins-8x58dcw1)、轻量云 edge-02(lhins-kfpge7my)；
+  **edge-04 不在该账号**（另有 82.156.91.172 北京轻量实例，非集群节点），其公网 80/443 只能靠 iptables 兜底，需在所属控制台收敛。
+
+### 「占位符未被解析 → 密钥退化为公开常量」（新发现的同类高危）
+- 机制：`minideploy.yaml` env 的 `${VAR}` 需要平台 env/secrets 提供真值；worker 侧 `merge_yaml_env_into`
+  仅在**已存在真值**时跳过占位符，否则把 `${VAR}` 字面量写入 `.minideploy_env`，应用照常读环境变量。
+- 命中案例（`adSmart`）：`.minideploy_env` 里 `ADSMART_JWT_SECRET="${ADSMART_JWT_SECRET}"`，
+  而应用代码「env 优先、Lion 兜底」→ 扩展令牌实际用公开字符串签名，任何人可伪造扩展身份。
+  修复：从 minideploy.yaml 移除该 env/secrets 声明（密钥收归 Lion `business/extension_secrets` 单一来源）→
+  轮换 Lion 密钥 → 清理 env 文件 → 重启；验证 8 项（新密钥签发/旧密钥与占位符签名全部 401、新密钥正常 200）。
+- 同批排查（配置卫生，实测未被鉴权链路消费）：`aiPet`/`verseCraft` 的 JWT/SECRET_KEY（鉴权走 nexus/UC，
+  SECRET_KEY 无消费点）、`golden` 残留行、`challengePlanet` 的 `PM_GATEWAY_API_KEY`（网关鉴权统一走 Lion infra）、
+  `financialKG` 的回调地址（真值在应用 config.yaml）。均已清理；aiPet/verseCraft 已补随机真值并重启。
+- 固化门禁：`miniDeploy/app/standards/plugins/env_placeholder_resolved.py`（block 级，扫 `.env`/`.minideploy_env`
+  的纯 `${VAR}` 值），已登记 `config/standards.yaml` 并部署到四节点；增量部署中因文件不在变更集自动降级为 warn，
+  全量审计场景为 block。
+
+### 网关测试 key 与残留
+- 停用 `gw-9dfe`(e2e-test)/`gw-7bad`(vision-e2e)（DB `is_active=0` + 重启 promptManager 刷进程内缓存）；
+  仅 `gw-df4e…`(default-20260917) 为在用生产 key，lion 中 129 条配置 0 条引用旧 key。
+- `gw-25f4`(default-llm) 仍启用但无任何配置引用、末次调用 2026-09-14，保留待人工确认。
+- **不做**「lion llm 组明文 key 改 `${PM_GATEWAY_API_KEY}`」：占位符在 worker 侧无解析器（见上），
+  改造会让全站 LLM 调用拿字面量 key 直接 401；Lion 本身即权威配置源，风险由「轮换 + 入口收紧 + 门禁」覆盖。
+
+### 未覆盖（需用户侧）
+- 智谱 provider key（lion `promptManager/business/provider_keys`）：需智谱控制台换 key 后回填。
+- 腾讯云 API 密钥（本次任务在对话中以明文传递）：控制台轮换。
+- edge-04 云安全组公网 80/443（不在账号内）。
