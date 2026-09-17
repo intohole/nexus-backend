@@ -9,6 +9,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Awaitable, Callable, Optional, TypeVar, cast
 
 import httpx
+from fastapi import Request
 
 T = TypeVar("T")
 
@@ -87,6 +88,18 @@ def resolve_cors_origins(value: object) -> list[str]:
     if isinstance(value, (list, tuple)):
         return [str(o).strip() for o in value if str(o).strip()]
     return []
+
+
+def get_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
+    if request.client:
+        return request.client.host
+    return "unknown"
 
 
 def safe_int(value: object, default: int = 0) -> int:
