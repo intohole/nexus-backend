@@ -13,9 +13,6 @@ DEFAULT_SERVICE_AUTH_WHITELIST: tuple[str, ...] = (
     "/health",
     "/health/detailed",
     "/api/health",
-    "/docs",
-    "/openapi.json",
-    "/redoc",
     "/",
     "/login",
     "/static",
@@ -29,11 +26,13 @@ def register_service_auth(
     *,
     whitelist_paths: Optional[list[str]] = None,
     public_api_prefixes: Optional[list[str]] = None,
+    allow_user_tokens: bool = False,
 ) -> None:
     app.add_middleware(
         ServiceAuthMiddleware,
         whitelist_paths=whitelist_paths or list(DEFAULT_SERVICE_AUTH_WHITELIST),
         public_api_prefixes=public_api_prefixes or [],
+        allow_user_tokens=allow_user_tokens,
     )
 
 

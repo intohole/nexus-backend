@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hmac
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator, Callable, Optional
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -171,13 +173,27 @@ def setup_middleware(
         setup_exception_handlers(app)
 
 
+def require_service_token(request: Request) -> None:
+    """内部端点校验：仅接受与服务令牌一致的 X-Service-Token / Bearer 令牌。"""
+    from fastapi import HTTPException
+
+    expected: str = os.environ.get("SERVICE_TOKEN", "")
+    supplied: str = request.headers.get("X-Service-Token", "")
+    if not supplied:
+        auth: str = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            supplied = auth[7:].strip()
+    if not expected or not supplied or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail="Invalid service token")
+
+
 def register_internal_endpoints(app: FastAPI) -> None:
     """A4: 在任意 FastAPI app 上注册 /api/_internal/* 端点。
 
     适用于不使用 nexus.create_app() 但仍需暴露内部监控端点的应用。
-    端点由 ServiceTokenMiddleware / 路由前缀保护，不对外暴露。
+    端点强制要求服务令牌（require_service_token），匿名请求一律 401。
     """
-    @app.post("/api/_internal/reload-llm")
+    @app.post("/api/_internal/reload-llm", dependencies=[Depends(require_service_token)])
     async def reload_llm(request: Request) -> JSONResponse:
         """P0: 触发 ironman 配置热重载（内部端点）。
 
@@ -196,7 +212,7 @@ def register_internal_endpoints(app: FastAPI) -> None:
                 content={"status": "error", "message": str(exc)},
             )
 
-    @app.get("/api/_internal/llm-metrics")
+    @app.get("/api/_internal/llm-metrics", dependencies=[Depends(require_service_token)])
     async def llm_metrics_endpoint(request: Request) -> JSONResponse:
         """A4.1: 暴露 LLM 调用 metrics（内部端点）。
 
@@ -206,7 +222,7 @@ def register_internal_endpoints(app: FastAPI) -> None:
         from nexus.llm_metrics import get_llm_metrics
         return JSONResponse(content=get_llm_metrics().snapshot())
 
-    @app.get("/api/_internal/llm-circuit")
+    @app.get("/api/_internal/llm-circuit", dependencies=[Depends(require_service_token)])
     async def llm_circuit_endpoint(request: Request) -> JSONResponse:
         """A4.2: 暴露 LLM 熔断器状态（内部端点）。
 
