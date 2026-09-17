@@ -1,3 +1,9 @@
+"""ironman Bootstrap 接入层：从 Lion 拉取 chat/embed 配置并插桩调用链。
+
+职责：default_config_loader 组装配置（禁止环境变量兜底，配置缺失直接报错）、
+init_ironman 建 Bootstrap 并按 TTL 热重载、_instrument_ironman 包装
+chat/ask/embed/extract/stream 注入 metrics/circuit_breaker/req_id。
+"""
 from __future__ import annotations
 
 import asyncio
