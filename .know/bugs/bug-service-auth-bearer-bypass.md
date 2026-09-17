@@ -98,3 +98,34 @@ edge-01/edge-03 安全组为「全端口 0.0.0.0/0 放行」，内网服务端�
 - 智谱 provider key（lion `promptManager/business/provider_keys`）：需智谱控制台换 key 后回填。
 - 腾讯云 API 密钥（本次任务在对话中以明文传递）：控制台轮换。
 - edge-04 云安全组公网 80/443（不在账号内）。
+
+## 第四波复核（2026-09-17，网信办文档送达后系统化复查）
+### 复核结论：三波处置全部落地生效，公网零暴露
+- 公网实测：`songguokr.com:9527` 直连超时（安全组收敛）；`/lion/*` 公网 404（is_public=false 只入内网 server block）；
+  全 14 公开应用 `/docs` `/openapi.json` 公网 404（nginx 收口规则 + 大小写规范化 301→404，verseCraft 已验证无泄露）。
+- 认证行为：master 本机 lion 9527 与经 nginx 路径——伪 Bearer test/无 token/`/docs` 全 401；真 SERVICE_TOKEN 200（非占位符，len=43）。
+- 四节点 nexus-backend 中间件代码全部修复（allow_user_tokens=True / allow_bearer_passthrough=False），
+  master 用系统 python3（editable apps/nexus-backend），worker 用 venv312（editable ~/workspace/nexus-backend）。
+- nginx 收口规则数：edge-02=126 / edge-03=105 / edge-04=91；edge-03/04 iptables 80/443 限 10.100.0.0/24 生效。
+- 全节点敏感端口公网扫描（8900/8901/8910/8250/8999/8700/8100/9527/8200/51820）：全部 closed；仅 master 22/80/443 与各节点 22 开放。
+- 腾讯云 API（TC3 签名直查，注意安全组接口在 vpc 服务、Limit 需字符串）：
+  master sg-hfu0bvqa 入站仅 22/80/443/51820；edge-03 sg-bvcrptm2 入站 22/51820 + 80/443 限 10.100.0.0/24；
+  edge-02 轻量云防火墙 22/51820/ICMP + 80/443 限 10.100.0.0/24；广州 sg-d6wp76tj 为无实例默认组（可清理，无害）。
+- lion 库密钥盘点：仅 `gw-df4ee79a900…`（轮换后新 key）出现 9 次；旧泄露 key（gw-3007c3e3/gw-9dfe/gw-7bad/gw-25f4）零残留；
+  UC app_secret 全量轮换（audit 2026-09-17 03:52 UTC）。门禁插件 env_placeholder_resolved 已注册四节点。
+- LLM 网关（8400）healthz 200 正常。
+
+### 新增发现（上轮遗漏，需用户侧处理）
+- `promptManager/business/provider_keys` 仍明文存两条**模型直连 key**（网信办通报的同类泄露面，完整值见线上 lion 配置）：
+  - 智谱 zhipu：`5f0f260f…`（上轮已标注未覆盖）
+  - **DeepSeek：`sk-e0ee85d3…`（上轮未发现未轮换）**
+  - 该配置最后修改 2026-09-15 13:05（UTC），早于 9-17 gw- 轮换波次，两 key 均视为泄露需控制台轮换，
+    换新后回填 lion 该配置并重启 promptManager（8400）加载。
+- 轮换清单（全部需用户在对应控制台操作）：智谱 key、DeepSeek key、腾讯云 API 密钥（本对话明文传递）。
+
+### 经验补充
+- 安全组/防火墙类 API 的坑：安全组查询走 `vpc.tencentcloudapi.com`（非 cvm）；`Limit`/`Offset` 参数类型因接口而异
+  （DescribeSecurityGroups 要字符串、DescribeSecurityGroupPolicies 不支持分页参数）；误传参数会被静默当空结果，
+  必须打印原始 Response 校验 `Error`。
+- 复核敏感配置盘点要用**脱敏脚本**（值只显示前缀+长度），且掩码正则要覆盖 `"keyname": "value"` 形态
+  （只匹配 key/secret/token 字段名会漏掉 zhipu/deepseek 这类 provider 名）。
