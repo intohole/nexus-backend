@@ -136,6 +136,10 @@ class MemoryCache:
             self._cache.move_to_end(key)
             return value
 
+    async def get_or_none(self, key: str) -> object:
+        value: object = await self.get(key)
+        return None if value is _MISSING else value
+
     async def set(self, key: str, value: object, ttl: int = 0) -> None:
         async with self._lock:
             now: float = time.time()
