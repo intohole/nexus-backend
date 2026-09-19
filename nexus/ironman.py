@@ -281,11 +281,18 @@ async def init_ironman(
         from ironman import Bootstrap
 
         loader = config_loader or default_config_loader
-        _bootstrap = await Bootstrap.create(
+        bootstrap = await Bootstrap.create(
             app_name=app_name,
             config_loader=loader,
             middleware=middleware,
         )
+        if not bootstrap.is_available():
+            raise IronmanConfigError(
+                f"ironman Bootstrap 配置不完整（app={app_name}），api_key/base_url 缺失，"
+                "拒绝降级启动。请检查 LION_NAMESPACE 对应 llm/chat 配置。"
+            )
+
+        _bootstrap = bootstrap
         _init_app_name = app_name
         _bootstrap_ts = time.monotonic()
 
@@ -299,18 +306,12 @@ async def init_ironman(
         except ImportError:
             pass
 
-        if _bootstrap.is_available():
-            logger.info(
-                "ironman Bootstrap initialized (app=%s, middleware=%s, via_gateway=%s)",
-                app_name,
-                middleware,
-                _via_gateway,
-            )
-        else:
-            raise IronmanConfigError(
-                f"ironman Bootstrap 配置不完整（app={app_name}），api_key/base_url 缺失，"
-                "拒绝降级启动。请检查 LION_NAMESPACE 对应 llm/chat 配置。"
-            )
+        logger.info(
+            "ironman Bootstrap initialized (app=%s, middleware=%s, via_gateway=%s)",
+            app_name,
+            middleware,
+            _via_gateway,
+        )
         return _bootstrap
 
 

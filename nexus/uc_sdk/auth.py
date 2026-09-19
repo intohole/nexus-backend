@@ -10,6 +10,15 @@ except ImportError:
 
 
 class AuthMixin:
+    def _credential_guard(self) -> Dict[str, Any] | None:
+        if self.app_key:
+            return None
+        return {
+            "success": False,
+            "detail": "认证服务未就绪（应用凭证未同步），请稍后重试",
+            "status_code": 503,
+        }
+
     async def verify_token(self, token: str = None, permission: str = None) -> Dict[str, Any]:
         use_token = token or self._access_token
         if not use_token:
@@ -198,6 +207,9 @@ class AuthMixin:
 
     async def login(self, username: str = None, email: str = None, phone: str = None,
                     password: str = None, invite_code: str = None) -> Dict[str, Any]:
+        guard = self._credential_guard()
+        if guard is not None:
+            return guard
         data = {"password": password, "app_key": self.app_key}
         if username:
             data["username"] = username
@@ -214,6 +226,9 @@ class AuthMixin:
 
     async def register(self, username: str = None, email: str = None, phone: str = None,
                        password: str = None, invite_code: str = None) -> Dict[str, Any]:
+        guard = self._credential_guard()
+        if guard is not None:
+            return guard
         data = {"password": password, "app_key": self.app_key}
         if username:
             data["username"] = username

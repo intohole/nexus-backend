@@ -86,7 +86,10 @@ def create_auth_router(
                 )
                 result: dict[str, object] = await uc_sdk_provider().login(**login_kwargs)
                 if not result.get("success"):
-                    return wrap_err(_map_uc_detail(result, "登录失败"), 401)
+                    return wrap_err(
+                        _map_uc_detail(result, "登录失败"),
+                        int(result.get("status_code") or 401),
+                    )
                 data: dict[str, object] = result.get("data", {})
                 if post_login_hook:
                     try:
@@ -119,7 +122,10 @@ def create_auth_router(
                     phone=request.phone or "",
                 )
                 if not result.get("success"):
-                    return wrap_err(_map_uc_detail(result, "注册失败"), 400)
+                    return wrap_err(
+                        _map_uc_detail(result, "注册失败"),
+                        int(result.get("status_code") or 400),
+                    )
                 data: dict[str, object] = result.get("data", {})
                 if post_register_hook:
                     try:
