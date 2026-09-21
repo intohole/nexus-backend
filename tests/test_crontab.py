@@ -5,8 +5,6 @@ import asyncio
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import pytest
-
 from nexus.crontab import CronScheduler, next_run_at
 from nexus.scheduler import get_scheduler
 
