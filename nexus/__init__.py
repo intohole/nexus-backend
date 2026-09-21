@@ -265,6 +265,12 @@ from nexus.scheduler import (
     get_thread_scheduler,
     setup_scheduler,
 )
+from nexus.crontab import (
+    CronScheduler,
+    get_cron_scheduler,
+    next_run_at,
+    CHINA_TZ,
+)
 from nexus.automation import (
     AutomationContext,
     AutomationResult,
@@ -504,6 +510,10 @@ __all__ = [
     "NexusThreadScheduler",
     "JobManager",
     "get_thread_scheduler",
+    "CronScheduler",
+    "get_cron_scheduler",
+    "next_run_at",
+    "CHINA_TZ",
     "AutomationContext",
     "AutomationResult",
     "Action",

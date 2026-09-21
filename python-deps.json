@@ -22,6 +22,7 @@
     "loguru": {"version": "0.7.2"},
     "jinja2": {"version": "3.1.6"},
     "apscheduler": {"version": "3.11.3"},
+    "croniter": {"version": "6.0.0"},
     "cachetools": {"version": "7.1.5"},
     "sse-starlette": {"version": "3.0.3"},
     "jsonschema": {"version": "4.26.0"},

@@ -107,23 +107,27 @@ class NexusScheduler:
         hour: Optional[int] = None,
         minute: Optional[int] = None,
         day_of_week: Optional[str] = None,
+        expr: Optional[str] = None,
+        timezone: Optional[str] = None,
         **kwargs: object,
     ) -> str:
         scheduler = self._ensure_scheduler()
-        trigger_kwargs: dict[str, object] = {}
-        if hour is not None:
-            trigger_kwargs["hour"] = hour
-        if minute is not None:
-            trigger_kwargs["minute"] = minute
-        if day_of_week is not None:
-            trigger_kwargs["day_of_week"] = day_of_week
-
-        trigger = CronTrigger(**trigger_kwargs)
+        if expr is not None:
+            trigger = CronTrigger.from_crontab(expr, timezone=timezone or "Asia/Shanghai")
+        else:
+            trigger_kwargs: dict[str, object] = {}
+            if hour is not None:
+                trigger_kwargs["hour"] = hour
+            if minute is not None:
+                trigger_kwargs["minute"] = minute
+            if day_of_week is not None:
+                trigger_kwargs["day_of_week"] = day_of_week
+            trigger = CronTrigger(**trigger_kwargs)
         scheduler.add_job(
             func, trigger=trigger, id=job_id, replace_existing=True, **kwargs
         )
         self._jobs[job_id] = "cron"
-        logger.info(f"Registered cron job '{job_id}': {trigger_kwargs}")
+        logger.info(f"Registered cron job '{job_id}': {expr or trigger}")
         return job_id
 
     def add_date_job(
@@ -254,18 +258,23 @@ class NexusThreadScheduler:
         hour: Optional[int] = None,
         minute: Optional[int] = None,
         day_of_week: Optional[str] = None,
+        expr: Optional[str] = None,
+        timezone: Optional[str] = None,
         **kwargs: object,
     ) -> str:
         scheduler = self._ensure_scheduler()
-        trigger_kwargs: dict[str, object] = {}
-        if hour is not None:
-            trigger_kwargs["hour"] = hour
-        if minute is not None:
-            trigger_kwargs["minute"] = minute
-        if day_of_week is not None:
-            trigger_kwargs["day_of_week"] = day_of_week
+        if expr is not None:
+            trigger = CronTrigger.from_crontab(expr, timezone=timezone or "Asia/Shanghai")
+        else:
+            trigger_kwargs: dict[str, object] = {}
+            if hour is not None:
+                trigger_kwargs["hour"] = hour
+            if minute is not None:
+                trigger_kwargs["minute"] = minute
+            if day_of_week is not None:
+                trigger_kwargs["day_of_week"] = day_of_week
 
-        trigger = CronTrigger(**trigger_kwargs)
+            trigger = CronTrigger(**trigger_kwargs)
         scheduler.add_job(
             func, trigger=trigger, id=job_id, replace_existing=True, **kwargs
         )
