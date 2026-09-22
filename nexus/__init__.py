@@ -79,6 +79,8 @@ from nexus.middleware import (
     REQUEST_ID_HEADER,
 )
 from nexus.rate_limit import RateLimitMiddleware
+from nexus.audit_middleware import AuditMiddleware
+from nexus.audit import log_audit
 from nexus.config import RateLimitConfig as RateLimitConfig
 from nexus.auth import (
     AuthDependencies,
@@ -362,6 +364,8 @@ __all__ = [
     "REQUEST_ID_HEADER",
     "RateLimitMiddleware",
     "RateLimitConfig",
+    "AuditMiddleware",
+    "log_audit",
     "AuthDependencies",
     "get_current_user_id_required",
     "get_current_user_id_optional",

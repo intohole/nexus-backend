@@ -76,6 +76,14 @@ class RateLimitConfig(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
 
+class AuditConfig(BaseSettings):
+    enabled: bool = Field(default=True)
+    app_code: str = Field(default="")
+    exclude_paths: list[str] = Field(default_factory=lambda: ["/health", "/static", "/api/auth", "/login", "/docs", "/openapi.json", "/redoc"])
+
+    model_config = SettingsConfigDict(extra="ignore")
+
+
 class StaticFilesConfig(BaseSettings):
     directory: str = Field(default="static")
     no_cache: bool = Field(default=True)
@@ -97,6 +105,7 @@ class NexusConfig(BaseSettings):
     lion: LionConfig = Field(default_factory=LionConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    audit: AuditConfig = Field(default_factory=AuditConfig)
     static_files: StaticFilesConfig = Field(default_factory=StaticFilesConfig)
 
     extra: dict[str, object] = Field(default_factory=dict)
