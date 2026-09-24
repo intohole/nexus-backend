@@ -17,11 +17,15 @@
     data: {"type": "widget", "id": "w1", "widget": "table", "title": "技术指标",
            "data": {"summary": {"信号": "买入"}, "columns": ["指标", "数值"], "rows": [...]}}\n\n
     data: {"type": "widget_update", "id": "w1", "data": {...}}\n\n
-    widget 取值: table(数据表) / cards(卡片列表) / steps(步骤时间线) /
+    widget 取值: table(数据表) / cards(卡片列表) / steps(步骤时间线, 支持 percent+status 呈现任务进度) /
                  related(相关追问, data.items[{text,value}], 点击自动追问) /
                  choice(选项选择, data.options[{label,value,recommended}]) /
-                 feedback(赞踩反馈)
-    widget_update 用于流式填充或更新已下发组件的 data（按 id 定位）。
+                 feedback(赞踩反馈) /
+                 form(表单收集, data.fields[{key,label,type,required,options}], 提交回传字段值) /
+                 chart(图表, data.chart=bar|line|pie + categories/series, 或直接传 echarts option) /
+                 confirm(危险操作二次确认, data.message/detail/items/warning, 回传 true|false)
+    widget_update 用于流式填充或更新已下发组件的 data（按 id 定位）；task 进度用
+    {"type":"widget_update","id":"w1","data":{"percent":60,"status":"running","steps":[...]}}。
 
 若 ironman 暂不支持原生 streaming，调用方可先用 `chunked_text_stream`
 将完整文本切块后 yield，模拟流式 UX。
