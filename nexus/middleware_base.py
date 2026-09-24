@@ -1,3 +1,4 @@
+"""通用中间件集合：请求上下文/CORS/安全头/限流等，供各业务应用统一接入。"""
 from __future__ import annotations
 
 import time
