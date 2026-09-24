@@ -1,3 +1,4 @@
+"""认证依赖：JWT/UC SDK 鉴权、权限校验与当前用户信息提取。"""
 from __future__ import annotations
 
 import asyncio

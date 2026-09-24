@@ -1,3 +1,4 @@
+"""通知渠道分发器：按渠道选择实现并投递，含失败降级。"""
 from __future__ import annotations
 
 import asyncio

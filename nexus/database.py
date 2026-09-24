@@ -1,3 +1,4 @@
+"""数据库管理：异步引擎/会话创建与生命周期管理。"""
 from __future__ import annotations
 
 import asyncio

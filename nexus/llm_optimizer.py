@@ -1,3 +1,4 @@
+"""上下文优化：token 估算、上下文裁剪与历史压缩。"""
 from __future__ import annotations
 
 import re

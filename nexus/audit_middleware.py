@@ -1,3 +1,4 @@
+"""审计中间件：按请求采集操作留痕并异步上报。"""
 from __future__ import annotations
 
 import asyncio

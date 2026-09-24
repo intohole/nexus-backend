@@ -1,3 +1,4 @@
+"""仓储基类：无状态与带会话两类数据访问基类。"""
 from __future__ import annotations
 
 from typing import Generic, Optional, Type, TypeVar

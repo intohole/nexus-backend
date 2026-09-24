@@ -1,3 +1,4 @@
+"""导出工具：CSV 与 Excel 的行/模型序列化互转。"""
 from __future__ import annotations
 
 import csv

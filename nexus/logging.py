@@ -1,3 +1,4 @@
+"""日志体系：loguru 统一装配、格式化与标准库日志接管。"""
 from __future__ import annotations
 
 import logging

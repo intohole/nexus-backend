@@ -1,3 +1,4 @@
+"""LLM 通用工具：超时/可重试判定、重试等待解析与 JSON 提取解析。"""
 from __future__ import annotations
 
 import asyncio

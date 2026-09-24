@@ -1,3 +1,4 @@
+"""PKCE 助手：OAuth 授权码流程的校验串生成与验证。"""
 import hashlib
 import base64
 import secrets

@@ -1,3 +1,4 @@
+"""Lion 配置中心集成：聊天/向量/图像等 LLM 配置读取与缓存。"""
 from __future__ import annotations
 
 import asyncio

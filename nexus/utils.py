@@ -1,3 +1,4 @@
+"""通用工具：时间工具、类型安全转换、CORS 解析与客户端 IP 解析。"""
 from __future__ import annotations
 
 import asyncio

@@ -1,3 +1,4 @@
+"""数据中心上报客户端：核心指标与业务事件上报。"""
 from __future__ import annotations
 
 import os

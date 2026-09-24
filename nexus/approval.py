@@ -1,3 +1,4 @@
+"""审批状态机：审批状态定义、流转规则与审批动作执行。"""
 from __future__ import annotations
 
 from enum import Enum

@@ -1,3 +1,4 @@
+"""chroma 向量库 SDK 客户端：集合与向量读写封装。"""
 from __future__ import annotations
 
 import json

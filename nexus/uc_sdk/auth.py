@@ -1,3 +1,4 @@
+"""UC SDK 认证能力：登录/注册/令牌刷新等认证接口封装。"""
 import time
 from typing import Dict, Any
 

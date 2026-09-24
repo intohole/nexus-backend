@@ -1,3 +1,4 @@
+"""启动页中间件：SSR 页面首屏加载态注入。"""
 from __future__ import annotations
 
 from typing import Awaitable, Callable

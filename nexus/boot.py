@@ -1,3 +1,4 @@
+"""启动装配：服务间认证、健康详情、SPA 静态挂载等通用能力注册。"""
 from __future__ import annotations
 
 from pathlib import Path

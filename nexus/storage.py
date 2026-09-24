@@ -1,3 +1,4 @@
+"""上传存储：大小受限读取与文件落盘工具。"""
 from __future__ import annotations
 
 import uuid

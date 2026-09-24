@@ -1,3 +1,4 @@
+"""邮件通知渠道（统一经 notifyCenter 出口）。"""
 from __future__ import annotations
 
 from nexus.channels.base import NotificationChannel

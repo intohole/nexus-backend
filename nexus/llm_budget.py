@@ -1,3 +1,4 @@
+"""LLM 输出预算：按任务类型解析 token 预算与输出模式。"""
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,3 +1,4 @@
+"""LLM 调用辅助：输出纪律注入、命名空间解析、消息转换与用量记账。"""
 from __future__ import annotations
 
 from typing import Optional

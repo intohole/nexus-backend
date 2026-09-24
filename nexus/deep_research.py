@@ -1,3 +1,4 @@
+"""深度研究服务封装：多步检索推理调用与结果解析。"""
 from __future__ import annotations
 
 import json

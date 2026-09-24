@@ -1,3 +1,4 @@
+"""Webhook 通知渠道：外向 HTTP 回调投递。"""
 from __future__ import annotations
 
 import httpx

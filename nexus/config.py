@@ -1,3 +1,4 @@
+"""统一配置模型：数据库/CORS/UC/Lion/日志/限流等配置节与环境变量解析。"""
 from __future__ import annotations
 
 import os

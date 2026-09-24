@@ -1,3 +1,4 @@
+"""服务间调用客户端：短效凭证签发与请求转发。"""
 from __future__ import annotations
 
 import asyncio

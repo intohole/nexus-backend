@@ -1,3 +1,4 @@
+"""认证请求模型：登录/注册/刷新令牌/改密/忘记与重置密码。"""
 from __future__ import annotations
 
 from typing import Optional

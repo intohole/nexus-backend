@@ -1,3 +1,4 @@
+"""FastAPI 应用装配：生命周期、中间件、内部端点与健康检查注册。"""
 from __future__ import annotations
 
 import hmac

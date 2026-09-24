@@ -1,3 +1,4 @@
+"""认证路由辅助：默认成功/错误响应构造与 UC 错误映射。"""
 from __future__ import annotations
 
 from typing import Awaitable, Callable

@@ -1,3 +1,4 @@
+"""通知统一出口：站内/邮件等通知发送与 notifyCenter 客户端管理。"""
 from __future__ import annotations
 
 import os

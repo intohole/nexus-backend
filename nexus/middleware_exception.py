@@ -1,3 +1,4 @@
+"""异常处理中间件：统一错误响应（含中文校验提示与 HTML/JSON 分流）。"""
 from __future__ import annotations
 
 from typing import Awaitable, Callable

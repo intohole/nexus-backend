@@ -1,3 +1,4 @@
+"""请求上下文：request_id/用户/组织/链路 ID 的 contextvars 存取。"""
 from __future__ import annotations
 
 import contextvars

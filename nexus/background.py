@@ -1,3 +1,4 @@
+"""后台任务管理器：异步任务登记与优雅收尾。"""
 from __future__ import annotations
 
 import asyncio

@@ -1,3 +1,4 @@
+"""JWT 签发与验签工具。"""
 from __future__ import annotations
 
 from typing import Any, Optional

@@ -1,3 +1,4 @@
+"""限流中间件：滑动窗口算法与按 IP/维度限流。"""
 from __future__ import annotations
 
 import asyncio

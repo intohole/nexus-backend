@@ -1,3 +1,4 @@
+"""用户展示名解析：手机号/邮箱脱敏与自动生成账号识别。"""
 from __future__ import annotations
 
 from typing import Optional

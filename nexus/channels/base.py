@@ -1,3 +1,4 @@
+"""通知渠道抽象基类与渠道类型枚举。"""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

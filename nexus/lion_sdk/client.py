@@ -1,3 +1,4 @@
+"""Lion SDK 客户端：命名空间与配置项读写。"""
 from __future__ import annotations
 
 import json

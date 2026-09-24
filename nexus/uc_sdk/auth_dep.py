@@ -1,3 +1,4 @@
+"""UC SDK 认证依赖工厂：为业务应用生成鉴权依赖。"""
 import logging
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials

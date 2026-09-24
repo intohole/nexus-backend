@@ -1,3 +1,4 @@
+"""中间件统一出口：日志/请求 ID/安全头/缓存/认证/启动页等聚合导出。"""
 from nexus.middleware_base import (
     REQUEST_ID_HEADER,
     LoggingMiddleware,

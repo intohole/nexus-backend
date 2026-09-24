@@ -1,3 +1,4 @@
+"""审计日志客户端：异步上报操作留痕至审计服务。"""
 from __future__ import annotations
 
 import asyncio

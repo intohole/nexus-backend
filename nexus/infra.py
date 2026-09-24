@@ -1,3 +1,4 @@
+"""基建地址解析：按 Lion/配置解析 UC、基建服务基址。"""
 from __future__ import annotations
 
 import os

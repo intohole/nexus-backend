@@ -1,3 +1,4 @@
+"""SSE 连接管理：连接登记、事件推送与流式响应生成。"""
 from __future__ import annotations
 
 import asyncio

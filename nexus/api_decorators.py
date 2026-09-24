@@ -1,3 +1,4 @@
+"""API 装饰器：统一错误处理与保持签名解析。"""
 from __future__ import annotations
 
 import functools

@@ -1,3 +1,4 @@
+"""权限依赖：用户令牌与 API Key 两类鉴权依赖装配。"""
 from __future__ import annotations
 
 from typing import Optional

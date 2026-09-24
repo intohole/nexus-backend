@@ -1,3 +1,4 @@
+"""服务基类：业务服务层的通用基类。"""
 from __future__ import annotations
 
 from typing import Awaitable, Callable, Optional, TypeVar

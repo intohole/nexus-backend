@@ -1,3 +1,4 @@
+"""认证中间件：用户令牌校验与服务间鉴权，含公开路径白名单。"""
 from __future__ import annotations
 
 import hashlib

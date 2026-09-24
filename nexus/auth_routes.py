@@ -1,3 +1,4 @@
+"""认证路由工厂：登录/注册/刷新/改密/找回密码等端点装配。"""
 from __future__ import annotations
 
 from typing import Optional

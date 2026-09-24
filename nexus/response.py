@@ -1,3 +1,4 @@
+"""统一响应结构：成功/错误响应与分页包装。"""
 from __future__ import annotations
 
 from typing import Generic, Optional, TypeVar

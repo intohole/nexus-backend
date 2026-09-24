@@ -1,3 +1,4 @@
+"""UC SDK 装配：初始化、Lion 凭证引导与凭证失效恢复。"""
 from __future__ import annotations
 
 import asyncio

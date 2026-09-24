@@ -1,3 +1,4 @@
+"""标准 lifespan 工厂：启动/关闭钩子的统一装配。"""
 from __future__ import annotations
 
 import logging

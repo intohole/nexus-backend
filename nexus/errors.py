@@ -1,3 +1,4 @@
+"""统一异常体系：配置/数据库/认证/未找到/校验等错误类型。"""
 from __future__ import annotations
 
 from typing import Optional
