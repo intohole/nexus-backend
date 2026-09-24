@@ -1,3 +1,4 @@
+"""LLM JSON 客户端：结构化 JSON 输出的调用封装。"""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
@@ -32,6 +33,16 @@ class LLMJsonClient:
     def last_error(self) -> str:
         return self._last_error
 
+    def _thinking_kwargs(self, enable_thinking: Optional[bool], thinking_budget: Optional[int]) -> dict[str, object]:
+        kwargs: dict[str, object] = {}
+        eff_enable = self._enable_thinking if enable_thinking is None else enable_thinking
+        eff_budget = self._thinking_budget if thinking_budget is None else thinking_budget
+        if eff_enable is not None:
+            kwargs["enable_thinking"] = eff_enable
+        if eff_budget is not None:
+            kwargs["thinking_budget"] = eff_budget
+        return kwargs
+
     async def ask_json(
         self,
         prompt: str,
@@ -56,8 +67,7 @@ class LLMJsonClient:
                 task_type=self._task_type if task_type is None else task_type,
                 timeout=self._timeout if timeout is None else timeout,
                 model=model if model is not None else self._model,
-                enable_thinking=self._enable_thinking if enable_thinking is None else enable_thinking,
-                thinking_budget=self._thinking_budget if thinking_budget is None else thinking_budget,
+                **self._thinking_kwargs(enable_thinking, thinking_budget),
             )
             parsed = parse_llm_json(raw)
             if isinstance(parsed, dict):
@@ -122,8 +132,7 @@ class LLMJsonClient:
                 task_type=self._task_type if task_type is None else task_type,
                 timeout=self._timeout if timeout is None else timeout,
                 model=model if model is not None else self._model,
-                enable_thinking=self._enable_thinking if enable_thinking is None else enable_thinking,
-                thinking_budget=self._thinking_budget if thinking_budget is None else thinking_budget,
+                **self._thinking_kwargs(enable_thinking, thinking_budget),
             )
             parsed = parse_llm_json(raw)
             if isinstance(parsed, dict):
