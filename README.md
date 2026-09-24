@@ -74,7 +74,7 @@ nexus-backend/
 ## 服务依赖
 
 - **依赖**：`ironman`（LLM 协议）、`usercenter`（UC SDK/认证）、`lion`（LionSDK/动态配置）
-- **被依赖**：本仓库几乎全部 Python 后端（chroma-embedding-server、lion、notifyCenter、fastRPC、usercenter、beeMemory、promptManager 等）均通过 `nexus-backend>=1.6.0` 引用
+- **被依赖**：本仓库几乎全部 Python 后端（chroma-embedding-server、lion、notifyCenter、usercenter、beeMemory、promptManager 等）均通过 `nexus-backend>=1.6.0` 引用
 
 ## 部署
 

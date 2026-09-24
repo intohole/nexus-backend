@@ -223,7 +223,7 @@ class NotFoundCheckMiddleware(BaseHTTPMiddleware):
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """注入 HTTP 安全响应头，提升 Web 安全防护基线。
 
-    消除 WisePath / fastRPC 各自实现的安全头注入逻辑。
+    消除业务应用各自实现的安全头注入逻辑。
     默认注入：X-Content-Type-Options / X-Frame-Options / X-XSS-Protection /
     Referrer-Policy / Strict-Transport-Security。
     """
