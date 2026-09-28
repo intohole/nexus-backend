@@ -4,7 +4,16 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 
-VALID_CHANNELS: list[str] = ["in_app", "email", "webhook", "wecom"]
+VALID_CHANNELS: list[str] = [
+    "in_app",
+    "email",
+    "webhook",
+    "wecom",
+    "wechat",
+    "dingtalk",
+    "telegram",
+    "bark",
+]
 
 
 class NotificationChannel(ABC):

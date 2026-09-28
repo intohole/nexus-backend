@@ -34,6 +34,19 @@ class ChannelDispatcher:
             self._channels["email"] = EmailChannel()
         except Exception as exc:
             logger.warning("Email channel init failed: %s", exc)
+        try:
+            from nexus.channels.robot import (
+                BarkChannel,
+                DingTalkChannel,
+                TelegramChannel,
+                WeChatRobotChannel,
+            )
+            self._channels["wechat"] = WeChatRobotChannel()
+            self._channels["dingtalk"] = DingTalkChannel()
+            self._channels["telegram"] = TelegramChannel()
+            self._channels["bark"] = BarkChannel()
+        except Exception as exc:
+            logger.warning("Robot channels init failed: %s", exc)
         logger.info("Default channels registered")
         self._initialized = True
 

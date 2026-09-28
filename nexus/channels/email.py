@@ -13,15 +13,19 @@ class EmailChannel(NotificationChannel):
         super().__init__("email")
 
     async def send(self, notification: dict[str, object]) -> bool:
-        data: dict[str, object] = notification.get("data", {})
+        data: dict[str, object] = notification.get("data", {}) or {}
         email: str = str(
             notification.get("email") or data.get("email") or data.get("to") or ""
         )
         if not email:
             logger.debug("No email address in notification data, skipping")
             return False
-        subject: str = str(notification.get("title", "通知"))
+        title: str = str(notification.get("title", "通知"))
         body: str = str(notification.get("content", ""))
+        level: str = str(notification.get("level", "") or data.get("level", ""))
+        subject: str = f"[{level.upper()}] {title}" if level else title
+        if level:
+            body = f"{body}\n\n---\n级别: {level}"
         try:
             ok: bool = await get_notify_client().send_email(to=email, subject=subject, body=body)
             logger.info("Email sent to %s: %s", email, ok)
