@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import AsyncGenerator, Callable, Optional
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from nexus.config import NexusConfig, get_settings
@@ -293,26 +293,27 @@ def setup_static_files(
     app.mount(mount_path, StaticFiles(directory=str(static_path)), name="static")
 
     if spa:
+        from nexus.middleware_exception import _NOT_FOUND_HTML, _wants_html
+
         index_path: Path = static_path / "index.html"
         static_resolved: Path = static_path.resolve()
 
+        def _not_found(request: Request) -> HTMLResponse | JSONResponse:
+            if _wants_html(request):
+                return HTMLResponse(content=_NOT_FOUND_HTML, status_code=404)
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
         @app.get(f"{prefix}/{{full_path:path}}" if prefix else "/{full_path:path}")
-        async def spa_fallback_route(full_path: str) -> FileResponse:
+        async def spa_fallback_route(full_path: str, request: Request) -> HTMLResponse | JSONResponse | FileResponse:
             file_path: Path = static_path / full_path
             try:
                 resolved: Path = file_path.resolve()
             except (OSError, ValueError):
-                return JSONResponse(
-                    status_code=404, content={"detail": "Not Found"}
-                )
+                return _not_found(request)
             if not resolved.is_relative_to(static_resolved):
-                return JSONResponse(
-                    status_code=404, content={"detail": "Not Found"}
-                )
+                return _not_found(request)
             if resolved.exists() and resolved.is_file():
                 return FileResponse(str(resolved))
             if index_path.exists():
                 return FileResponse(str(index_path))
-            return JSONResponse(
-                status_code=404, content={"detail": "Not Found"}
-            )
+            return _not_found(request)
