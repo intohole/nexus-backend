@@ -303,7 +303,10 @@ def setup_static_files(
                 return HTMLResponse(content=_NOT_FOUND_HTML, status_code=404)
             return JSONResponse(status_code=404, content={"detail": "Not Found"})
 
-        @app.get(f"{prefix}/{{full_path:path}}" if prefix else "/{full_path:path}")
+        @app.get(
+            f"{prefix}/{{full_path:path}}" if prefix else "/{full_path:path}",
+            response_model=None,
+        )
         async def spa_fallback_route(full_path: str, request: Request) -> HTMLResponse | JSONResponse | FileResponse:
             file_path: Path = static_path / full_path
             try:
