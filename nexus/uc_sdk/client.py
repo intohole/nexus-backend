@@ -183,7 +183,7 @@ class UserCenterSDK(AuthMixin, UserMixin, AppMixin, VipMixin, InviteCodeMixin,
     async def _request(self, method: str, path: str, token: str | None = None,
                        skip_refresh: bool = False, **kwargs) -> Dict[str, Any]:
         if self._circuit_breaker.is_open:
-            return {"success": False, "detail": "认证服务暂时不可用，请稍后重试"}
+            return {"success": False, "message": "认证服务暂时不可用，请稍后重试", "detail": "认证服务暂时不可用，请稍后重试"}
 
         client = await self._get_client()
         headers = kwargs.pop("headers", {})
@@ -203,18 +203,18 @@ class UserCenterSDK(AuthMixin, UserMixin, AppMixin, VipMixin, InviteCodeMixin,
                     await self._sleep(0.5 * (attempt + 1))
                     continue
                 self._circuit_breaker.record_failure()
-                return {"success": False, "detail": "认证服务连接失败，请稍后重试"}
+                return {"success": False, "message": "认证服务连接失败，请稍后重试", "detail": "认证服务连接失败，请稍后重试"}
             except httpx.TimeoutException as e:
                 logger.warning(f"UC请求超时(attempt={attempt + 1}): {e}")
                 if attempt < self._max_retries:
                     await self._sleep(0.5 * (attempt + 1))
                     continue
                 self._circuit_breaker.record_failure()
-                return {"success": False, "detail": "认证服务响应超时，请稍后重试"}
+                return {"success": False, "message": "认证服务响应超时，请稍后重试", "detail": "认证服务响应超时，请稍后重试"}
             except httpx.RequestError as e:
                 logger.error(f"UC请求异常: {e}")
                 self._circuit_breaker.record_failure()
-                return {"success": False, "detail": "认证服务请求异常，请稍后重试"}
+                return {"success": False, "message": "认证服务请求异常，请稍后重试", "detail": "认证服务请求异常，请稍后重试"}
 
         if response.status_code == 401 and self._refresh_token and not skip_refresh and not token:
             refreshed = await self.refresh_access_token()
@@ -224,12 +224,12 @@ class UserCenterSDK(AuthMixin, UserMixin, AppMixin, VipMixin, InviteCodeMixin,
                     response = await client.request(method, path, headers=headers, **kwargs)
                 except httpx.RequestError as e:
                     logger.error(f"UC刷新后请求异常: {e}")
-                    return {"success": False, "detail": "认证服务请求异常，请稍后重试"}
+                    return {"success": False, "message": "认证服务请求异常，请稍后重试", "detail": "认证服务请求异常，请稍后重试"}
 
         if response.status_code >= 500:
             logger.error(f"UC服务端错误: status={response.status_code}")
             self._circuit_breaker.record_failure()
-            return {"success": False, "detail": "认证服务内部错误，请稍后重试"}
+            return {"success": False, "message": "认证服务内部错误，请稍后重试", "detail": "认证服务内部错误，请稍后重试"}
 
         self._circuit_breaker.record_success()
 
@@ -239,7 +239,7 @@ class UserCenterSDK(AuthMixin, UserMixin, AppMixin, VipMixin, InviteCodeMixin,
                 detail = error_data.get("detail", error_data.get("message", f"请求失败({response.status_code})"))
             except Exception:
                 detail = f"请求失败({response.status_code})"
-            return {"success": False, "detail": detail}
+            return {"success": False, "message": detail, "detail": detail}
 
         return response.json()
 
