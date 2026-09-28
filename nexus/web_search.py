@@ -7,19 +7,12 @@ from typing import Any, Optional
 from nexus.infra import get_spider_config
 from nexus.logging import get_logger
 from nexus.ironman import get_init_app_name
+from nexus.web_search_providers import SearchRecency
 from nexus.service_client import get_service_token
 
 logger = get_logger("nexus.web_search")
 
-VALID_RECENCY_FILTERS = (
-    "noLimit",
-    "oneDay",
-    "oneWeek",
-    "oneMonth",
-    "oneYear",
-    "threeYears",
-    "fiveYears",
-)
+VALID_RECENCY_FILTERS = tuple(r.value for r in SearchRecency)
 
 
 class WebSearchService:

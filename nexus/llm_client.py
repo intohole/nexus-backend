@@ -5,7 +5,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from nexus.llm import get_llm_service
-from nexus.llm import parse_llm_json
+from nexus.llm_utils import parse_llm_json
 
 logger = logging.getLogger("nexus.llm_client")
 

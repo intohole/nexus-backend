@@ -107,7 +107,6 @@ from nexus.uc_sdk_helper import (
 from nexus.repository import BaseRepository, StatelessRepository
 from nexus.storage import read_limited, save_upload
 from nexus.lifespan import create_standard_lifespan
-from nexus.background import TaskManager, background_tasks
 from nexus.service import BaseService
 from nexus.api_decorators import handle_api_errors
 from nexus.lion import (
@@ -141,6 +140,7 @@ from nexus.service_client import (
     get_service_client,
     get_service_token,
 )
+from nexus.user_auth import UserAuthDeps, create_user_auth
 from nexus.fastapi_setup import (
     create_app,
     setup_middleware,
@@ -300,7 +300,7 @@ from nexus.automation import (
 )
 from nexus.sanitize import sanitize_agent_output, sanitize_platform_text, sanitize_text_stream
 
-__version__ = "1.19.0"
+__version__ = "1.20.0"
 
 __all__ = [
     "__version__",
@@ -389,9 +389,23 @@ __all__ = [
     "get_user_string_id",
     "parse_user_id",
     "create_auth_router",
-    "AGREEMENT_VERSION",
-    "DEFAULT_TERMS",
-    "DEFAULT_PRIVACY",
+    "create_user_auth",
+    "UserAuthDeps",
+    "ServiceClient",
+    "get_service_client",
+    "get_service_token",
+    "DatacenterClient",
+    "get_datacenter_client",
+    "report_core",
+    "DOMAIN_CAREER",
+    "DOMAIN_KNOWLEDGE",
+    "DOMAIN_CREATIVE",
+    "DOMAIN_GROWTH",
+    "DOMAIN_ASSET",
+    "get_client_ip",
+    "sanitize_platform_text",
+    "resolve_env_string",
+    "resolve_env_tree",
     "init_uc_sdk",
     "init_uc_sdk_from_lion",
     "get_uc_sdk",
@@ -405,8 +419,6 @@ __all__ = [
     "read_limited",
     "save_upload",
     "create_standard_lifespan",
-    "TaskManager",
-    "background_tasks",
     "BaseService",
     "handle_api_errors",
     "LionIntegration",

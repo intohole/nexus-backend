@@ -48,6 +48,13 @@ def _wants_html(request: Request) -> bool:
     return "text/html" in accept and "application/json" not in accept
 
 
+def not_found_response(request: Request) -> Response:
+    """404 统一分流：浏览器导航（Accept 含 text/html 且不含 application/json）返回 SPA HTML 页，其余返回 JSON。"""
+    if _wants_html(request):
+        return HTMLResponse(content=_NOT_FOUND_HTML, status_code=404)
+    return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
+
 _HTTP_ERROR_CODES: dict[int, str] = {
     400: "BAD_REQUEST",
     401: "AUTH_ERROR",
