@@ -405,3 +405,51 @@ def require_ironman(func: Callable[..., Awaitable[object]]) -> Callable[..., Awa
         return await func(*args, **kwargs)
 
     return wrapper
+
+
+_ENSURE_RETRY_INITIAL: float = 30.0
+_ENSURE_RETRY_MAX: float = 300.0
+_ensure_task: Optional[asyncio.Task] = None
+
+
+async def ensure_ironman(
+    app_name: str,
+    config_loader: Optional[ConfigLoader] = None,
+    middleware: str = "production",
+) -> None:
+    """初始化 ironman；配置暂时不可用时不抛错，转入后台指数退避重试。
+
+    与 startup() 的区别：startup 失败即抛错（供部署健康检查兜底）；
+    ensure 适用于 Lion 短暂不可达不应阻断应用启动的场景，
+    恢复后 ironman 自动可用，无需人工干预。幂等，可重复调用。
+    """
+    global _ensure_task
+    if is_ironman_available():
+        return
+    try:
+        await init_ironman(app_name=app_name, config_loader=config_loader, middleware=middleware)
+        return
+    except Exception as e:
+        logger.error("ironman 初始化失败（app=%s），转入后台自动重试: %s", app_name, e)
+    if _ensure_task is None or _ensure_task.done():
+        _ensure_task = asyncio.get_running_loop().create_task(
+            _ensure_retry(app_name, config_loader, middleware)
+        )
+
+
+async def _ensure_retry(
+    app_name: str,
+    config_loader: Optional[ConfigLoader],
+    middleware: str,
+) -> None:
+    delay: float = _ENSURE_RETRY_INITIAL
+    while True:
+        await asyncio.sleep(delay)
+        try:
+            await init_ironman(app_name=app_name, config_loader=config_loader, middleware=middleware)
+            if is_ironman_available():
+                logger.info("ironman 初始化已自动恢复 (app=%s)", app_name)
+                return
+        except Exception as e:
+            logger.warning("ironman 自动重试失败（app=%s），%.0fs 后继续: %s", app_name, delay, e)
+        delay = min(delay * 2, _ENSURE_RETRY_MAX)

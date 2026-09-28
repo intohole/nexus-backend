@@ -186,6 +186,9 @@ from nexus.vision import (
     VisionService,
     get_vision_service,
 )
+from nexus.vision_routes import (
+    create_vision_router,
+)
 from nexus.llm_optimizer import (
     CONCISENESS_HINT,
     JSON_ONLY_HINT,
@@ -197,6 +200,7 @@ from nexus.llm_optimizer import (
 )
 from nexus.ironman import (
     init_ironman,
+    ensure_ironman,
     startup as startup_ironman,
     require_ironman,
     default_config_loader,
@@ -287,7 +291,7 @@ from nexus.automation import (
 )
 from nexus.sanitize import sanitize_agent_output, sanitize_platform_text, sanitize_text_stream
 
-__version__ = "1.13.0"
+__version__ = "1.17.0"
 
 __all__ = [
     "__version__",
@@ -441,6 +445,7 @@ __all__ = [
     "get_image_service",
     "VisionService",
     "get_vision_service",
+    "create_vision_router",
     "configure_ironman",
     "mark_ironman_configured",
     "CONCISENESS_HINT",
@@ -451,6 +456,7 @@ __all__ = [
     "compact_history",
     "within_budget",
     "init_ironman",
+    "ensure_ironman",
     "startup_ironman",
     "require_ironman",
     "default_config_loader",

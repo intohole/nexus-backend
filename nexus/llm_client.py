@@ -1,10 +1,16 @@
 """LLM JSON 客户端：结构化 JSON 输出的调用封装。"""
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from nexus.llm import get_llm_service
 from nexus.llm import parse_llm_json
+
+logger = logging.getLogger("nexus.llm_client")
+
+_BUDGET_RETRY_MIN = 8000
+_BUDGET_RETRY_MAX = 16000
 
 
 class LLMJsonClient:
@@ -18,6 +24,7 @@ class LLMJsonClient:
         max_tokens: int = 3000,
         task_type: str = "default",
         timeout: float = 90.0,
+        budget_retry: bool = True,
     ) -> None:
         self._svc = get_llm_service()
         self._last_error = ""
@@ -28,10 +35,15 @@ class LLMJsonClient:
         self._max_tokens = max_tokens
         self._task_type = task_type
         self._timeout = timeout
+        self._budget_retry = budget_retry
 
     @property
     def last_error(self) -> str:
         return self._last_error
+
+    @staticmethod
+    def _is_parse_failed(result: object) -> bool:
+        return isinstance(result, dict) and set(result.keys()) == {"raw_response"}
 
     def _thinking_kwargs(self, enable_thinking: Optional[bool], thinking_budget: Optional[int]) -> dict[str, object]:
         kwargs: dict[str, object] = {}
@@ -42,6 +54,30 @@ class LLMJsonClient:
         if eff_budget is not None:
             kwargs["thinking_budget"] = eff_budget
         return kwargs
+
+    async def _ask_json_once(
+        self,
+        prompt: str,
+        system: str,
+        *,
+        max_tokens: int,
+        task_type: str,
+        timeout: float,
+        call: dict[str, object],
+    ) -> Dict[str, Any]:
+        raw = await self._svc.ask(
+            prompt=prompt,
+            system=system,
+            max_tokens=max_tokens,
+            json_mode=True,
+            task_type=task_type,
+            timeout=timeout,
+            **call,
+        )
+        parsed = parse_llm_json(raw)
+        if isinstance(parsed, dict):
+            return parsed
+        raise ValueError(f"LLM 返回非 dict 结构: {type(parsed).__name__}")
 
     async def ask_json(
         self,
@@ -57,21 +93,29 @@ class LLMJsonClient:
         task_type: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
+        call: dict[str, object] = {
+            "temperature": self._temperature if temperature is None else temperature,
+            "model": model if model is not None else self._model,
+        }
+        call.update(self._thinking_kwargs(enable_thinking, thinking_budget))
+        eff_task_type = self._task_type if task_type is None else task_type
+        eff_timeout = self._timeout if timeout is None else timeout
+        budget = self._max_tokens if max_tokens is None else max_tokens
         try:
-            raw = await self._svc.ask(
-                prompt=prompt,
-                system=system,
-                temperature=self._temperature if temperature is None else temperature,
-                max_tokens=self._max_tokens if max_tokens is None else max_tokens,
-                json_mode=True,
-                task_type=self._task_type if task_type is None else task_type,
-                timeout=self._timeout if timeout is None else timeout,
-                model=model if model is not None else self._model,
-                **self._thinking_kwargs(enable_thinking, thinking_budget),
+            result = await self._ask_json_once(
+                prompt, system,
+                max_tokens=budget, task_type=eff_task_type, timeout=eff_timeout, call=call,
             )
-            parsed = parse_llm_json(raw)
-            if isinstance(parsed, dict):
-                return parsed
+            if self._is_parse_failed(result) and self._budget_retry:
+                bigger = min(_BUDGET_RETRY_MAX, max(budget * 3, _BUDGET_RETRY_MIN))
+                if bigger > budget:
+                    logger.warning("JSON 解析失败，放大输出预算重试：%s -> %s", budget, bigger)
+                    result = await self._ask_json_once(
+                        prompt, system,
+                        max_tokens=bigger, task_type=eff_task_type, timeout=eff_timeout, call=call,
+                    )
+            if not self._is_parse_failed(result):
+                return result
         except Exception as exc:
             self._last_error = str(exc)
         if fallback is not None:

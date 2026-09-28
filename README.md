@@ -14,6 +14,7 @@ nexus-backend 是 `remoteWork` 工作区的基础依赖包，以 `nexus.xxx` 命
 - 数据库层：`nexus.database` 提供 SQLAlchemy 异步会话管理、`db_manager`、`Base`
 - 中间件：CORS、ServiceAuth（服务间鉴权）、Logging、RequestId、NoCache、异常处理、Splash
 - 通知能力：`nexus.notify.NotifyClient`、`nexus.channels`（in_app/email/webhook 三方推送通道）
+- 视觉识别：`nexus.vision.VisionService` 多模态图片识别（recognize/recognize_json/多图/bytes），`nexus.vision_routes.create_vision_router` 一行挂载通用识别端点 `/api/vision/recognize`
 - 运维能力：`nexus.boot` 健康检查/静态资源挂载、`nexus.scheduler` 定时任务、`nexus.rate_limit`、`nexus.circuit_breaker`、`nexus.llm_metrics`、SSE 管理
 - 其他：日志（loguru）、请求上下文、限流、结构化输出校验、web_search、deep_research 等工具
 

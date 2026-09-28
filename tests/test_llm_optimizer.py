@@ -74,7 +74,7 @@ def test_hints_nonempty():
 def test_metrics_record_usage_and_cost():
     m = LLMMetrics()
     m.reset()
-    m.record("appA", "glm-4-flash", 0.5, tokens=1200, cached=True, cost_usd=0.0012)
+    m.record("appA", "glm-4-flash", 0.5, tokens=1200, cached_tokens=1200, cost_usd=0.0012)
     snap = m.snapshot()
     assert snap["total_calls"] == 1
     assert snap["total_tokens"] == 1200
