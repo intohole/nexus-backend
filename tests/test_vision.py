@@ -25,7 +25,7 @@ def test_sniff_and_data_url():
 
 
 def test_normalize_images():
-    from nexus.vision import VisionService
+    from nexus.vision import GATEWAY_VISION_PATH, VisionService
 
     service = VisionService()
     assert service._normalize_images("https://a.com/1.png") == ["https://a.com/1.png"]
@@ -41,7 +41,7 @@ def test_normalize_images():
 
 @pytest.mark.asyncio
 async def test_recognize_uses_gateway(monkeypatch):
-    from nexus.vision import VisionService
+    from nexus.vision import GATEWAY_VISION_PATH, VisionService
 
     service = VisionService()
     service._base_url = "http://gateway"
@@ -68,7 +68,7 @@ async def test_recognize_uses_gateway(monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
     answer = await service.recognize("这是什么动物", _PNG)
     assert answer == "图中是一只橘猫"
-    assert captured["url"] == "http://gateway" + VisionService.GATEWAY_VISION_PATH
+    assert captured["url"] == "http://gateway" + GATEWAY_VISION_PATH
     assert captured["payload"]["model"] == "glm-4.6v-flash"
     parts = captured["payload"]["messages"][1]["content"]
     assert parts[0]["type"] == "image_url" and parts[0]["image_url"]["url"].startswith("data:image/png")
@@ -77,7 +77,7 @@ async def test_recognize_uses_gateway(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_recognize_json_parses(monkeypatch):
-    from nexus.vision import VisionService
+    from nexus.vision import GATEWAY_VISION_PATH, VisionService
 
     service = VisionService()
     service._base_url = "http://gateway"
@@ -96,7 +96,7 @@ async def test_recognize_json_parses(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_recognize_json_invalid_raises(monkeypatch):
-    from nexus.vision import VisionService
+    from nexus.vision import GATEWAY_VISION_PATH, VisionService
 
     service = VisionService()
     service._base_url = "http://gateway"
@@ -114,7 +114,7 @@ async def test_recognize_json_invalid_raises(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_review_backward_compat(monkeypatch):
-    from nexus.vision import VisionService
+    from nexus.vision import GATEWAY_VISION_PATH, VisionService
 
     service = VisionService()
     service._base_url = "http://gateway"

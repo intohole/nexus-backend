@@ -152,24 +152,6 @@ def sse_data_line(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-def sse_widget(widget_id: str, widget_type: str, data: dict[str, Any],
-               title: str = "") -> str:
-    """格式化消息内组件事件，前端 nux-ai-chat 自动路由渲染。
-
-    用法:
-        yield sse_widget("tech", "table", {"columns": [...], "rows": [...]}, "技术指标")
-    """
-    payload: dict[str, Any] = {"id": widget_id, "widget": widget_type, "data": data}
-    if title:
-        payload["title"] = title
-    return sse_event_dict("widget", payload)
-
-
-def sse_widget_update(widget_id: str, data: dict[str, Any]) -> str:
-    """格式化组件更新事件，按 id 流式填充组件 data。"""
-    return sse_event_dict("widget_update", {"id": widget_id, "data": data})
-
-
 def sse_response(
     generator: AsyncIterator[str],
     media_type: str = "text/event-stream",
@@ -454,8 +436,6 @@ __all__ = [
     "SSE_HEADERS",
     "sse_event",
     "sse_event_dict",
-    "sse_widget",
-    "sse_widget_update",
     "sse_response",
     "sse_chat_stream",
     "sse_chat_stream_v2",

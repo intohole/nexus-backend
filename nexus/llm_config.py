@@ -38,7 +38,7 @@ def mark_ironman_configured() -> None:
     _ironman_configured = True
 
 
-def _effective_retries(max_retries: int) -> int:
+def effective_retries(max_retries: int) -> int:
     try:
         from nexus.ironman import is_gateway_mode
         if is_gateway_mode():
@@ -48,7 +48,7 @@ def _effective_retries(max_retries: int) -> int:
     return max_retries
 
 
-def _resolve_app_name() -> str:
+def resolve_app_name() -> str:
     try:
         from nexus.ironman import get_init_app_name
         name: Optional[str] = get_init_app_name()

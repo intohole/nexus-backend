@@ -28,14 +28,6 @@ def models_to_csv(columns: list[tuple[str, str]], items: list[object]) -> bytes:
     return rows_to_csv(headers, rows)
 
 
-def csv_to_rows(data: bytes) -> tuple[list[str], list[list[str]]]:
-    text = data.decode("utf-8-sig")
-    reader = csv.reader(io.StringIO(text))
-    all_rows = [row for row in reader if row and any(cell.strip() for cell in row)]
-    if not all_rows:
-        return [], []
-    return all_rows[0], all_rows[1:]
-
 
 def dicts_to_excel(headers: list[tuple[str, str]], rows: list[dict[str, Any]]) -> bytes:
     try:

@@ -54,30 +54,6 @@ class ClarifyQuestion(BaseModel):
         return [opt.value for opt in self.options]
 
 
-class ClarifyBundle(BaseModel):
-    id: str = Field(default_factory=lambda: uuid.uuid4().hex)
-    message: str = "先确认几个关键信息，结果会更贴合你的需求"
-    questions: List[ClarifyQuestion] = Field(default_factory=list)
-    allow_skip: bool = True
-    submit_label: str = "确认"
-    skip_label: str = "跳过，直接生成"
-    round: int = 1
-    max_rounds: int = 3
-
-    def payload(self) -> dict:
-        return {
-            "type": "clarify",
-            "bundle_id": self.id,
-            "message": self.message,
-            "questions": [q.payload() for q in self.questions],
-            "allow_skip": self.allow_skip,
-            "submit_label": self.submit_label,
-            "skip_label": self.skip_label,
-            "round": self.round,
-            "max_rounds": self.max_rounds,
-        }
-
-
 def is_skip(text: Optional[str]) -> bool:
     if not text:
         return False

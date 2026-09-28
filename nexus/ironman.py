@@ -300,11 +300,8 @@ async def init_ironman(
         _instrument_ironman()
 
         # 统一标记 ironman 已配置，避免各项目重复调用 mark_ironman_configured()
-        try:
-            from nexus.llm import mark_ironman_configured
-            mark_ironman_configured()
-        except ImportError:
-            pass
+        from nexus.llm_config import mark_ironman_configured
+        mark_ironman_configured()
 
         logger.info(
             "ironman Bootstrap initialized (app=%s, middleware=%s, via_gateway=%s)",

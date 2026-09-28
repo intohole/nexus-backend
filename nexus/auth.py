@@ -257,28 +257,6 @@ async def get_current_org_id_optional(
     return await _deps().get_user_org_id(credentials)
 
 
-async def get_current_org_id_required(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
-) -> str:
-    from nexus.permissions import get_permission_deps as _deps
-    org_id: Optional[str] = await _deps().get_user_org_id(credentials)
-    if not org_id:
-        raise HTTPException(status_code=403, detail="当前用户未加入组织")
-    return org_id
-
-
-def require_org_membership() -> Callable:
-    """返回 FastAPI 依赖，要求当前用户已进入组织上下文（token 携带 org_id）。
-
-    业务侧用返回的 org_id 过滤数据（org 租户隔离）。
-    """
-    async def dependency(
-        credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
-    ) -> str:
-        return await get_current_org_id_required(credentials)
-    return dependency
-
-
 def extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
     """从 Authorization 头提取 Bearer token。"""
     if not authorization:

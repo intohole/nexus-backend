@@ -43,9 +43,6 @@ def get_user_id() -> str:
     return _user_id_var.get()
 
 
-def get_org_id() -> str:
-    return _org_id_var.get()
-
 
 def get_trace_id() -> str:
     return _trace_id_var.get()

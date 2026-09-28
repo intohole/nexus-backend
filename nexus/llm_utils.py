@@ -203,6 +203,27 @@ def parse_llm_json(raw: str) -> dict[str, object]:
     logger.warning("JSON parse failed after all attempts: %s", text[:300])
     return {"raw_response": text}
 
+def parse_llm_json_lenient(raw: str) -> Any:
+    """LLM 输出的宽容解析：支持顶层对象或数组，逐级降级提取，全部失败返回 None。
+
+    与 parse_llm_json 的分工：parse_llm_json 面向"必须是 JSON 对象"的结构化抽取
+    （失败返回 {"raw_response": ...} 哨兵）；本函数面向"对象或数组皆可"的
+    自由输出（如研究发现列表），失败返回 None 由调用方跳过本轮。
+    """
+    text = strip_code_fence(raw).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    for pattern in (r"\[[\s\S]*\]", r"\{[\s\S]*\}"):
+        m = re.search(pattern, text)
+        if m:
+            try:
+                return json.loads(m.group())
+            except json.JSONDecodeError:
+                continue
+    return None
+
 
 async def with_retry(
     coro_fn: Callable[[], Awaitable[T]],

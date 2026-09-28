@@ -96,13 +96,6 @@ from nexus.auth import (
     extract_bearer_token,
 )
 from nexus.auth_routes import create_auth_router
-from nexus.agreement import (
-    AGREEMENT_VERSION,
-    DEFAULT_PRIVACY,
-    DEFAULT_TERMS,
-    AgreementRecord,
-    create_agreement_router,
-)
 from nexus.uc_sdk_helper import (
     init_uc_sdk,
     init_uc_sdk_from_lion,
@@ -168,6 +161,7 @@ from nexus.datacenter import (
 )
 from nexus.llm_utils import (
     parse_llm_json,
+    parse_llm_json_lenient,
     find_balanced_json,
     with_retry,
     strip_code_fence,
@@ -176,6 +170,21 @@ from nexus.llm_utils import (
 from nexus.llm import (
     LLMService,
     get_llm_service,
+)
+from nexus.llm_config import (
+    configure_ironman,
+    mark_ironman_configured,
+)
+from nexus.sse_manager import (
+    SSEManager,
+    SSEConnectionError,
+    sse_event_generator,
+)
+from nexus.channels import (
+    NotificationChannel,
+    VALID_CHANNELS,
+    WebhookChannel,
+    ChannelDispatcher,
 )
 from nexus.llm_client import LLMJsonClient
 from nexus.image import (
@@ -291,7 +300,7 @@ from nexus.automation import (
 )
 from nexus.sanitize import sanitize_agent_output, sanitize_platform_text, sanitize_text_stream
 
-__version__ = "1.17.0"
+__version__ = "1.18.0"
 
 __all__ = [
     "__version__",
@@ -380,8 +389,6 @@ __all__ = [
     "get_user_string_id",
     "parse_user_id",
     "create_auth_router",
-    "create_agreement_router",
-    "AgreementRecord",
     "AGREEMENT_VERSION",
     "DEFAULT_TERMS",
     "DEFAULT_PRIVACY",
@@ -434,6 +441,7 @@ __all__ = [
     "register_internal_endpoints",
     "AppLifecycle",
     "parse_llm_json",
+    "parse_llm_json_lenient",
     "find_balanced_json",
     "with_retry",
     "strip_code_fence",

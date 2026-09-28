@@ -22,8 +22,8 @@ from nexus.llm_budget import OutputMode, TASK_BUDGETS
 from nexus.llm_cache import PromptCache, get_prompt_cache
 from nexus.llm_config import (
     configure_ironman,
-    _effective_retries,
-    _resolve_app_name,
+    effective_retries,
+    resolve_app_name,
 )
 
 logger = get_logger("nexus.llm")
@@ -90,7 +90,7 @@ class LLMService:
             async def _do_with_circuit() -> object:
                 return await circuit.call(do)
             response: object = await with_retry(
-                _do_with_circuit, timeout, _effective_retries(max_retries)
+                _do_with_circuit, timeout, effective_retries(max_retries)
             )
             result: str = extract_content(response, request_id)
             record_usage(metrics, app_name, response, time.monotonic() - start, None)
@@ -130,7 +130,7 @@ class LLMService:
         from ironman.types import LLMOptions
 
         request_id: str = get_request_id() or "-"
-        app_name: str = _resolve_app_name()
+        app_name: str = resolve_app_name()
         budget_max, budget_temp, budget_mode = _resolve_budget(
             task_type, max_tokens, temperature, output_mode
         )
@@ -187,7 +187,7 @@ class LLMService:
         from ironman.types import LLMOptions, Message, Role
 
         request_id: str = get_request_id() or "-"
-        app_name: str = _resolve_app_name()
+        app_name: str = resolve_app_name()
         budget_max, budget_temp, budget_mode = _resolve_budget(
             task_type, max_tokens, temperature, output_mode
         )
@@ -301,7 +301,7 @@ class LLMService:
         from ironman.types import LLMOptions
 
         request_id: str = get_request_id() or "-"
-        app_name: str = _resolve_app_name()
+        app_name: str = resolve_app_name()
         circuit = get_llm_circuit()
         metrics = get_llm_metrics()
         start: float = time.monotonic()
@@ -317,7 +317,7 @@ class LLMService:
             async def _do_with_circuit() -> object:
                 return await circuit.call(_do)
             result: object = await with_retry(
-                _do_with_circuit, timeout, _effective_retries(max_retries)
+                _do_with_circuit, timeout, effective_retries(max_retries)
             )
             metrics.record(app_name, "unknown", time.monotonic() - start, tokens=0, error=None)
             logger.info(
@@ -427,7 +427,7 @@ class LLMService:
         llm_opts: object,
     ) -> AsyncGenerator[str, None]:
         metrics = get_llm_metrics()
-        app_name: str = _resolve_app_name()
+        app_name: str = resolve_app_name()
         start: float = time.monotonic()
         has_content: bool = False
         think_filter = ThinkStreamFilter()
@@ -479,7 +479,7 @@ class LLMService:
             return await _embed(text=texts)
 
         try:
-            return await with_retry(_do, timeout, _effective_retries(max_retries))
+            return await with_retry(_do, timeout, effective_retries(max_retries))
         except Exception as e:
             logger.error("Embed failed: %s: %s", type(e).__name__, e or "(无错误详情)")
             if raise_on_error:

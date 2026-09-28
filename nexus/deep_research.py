@@ -2,36 +2,14 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, Optional
 
 from nexus.llm import get_llm_service
-from nexus.llm_utils import strip_code_fence
+from nexus.llm_utils import parse_llm_json_lenient
 from nexus.logging import get_logger
 from nexus.web_search import get_web_search_service
 
 logger = get_logger("nexus.deep_research")
-
-
-def _parse_json_flexible(raw: str) -> Any:
-    text = strip_code_fence(raw).strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-    m = re.search(r"\[[\s\S]*\]", text)
-    if m:
-        try:
-            return json.loads(m.group())
-        except json.JSONDecodeError:
-            pass
-    m = re.search(r"\{[\s\S]*\}", text)
-    if m:
-        try:
-            return json.loads(m.group())
-        except json.JSONDecodeError:
-            pass
-    return None
 
 
 class DeepResearchService:
@@ -75,7 +53,7 @@ class DeepResearchService:
                     f"请提炼本轮新发现(输出JSON数组,每项含finding/evidence/implication字段):"
                 )
                 raw = await llm.ask(prompt, temperature=0.2, max_tokens=max_tokens_per_round)
-                data = _parse_json_flexible(raw)
+                data = parse_llm_json_lenient(raw)
                 if isinstance(data, list):
                     all_findings.extend(data)
                 elif isinstance(data, dict) and "findings" in data:
