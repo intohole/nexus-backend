@@ -300,7 +300,7 @@ from nexus.automation import (
 )
 from nexus.sanitize import sanitize_agent_output, sanitize_platform_text, sanitize_text_stream
 
-__version__ = "1.18.2"
+__version__ = "1.19.0"
 
 __all__ = [
     "__version__",
