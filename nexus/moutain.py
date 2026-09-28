@@ -47,12 +47,21 @@ class MoutainClient:
             headers["X-App-Name"] = source_app
         return headers
 
-    async def _post(self, path: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def _do(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
         client = await self._ensure_client()
         try:
-            resp = await client.post(
+            resp = await client.request(
+                method,
                 f"{self._configured_base_url}{path}",
                 json=payload,
+                params=params,
                 headers=await self._auth_headers(),
             )
             resp.raise_for_status()
@@ -68,26 +77,11 @@ class MoutainClient:
             logger.error("Moutain API %s error: %s: %s", path, type(exc).__name__, exc)
         return None
 
+    async def _post(self, path: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        return await self._do("POST", path, payload=payload)
+
     async def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
-        client = await self._ensure_client()
-        try:
-            resp = await client.get(
-                f"{self._configured_base_url}{path}",
-                params=params,
-                headers=await self._auth_headers(),
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except httpx.HTTPStatusError as exc:
-            logger.error(
-                "Moutain API GET %s HTTP error: %s, body=%s",
-                path,
-                exc.response.status_code,
-                exc.response.text[:200],
-            )
-        except Exception as exc:
-            logger.error("Moutain API GET %s error: %s: %s", path, type(exc).__name__, exc)
-        return None
+        return await self._do("GET", path, params=params)
 
     # -- 异步任务提交模式(带回调) --
 

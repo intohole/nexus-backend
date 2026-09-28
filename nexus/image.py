@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Dict, Optional
+from typing import Optional
 
 import httpx
-
-from nexus.lion import get_chat_config, get_image_config
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +37,13 @@ class ImageService:
         async with self._lock:
             if self._resolved:
                 return
-            chat_cfg: Dict = await get_chat_config(prefer_gateway=True)
-            image_cfg: Dict = await get_image_config(prefer_gateway=True)
-            self._base_url = str(chat_cfg.get("base_url") or self._base_url).rstrip("/")
-            self._api_key = str(image_cfg.get("api_key") or chat_cfg.get("api_key") or self._api_key)
-            self._model = str(image_cfg.get("model") or self._model)
+            from nexus.llm_config import resolve_gateway_endpoint
+
+            (
+                self._base_url,
+                self._api_key,
+                self._model,
+            ) = await resolve_gateway_endpoint("model")
             self._resolved = True
             logger.info("ImageService resolved: base_url=%s model=%s", self._base_url, self._model)
 

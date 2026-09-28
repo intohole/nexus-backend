@@ -42,7 +42,7 @@ def init_uc_sdk(
     logger.info(f"UC SDK initialized: base_url={base_url}, app_key={app_key}")
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(_bootstrap(_sdk))
+        loop.create_task(bootstrap_sdk(_sdk))
     except RuntimeError:
         pass
 
@@ -106,13 +106,13 @@ async def _recover_credentials(sdk: object) -> None:
             setattr(sdk, "app_secret", app_secret)
             setattr(sdk, "_app_secret", app_secret)
             logger.info(f"UC 凭证已从 Lion 恢复并注入 SDK: app_key={app_key}")
-            await _bootstrap(sdk)
+            await bootstrap_sdk(sdk)
             return
         logger.warning(f"UC 凭证仍缺失（Lion uc_auth 未就绪），{int(delay)}s 后继续重试")
         delay = min(delay * 2, CREDENTIAL_RECOVERY_MAX_DELAY)
 
 
-async def _bootstrap(sdk: object) -> None:
+async def bootstrap_sdk(sdk: object) -> None:
     try:
         ok: bool = await sdk.bootstrap()
         if ok:

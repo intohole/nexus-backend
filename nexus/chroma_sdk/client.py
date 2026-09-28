@@ -1,15 +1,14 @@
 """chroma 向量库 SDK 客户端：集合与向量读写封装。"""
 from __future__ import annotations
 
-import json
 import os
 
-import httpx
-
+from nexus.sdk_base import BaseAsyncClient
 from nexus.service_client import get_service_token
 
 
-class ChromaSDK:
+class ChromaSDK(BaseAsyncClient):
+    service_name = "Chroma"
 
     def __init__(
         self,
@@ -20,37 +19,18 @@ class ChromaSDK:
     ) -> None:
         if not base_url:
             base_url = os.environ.get("CHROMA_BASE_URL", "${CHROMA_BASE_URL}")
-        self._base_url = base_url.rstrip("/")
+        super().__init__(base_url, timeout=timeout)
         self._service_token = service_token
         self._api_key = api_key or os.environ.get("CHROMA_API_KEY")
-        self._timeout = timeout
-        self._client: httpx.AsyncClient | None = None
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                base_url=self._base_url,
-                timeout=httpx.Timeout(self._timeout, connect=5.0),
-                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
-            )
-        return self._client
-
-    async def close(self) -> None:
-        if self._client is not None and not self._client.is_closed:
-            await self._client.aclose()
-            self._client = None
-
-    async def __aenter__(self) -> ChromaSDK:
-        await self._get_client()
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: object,
-    ) -> None:
-        await self.close()
+    async def _headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        token: str = self._service_token or await get_service_token()
+        if token:
+            headers["X-Service-Token"] = token
+        if self._api_key:
+            headers["X-API-Key"] = self._api_key
+        return headers
 
     async def _request(
         self,
@@ -59,36 +39,7 @@ class ChromaSDK:
         json_data: dict[str, object] | None = None,
         params: dict[str, object] | None = None,
     ) -> dict[str, object]:
-        client = await self._get_client()
-        headers: dict[str, str] = {}
-        token: str = self._service_token or await get_service_token()
-        if token:
-            headers["X-Service-Token"] = token
-        if self._api_key:
-            headers["X-API-Key"] = self._api_key
-        try:
-            response = await client.request(method, path, headers=headers, json=json_data, params=params)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            detail = e.response.text
-            try:
-                body = e.response.json()
-                detail = body.get("detail", detail)
-            except (json.JSONDecodeError, ValueError):
-                pass
-            return {"success": False, "detail": f"HTTP {e.response.status_code}: {detail}"}
-        except httpx.ConnectError:
-            return {"success": False, "detail": f"Cannot connect to Chroma at {self._base_url}"}
-        except httpx.TimeoutException:
-            return {"success": False, "detail": f"Chroma request timeout at {self._base_url}"}
-        except httpx.RequestError as e:
-            return {"success": False, "detail": f"Chroma request error: {e}"}
-        except (json.JSONDecodeError, ValueError):
-            return {"success": False, "detail": "Chroma response parse error"}
-
-    def _is_error(self, result: dict[str, object]) -> bool:
-        return result.get("success") is False
+        return await super()._request(method, path, json_data=json_data, params=params)
 
     async def health(self) -> dict[str, object]:
         return await self._request("GET", "/health")

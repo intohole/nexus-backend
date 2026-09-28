@@ -2,7 +2,6 @@
 
 通用能力：单图/多图识别（recognize）、结构化 JSON 识别（recognize_json）、
 本地图片字节识别（recognize_bytes，base64 data URL 直传，网关无需可访问图片地址）。
-对外统一 HTTP 端点见 ``nexus.vision_routes.create_vision_router``。
 """
 
 from __future__ import annotations
@@ -10,11 +9,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
-from typing import Dict, Iterable, Optional, Sequence, Union
+from typing import Iterable, Optional, Sequence, Union
 
 import httpx
 
-from nexus.lion import get_chat_config, get_image_config
 from nexus.llm_utils import parse_llm_json
 
 logger = logging.getLogger(__name__)
@@ -77,11 +75,13 @@ class VisionService:
         async with self._lock:
             if self._resolved:
                 return
-            chat_cfg: Dict = await get_chat_config(prefer_gateway=True)
-            image_cfg: Dict = await get_image_config(prefer_gateway=True)
-            self._base_url = str(chat_cfg.get("base_url") or self._base_url).rstrip("/")
-            self._api_key = str(image_cfg.get("api_key") or chat_cfg.get("api_key") or self._api_key)
-            self._model = str(image_cfg.get("vision_model") or self._model or DEFAULT_VISION_MODEL)
+            from nexus.llm_config import resolve_gateway_endpoint
+
+            (
+                self._base_url,
+                self._api_key,
+                self._model,
+            ) = await resolve_gateway_endpoint("vision_model", DEFAULT_VISION_MODEL)
             self._resolved = True
             logger.info("VisionService resolved: base_url=%s model=%s", self._base_url, self._model)
 

@@ -4,6 +4,7 @@ import logging
 import httpx
 from typing import Dict, List, Optional
 
+from nexus.sdk_base import BaseAsyncClient
 from nexus.service_client import get_service_token
 
 logger = logging.getLogger(__name__)
@@ -11,7 +12,9 @@ logger = logging.getLogger(__name__)
 _UNAVAILABLE_RESULT: Dict[str, bool] = {"success": False, "unavailable": True}
 
 
-class BeeMemorySDK:
+class BeeMemorySDK(BaseAsyncClient):
+    service_name = "beeMemory"
+
     def __init__(
         self,
         base_url: str = "",
@@ -21,32 +24,9 @@ class BeeMemorySDK:
     ):
         if not base_url:
             base_url = os.environ.get("BEEMEMORY_BASE_URL", "${BEE_MEMORY_BASE_URL}")
-        self.base_url: str = base_url.rstrip("/")
+        super().__init__(base_url, timeout=timeout)
         self.service_token: Optional[str] = service_token
         self.app_name: str = app_name
-        self._timeout: float = timeout
-        self._client: Optional[httpx.AsyncClient] = None
-
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                base_url=self.base_url,
-                timeout=httpx.Timeout(self._timeout, connect=5.0),
-                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
-            )
-        return self._client
-
-    async def close(self) -> None:
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
-            self._client = None
-
-    async def __aenter__(self) -> "BeeMemorySDK":
-        await self._get_client()
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        await self.close()
 
     async def _request(
         self,

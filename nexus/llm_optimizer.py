@@ -61,10 +61,6 @@ def compact_history(
     return kept
 
 
-def within_budget(text: str, max_tokens: int = DEFAULT_TOKEN_BUDGET) -> bool:
-    return estimate_tokens(text) <= max_tokens
-
-
 def _slice_by_budget(text: str, budget: int, from_start: bool) -> str:
     if budget <= 0:
         return ""

@@ -14,7 +14,7 @@ def _reset_helper_state(monkeypatch):
     async def _noop_bootstrap(sdk) -> None:
         return None
 
-    monkeypatch.setattr(helper, "_bootstrap", _noop_bootstrap)
+    monkeypatch.setattr(helper, "bootstrap_sdk", _noop_bootstrap)
     yield
     task = helper._credential_recovery_task
     if task is not None and not task.done():

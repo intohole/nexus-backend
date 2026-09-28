@@ -103,13 +103,6 @@ def get_client_ip(request: Request) -> str:
     return "unknown"
 
 
-def safe_int(value: object, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (ValueError, TypeError):
-        return default
-
-
 def safe_bool(value: object, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value

@@ -1,10 +1,12 @@
 """通用中间件集合：请求上下文/CORS/安全头/限流等，供各业务应用统一接入。"""
 from __future__ import annotations
 
+import hashlib
 import time
 import uuid
 from typing import Awaitable, Callable, Optional
 
+from cachetools import TTLCache
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -14,6 +16,32 @@ from nexus.context import set_request_context
 from nexus.logging import get_logger
 
 REQUEST_ID_HEADER: str = "X-Request-ID"
+
+
+class TokenCache:
+    """token → 校验结果 的短期缓存（sha256 指纹 + TTL），鉴权链路共用。
+
+    不缓存明文 token；TTL 内重复请求免远端验签。
+    """
+
+    def __init__(self, maxsize: int = 500, ttl: int = 60) -> None:
+        self._cache: TTLCache = TTLCache(maxsize=maxsize, ttl=ttl)
+
+    @staticmethod
+    def _key(token: str) -> str:
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    def get(self, token: str) -> Optional[object]:
+        return self._cache.get(self._key(token))
+
+    def set(self, token: str, value: object) -> None:
+        self._cache[self._key(token)] = value
+
+    def pop(self, token: str) -> None:
+        self._cache.pop(self._key(token), None)
+
+    def clear(self) -> None:
+        self._cache.clear()
 
 
 def setup_cors(

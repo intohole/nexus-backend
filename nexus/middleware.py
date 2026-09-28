@@ -7,6 +7,7 @@ from nexus.middleware_base import (
     RequestIdMiddleware,
     SecurityHeadersMiddleware,
     StaticAssetsCacheMiddleware,
+    TokenCache,
     setup_cors,
 )
 from nexus.middleware_splash import LoadingSplashMiddleware
@@ -37,4 +38,5 @@ __all__ = [
     "DEFAULT_WHITELIST_PATHS",
     "DEFAULT_PUBLIC_API_PREFIXES",
     "DEFAULT_STATIC_EXTENSIONS",
+    "TokenCache",
 ]

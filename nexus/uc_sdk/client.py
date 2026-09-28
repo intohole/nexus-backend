@@ -6,6 +6,8 @@ import logging
 import httpx
 from typing import Dict, Any, List
 
+from nexus.sdk_base import BaseAsyncClient
+
 try:
     from jose import jwt, JWTError
     _JWT_AVAILABLE = True
@@ -96,21 +98,21 @@ class BlacklistCache:
             del self._cache[k]
 
 
-class UserCenterSDK(AuthMixin, UserMixin, AppMixin, VipMixin, InviteCodeMixin,
+class UserCenterSDK(BaseAsyncClient, AuthMixin, UserMixin, AppMixin, VipMixin, InviteCodeMixin,
                     ThirdPartyMixin, DiscoveryMixin, ApiTokenMixin, SessionMixin, AuditMixin,
                     QuotaMixin):
+    service_name = "UC"
+
     def __init__(self, base_url: str = "", app_key: str = None, app_secret: str = None,
                  client_id: str = None, jwt_secret_key: str = None, timeout: float = 10.0):
         if not base_url:
             base_url = os.environ.get("UC_BASE_URL", "http://localhost:8901")
-        self.base_url = base_url.rstrip("/")
+        super().__init__(base_url, timeout=timeout, client_headers={"Content-Type": "application/json"})
         self.app_key = app_key or client_id
         self.client_id = self.app_key
         self._app_secret = app_secret
         self.app_secret = app_secret
         self.jwt_secret_key = jwt_secret_key
-        self._timeout = timeout
-        self._client: httpx.AsyncClient | None = None
         self._access_token: str | None = None
         self._refresh_token: str | None = None
         self._token_expires_at: float | None = None
@@ -129,30 +131,11 @@ class UserCenterSDK(AuthMixin, UserMixin, AppMixin, VipMixin, InviteCodeMixin,
         self._jwks_fetched_at: float = 0
         self._jwks_refresh_interval: int = 300
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                base_url=self.base_url,
-                timeout=httpx.Timeout(self._timeout, connect=5.0),
-                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
-                headers={"Content-Type": "application/json"}
-            )
-        return self._client
-
     async def close(self):
         if self._bg_task is not None:
             self._bg_task.cancel()
             self._bg_task = None
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
-            self._client = None
-
-    async def __aenter__(self):
-        await self._get_client()
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.close()
+        await super().close()
 
     @property
     def access_token(self) -> str | None:

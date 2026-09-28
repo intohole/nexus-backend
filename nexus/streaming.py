@@ -26,9 +26,6 @@
                  confirm(危险操作二次确认, data.message/detail/items/warning, 回传 true|false)
     widget_update 用于流式填充或更新已下发组件的 data（按 id 定位）；task 进度用
     {"type":"widget_update","id":"w1","data":{"percent":60,"status":"running","steps":[...]}}。
-
-若 ironman 暂不支持原生 streaming，调用方可先用 `chunked_text_stream`
-将完整文本切块后 yield，模拟流式 UX。
 """
 from __future__ import annotations
 
@@ -163,24 +160,6 @@ def sse_response(
     from fastapi.responses import StreamingResponse
 
     return StreamingResponse(generator, media_type=media_type, headers=SSE_HEADERS)
-
-
-async def chunked_text_stream(
-    text: str,
-    chunk_size: int = 8,
-    delay: float = 0.03,
-) -> AsyncIterator[str]:
-    """将完整文本切为小块 yield，模拟流式输出。
-
-    用于 ironman 无原生 streaming 时的降级方案。
-    chunk_size 默认 8 个字符（中文按字数感知更自然），delay 30ms 接近真实打字机节奏。
-    """
-    if not text:
-        return
-    for i in range(0, len(text), chunk_size):
-        yield text[i : i + chunk_size]
-        if delay > 0:
-            await asyncio.sleep(delay)
 
 
 async def _sse_generator(
@@ -385,63 +364,14 @@ def sse_chat_stream_v2(
     )
 
 
-async def queue_wait_stream(
-    queue_item: Any,
-    queue_manager: Any,
-    poll_interval: float = 2.0,
-    slot_timeout: float = 0.5,
-) -> AsyncIterator[str]:
-    """统一的 LLM 排队等待 SSE 流，yield queue/queue_ready/error 事件。
-
-    消除 WisePath 4 个端点重复的排队等待逻辑。返回前需配合 sse_response 使用。
-
-    用法：
-        async def gen():
-            async for event in queue_wait_stream(item, q):
-                yield event
-            if queue_item.cancelled:
-                return
-            async for chunk in llm_stream():
-                yield sse_event_dict("delta", {"content": chunk})
-            yield sse_event_dict("done")
-        return sse_response(gen())
-    """
-    if not getattr(queue_item, "ready_event", None) or queue_item.ready_event.is_set():
-        yield sse_event_dict("queue_ready")
-        return
-
-    while not queue_item.ready_event.is_set() and not getattr(queue_item, "cancelled", False):
-        position = queue_manager.get_position(queue_item)
-        if position > 0:
-            est_wait = queue_manager.get_estimated_wait(position)
-            yield sse_event_dict("queue", {
-                "position": position,
-                "estimated_wait": round(est_wait),
-            })
-        await asyncio.sleep(poll_interval)
-
-    if getattr(queue_item, "cancelled", False):
-        yield sse_event_dict("error", {"message": "排队超时，请稍后再试"})
-        return
-
-    got_slot = await queue_manager.wait_for_slot(queue_item, timeout=slot_timeout)
-    if not got_slot:
-        yield sse_event_dict("error", {"message": "排队超时，请稍后再试"})
-        return
-
-    yield sse_event_dict("queue_ready")
-
-
 __all__ = [
     "SSE_HEADERS",
     "sse_event",
     "sse_event_dict",
+    "sse_data_line",
     "sse_response",
     "sse_chat_stream",
     "sse_chat_stream_v2",
-    "chunked_text_stream",
-    "with_disconnect_check",
-    "queue_wait_stream",
     "strip_think_tags",
     "ThinkStreamFilter",
 ]

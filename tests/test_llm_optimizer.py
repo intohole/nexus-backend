@@ -9,7 +9,6 @@ from nexus.llm_optimizer import (
     estimate_tokens,
     trim_context,
     compact_history,
-    within_budget,
     CONCISENESS_HINT,
     JSON_ONLY_HINT,
 )
@@ -21,11 +20,6 @@ def test_estimate_tokens_cjk():
     assert estimate_tokens("你好世界") == 4
     assert estimate_tokens("hello world") == 3
     assert estimate_tokens("abc123") == 1
-
-
-def test_within_budget():
-    assert within_budget("短", 50)
-    assert not within_budget("很长" * 100, 10)
 
 
 def test_trim_context_short_passthrough():

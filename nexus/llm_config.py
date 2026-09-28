@@ -1,9 +1,9 @@
-"""LLM 网关配置：ironman 客户端初始化与重试策略。"""
+"""LLM 网关配置：ironman 客户端初始化、重试策略与网关端点解析。"""
 from __future__ import annotations
 
 import asyncio
 import os
-from typing import Optional
+from typing import Optional, Tuple
 
 from nexus.logging import get_logger
 
@@ -57,3 +57,22 @@ def resolve_app_name() -> str:
     except ImportError:
         pass
     return os.environ.get("APP_NAME", "unknown")
+
+
+async def resolve_gateway_endpoint(
+    model_field: str,
+    default_model: str = "",
+) -> Tuple[str, str, str]:
+    """解析 PromptManager 网关端点，供 vision/image 等多模态服务共用。
+
+    返回 (base_url, api_key, model)；model 取 image 配置的 model_field 字段，
+    缺省回退 default_model。
+    """
+    from nexus.lion import get_chat_config, get_image_config
+
+    chat_cfg: dict = await get_chat_config(prefer_gateway=True)
+    image_cfg: dict = await get_image_config(prefer_gateway=True)
+    base_url: str = str(chat_cfg.get("base_url") or "").rstrip("/")
+    api_key: str = str(image_cfg.get("api_key") or chat_cfg.get("api_key") or "")
+    model: str = str(image_cfg.get(model_field) or "") or default_model
+    return base_url, api_key, model

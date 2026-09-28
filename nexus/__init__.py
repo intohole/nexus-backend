@@ -27,10 +27,6 @@ from nexus.context import (
     set_request_context,
     get_request_id,
     get_user_id,
-    get_trace_id,
-    new_request_id,
-    clear_request_context,
-    RequestContext,
 )
 from nexus.database import DatabaseManager, get_db, db_manager, Base, init_db, close_db
 from nexus.logging import setup_logging, setup_loguru, get_logger
@@ -52,7 +48,6 @@ from nexus.utils import (
     batch_cosine_similarity,
     clamp,
     safe_float,
-    safe_int,
     safe_bool,
     resolve_cors_origins,
     get_client_ip,
@@ -62,7 +57,6 @@ from nexus.boot import (
     register_service_auth,
     register_health_detail,
     mount_spa_static,
-    DEFAULT_SERVICE_AUTH_WHITELIST,
 )
 from nexus.middleware import (
     setup_cors,
@@ -86,7 +80,6 @@ from nexus.auth import (
     AuthDependencies,
     get_current_user_id_required,
     get_current_user_id_optional,
-    get_current_user_id_int,
     get_current_user_full,
     get_current_user_full_normalized,
     normalize_user_dict,
@@ -105,7 +98,7 @@ from nexus.uc_sdk_helper import (
     standard_err,
 )
 from nexus.repository import BaseRepository, StatelessRepository
-from nexus.storage import read_limited, save_upload
+from nexus.storage import read_limited
 from nexus.lifespan import create_standard_lifespan
 from nexus.service import BaseService
 from nexus.api_decorators import handle_api_errors
@@ -140,7 +133,7 @@ from nexus.service_client import (
     get_service_client,
     get_service_token,
 )
-from nexus.user_auth import UserAuthDeps, create_user_auth
+from nexus.user_auth import UserAuthDeps, create_user_auth, get_bearer_token
 from nexus.fastapi_setup import (
     create_app,
     setup_middleware,
@@ -195,9 +188,6 @@ from nexus.vision import (
     VisionService,
     get_vision_service,
 )
-from nexus.vision_routes import (
-    create_vision_router,
-)
 from nexus.llm_optimizer import (
     CONCISENESS_HINT,
     JSON_ONLY_HINT,
@@ -205,7 +195,6 @@ from nexus.llm_optimizer import (
     estimate_tokens,
     trim_context,
     compact_history,
-    within_budget,
 )
 from nexus.ironman import (
     init_ironman,
@@ -245,9 +234,6 @@ from nexus.streaming import (
     sse_response,
     sse_chat_stream,
     sse_chat_stream_v2,
-    chunked_text_stream,
-    with_disconnect_check,
-    queue_wait_stream,
 )
 from nexus.circuit_breaker import (
     CircuitBreaker,
@@ -278,11 +264,9 @@ from nexus.scheduler import (
     JobManager,
     get_scheduler,
     get_thread_scheduler,
-    setup_scheduler,
 )
 from nexus.crontab import (
     CronScheduler,
-    get_cron_scheduler,
     next_run_at,
     CHINA_TZ,
 )
@@ -300,7 +284,7 @@ from nexus.automation import (
 )
 from nexus.sanitize import sanitize_agent_output, sanitize_platform_text, sanitize_text_stream
 
-__version__ = "1.20.0"
+__version__ = "1.21.0"
 
 __all__ = [
     "__version__",
@@ -326,10 +310,6 @@ __all__ = [
     "set_request_context",
     "get_request_id",
     "get_user_id",
-    "get_trace_id",
-    "new_request_id",
-    "clear_request_context",
-    "RequestContext",
     "DatabaseManager",
     "get_db",
     "db_manager",
@@ -355,14 +335,12 @@ __all__ = [
     "batch_cosine_similarity",
     "clamp",
     "safe_float",
-    "safe_int",
     "safe_bool",
     "resolve_cors_origins",
     "paginate_from_skip",
     "register_service_auth",
     "register_health_detail",
     "mount_spa_static",
-    "DEFAULT_SERVICE_AUTH_WHITELIST",
     "setup_cors",
     "RequestIdMiddleware",
     "NoCacheMiddleware",
@@ -382,7 +360,6 @@ __all__ = [
     "AuthDependencies",
     "get_current_user_id_required",
     "get_current_user_id_optional",
-    "get_current_user_id_int",
     "get_current_user_full",
     "get_current_user_full_normalized",
     "normalize_user_dict",
@@ -390,6 +367,7 @@ __all__ = [
     "parse_user_id",
     "create_auth_router",
     "create_user_auth",
+    "get_bearer_token",
     "UserAuthDeps",
     "ServiceClient",
     "get_service_client",
@@ -417,7 +395,6 @@ __all__ = [
     "BaseRepository",
     "StatelessRepository",
     "read_limited",
-    "save_upload",
     "create_standard_lifespan",
     "BaseService",
     "handle_api_errors",
@@ -465,7 +442,6 @@ __all__ = [
     "get_image_service",
     "VisionService",
     "get_vision_service",
-    "create_vision_router",
     "configure_ironman",
     "mark_ironman_configured",
     "CONCISENESS_HINT",
@@ -474,7 +450,6 @@ __all__ = [
     "estimate_tokens",
     "trim_context",
     "compact_history",
-    "within_budget",
     "init_ironman",
     "ensure_ironman",
     "startup_ironman",
@@ -504,9 +479,6 @@ __all__ = [
     "sse_response",
     "sse_chat_stream",
     "sse_chat_stream_v2",
-    "chunked_text_stream",
-    "with_disconnect_check",
-    "queue_wait_stream",
     "SSE_HEADERS",
     "SSEManager",
     "SSEConnectionError",
@@ -536,12 +508,10 @@ __all__ = [
     "resilient_stream",
     "NexusScheduler",
     "get_scheduler",
-    "setup_scheduler",
     "NexusThreadScheduler",
     "JobManager",
     "get_thread_scheduler",
     "CronScheduler",
-    "get_cron_scheduler",
     "next_run_at",
     "CHINA_TZ",
     "AutomationContext",

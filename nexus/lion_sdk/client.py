@@ -6,6 +6,7 @@ import os
 
 import httpx
 
+from nexus.sdk_base import BaseAsyncClient
 from nexus.service_client import get_service_token
 
 _ALLOWED_ENV_PREFIXES: tuple[str, ...] = (
@@ -26,7 +27,8 @@ _GATEWAY_KEY_MAP: dict[str, str] = {
 }
 
 
-class LionSDK:
+class LionSDK(BaseAsyncClient):
+    service_name = "Lion"
 
     def __init__(
         self,
@@ -36,38 +38,14 @@ class LionSDK:
         service_token: str | None = None,
         timeout: float = 5.0,
     ) -> None:
-        self._base_url = base_url.rstrip("/")
+        super().__init__(base_url, timeout=timeout)
         self._namespace = namespace
         self._fallback_namespace = fallback_namespace
         self._service_token = service_token
-        self._timeout = timeout
-        self._client: httpx.AsyncClient | None = None
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                base_url=self._base_url,
-                timeout=httpx.Timeout(self._timeout, connect=5.0),
-                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
-            )
-        return self._client
-
-    async def close(self) -> None:
-        if self._client is not None and not self._client.is_closed:
-            await self._client.aclose()
-            self._client = None
-
-    async def __aenter__(self) -> LionSDK:
-        await self._get_client()
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: object,
-    ) -> None:
-        await self.close()
+    async def _headers(self) -> dict[str, str]:
+        token: str = self._service_token or await get_service_token()
+        return {"Authorization": f"Bearer {token}"} if token else {}
 
     async def _request(
         self,
@@ -76,37 +54,15 @@ class LionSDK:
         data: dict | None = None,
         params: dict | None = None,
     ) -> dict[str, object]:
-        client = await self._get_client()
-        headers: dict[str, str] = {}
-        token: str = self._service_token or await get_service_token()
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        try:
-            if method == "GET":
-                response = await client.get(path, headers=headers, params=params)
-            elif method == "POST":
-                response = await client.post(path, headers=headers, json=data, params=params)
-            elif method == "PUT":
-                response = await client.put(path, headers=headers, json=data, params=params)
-            elif method == "DELETE":
-                response = await client.delete(path, headers=headers, params=params)
-            else:
-                return {"success": False, "detail": f"Unsupported HTTP method: {method}"}
-            data_resp = response.json()
-            if data_resp.get("code", 0) != 200:
-                return {"success": False, "detail": data_resp.get("message", "unknown error")}
-            return data_resp.get("data", {})
-        except httpx.ConnectError:
-            return {"success": False, "detail": f"Cannot connect to Lion at {self._base_url}"}
-        except httpx.TimeoutException:
-            return {"success": False, "detail": f"Lion request timeout at {self._base_url}"}
-        except httpx.RequestError as e:
-            return {"success": False, "detail": f"Lion request error: {e}"}
-        except (json.JSONDecodeError, ValueError):
-            return {"success": False, "detail": "Lion response parse error"}
+        if method not in ("GET", "POST", "PUT", "DELETE", "PATCH"):
+            return {"success": False, "detail": f"Unsupported HTTP method: {method}"}
+        return await super()._request(method, path, json_data=data, params=params)
 
-    def _is_error(self, result: dict[str, object]) -> bool:
-        return result.get("success") is False
+    def _envelope(self, response: httpx.Response) -> dict[str, object]:
+        data_resp = response.json()
+        if data_resp.get("code", 0) != 200:
+            return {"success": False, "detail": data_resp.get("message", "unknown error")}
+        return data_resp.get("data", {})
 
     async def get_config(self, group_name: str, key: str) -> dict[str, object]:
         path = f"/api/v1/namespaces/{self._namespace}/configs/{group_name}/{key}"

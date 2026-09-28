@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import time
 from typing import Optional
@@ -16,15 +15,14 @@ logger = get_logger("nexus.service_client")
 
 _SERVICE_TOKEN_TTL: int = 900
 _REFRESH_MARGIN: int = 60
-_UC_CRED_CACHE_TTL: int = 3600
 
 
 class ServiceClient:
     """统一服务间凭证：UC client_credentials 短效 JWT，缓存 + 自动续期。
 
-    凭证来源优先级：
+    凭证来源优先级（infra.get_uc_config 单源）：
     1. env UC_APP_KEY/UC_APP_SECRET（miniDeploy 部署时注入，最终态）
-    2. Lion 当前 namespace business/uc_auth（迁移期引导，用 SERVICE_TOKEN 读一次后缓存）
+    2. Lion 当前 namespace business/uc_auth（迁移期引导，infra 层自带缓存）
     3. env SERVICE_TOKEN（过渡兜底，最终移除）
     """
 
@@ -33,8 +31,6 @@ class ServiceClient:
         self._expires_at: float = 0.0
         self._lock: asyncio.Lock = asyncio.Lock()
         self._client: Optional[httpx.AsyncClient] = None
-        self._uc_cred: tuple[str, str] = ("", "")
-        self._uc_cred_fetched_at: float = 0.0
 
     @staticmethod
     def _uc_base_url() -> str:
@@ -44,44 +40,6 @@ class ServiceClient:
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0))
         return self._client
-
-    async def _load_uc_credentials(self) -> tuple[str, str]:
-        app_key: str = os.getenv("UC_APP_KEY", "")
-        app_secret: str = os.getenv("UC_APP_SECRET", "")
-        if app_key and app_secret:
-            return app_key, app_secret
-        if self._uc_cred[0] and time.time() - self._uc_cred_fetched_at < _UC_CRED_CACHE_TTL:
-            return self._uc_cred
-        key, secret = await self._fetch_uc_auth_from_lion()
-        if key and secret:
-            self._uc_cred = (key, secret)
-            self._uc_cred_fetched_at = time.time()
-            return key, secret
-        return app_key, app_secret
-
-    async def _fetch_uc_auth_from_lion(self) -> tuple[str, str]:
-        lion_base: str = os.getenv("LION_BASE_URL", "").rstrip("/")
-        namespace: str = os.getenv("LION_NAMESPACE", "")
-        if not lion_base or not namespace:
-            return "", ""
-        try:
-            client = await self._get_client()
-            resp = await client.get(
-                f"{lion_base}/api/v1/namespaces/{namespace}/configs/business/uc_auth",
-                headers={"X-Service-Token": os.getenv("SERVICE_TOKEN", "")},
-            )
-            if resp.status_code != 200:
-                return "", ""
-            data: dict = resp.json()
-            value = (data.get("data") or {}).get("value", "")
-            if isinstance(value, str):
-                value = json.loads(value)
-            if not isinstance(value, dict):
-                return "", ""
-            return str(value.get("app_key") or ""), str(value.get("app_secret") or "")
-        except Exception as exc:
-            logger.warning("从 Lion 读取 UC 凭证失败: %s", exc)
-            return "", ""
 
     async def get_token(self) -> str:
         if self._token and time.time() < self._expires_at - _REFRESH_MARGIN:
@@ -93,9 +51,18 @@ class ServiceClient:
         return self._token
 
     async def _refresh(self) -> None:
-        app_key, app_secret = await self._load_uc_credentials()
+        from nexus.infra import get_uc_config
+
+        try:
+            cfg: dict = await get_uc_config()
+        except Exception as exc:
+            logger.warning("读取 UC 配置失败: %s", exc)
+            cfg = {}
+        app_key: str = str(cfg.get("app_key") or "")
+        app_secret: str = str(cfg.get("app_secret") or "")
         if app_key and app_secret:
-            token, expires_in = await self._exchange_token(app_key, app_secret)
+            base_url: str = str(cfg.get("base_url") or "").rstrip("/") or self._uc_base_url()
+            token, expires_in = await self._exchange_token(app_key, app_secret, base_url)
             if token:
                 self._token = token
                 self._expires_at = time.time() + expires_in
@@ -109,8 +76,7 @@ class ServiceClient:
         else:
             logger.warning("UC 凭证与 SERVICE_TOKEN 均不可用，服务间调用将失败")
 
-    async def _exchange_token(self, app_key: str, app_secret: str) -> tuple[str, int]:
-        base_url: str = self._uc_base_url()
+    async def _exchange_token(self, app_key: str, app_secret: str, base_url: str) -> tuple[str, int]:
         try:
             client = await self._get_client()
             resp = await client.post(

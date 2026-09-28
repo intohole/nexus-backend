@@ -1,19 +1,18 @@
 """认证中间件：用户令牌校验与服务间鉴权，含公开路径白名单。"""
 from __future__ import annotations
 
-import hashlib
 import hmac
 import os
 import time
 from typing import Awaitable, Callable, Dict, List, Optional, Tuple
 
 import httpx
-from cachetools import TTLCache
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from nexus.logging import get_logger
+from nexus.middleware_base import TokenCache
 
 DEFAULT_WHITELIST_PATHS: Tuple[str, ...] = (
     "/health", "/api/health", "/",
@@ -50,8 +49,8 @@ class UserTokenVerifier:
         self._jwt_secret: str = jwt_secret or ""
         self._jwks: Dict[str, Dict[str, object]] = {}
         self._jwks_fetched_at: float = 0.0
-        self._cache: TTLCache = TTLCache(maxsize=_USER_TOKEN_CACHE_MAXSIZE, ttl=_USER_TOKEN_CACHE_TTL)
-        self._service_cache: TTLCache = TTLCache(maxsize=_USER_TOKEN_CACHE_MAXSIZE, ttl=_USER_TOKEN_CACHE_TTL)
+        self._cache: TokenCache = TokenCache(maxsize=_USER_TOKEN_CACHE_MAXSIZE, ttl=_USER_TOKEN_CACHE_TTL)
+        self._service_cache: TokenCache = TokenCache(maxsize=_USER_TOKEN_CACHE_MAXSIZE, ttl=_USER_TOKEN_CACHE_TTL)
         self._logger = get_logger("nexus.user_token")
 
     @property
@@ -61,21 +60,19 @@ class UserTokenVerifier:
     async def verify(self, token: str) -> bool:
         if not token:
             return False
-        cache_key: str = hashlib.sha256(token.encode()).hexdigest()
-        if cache_key in self._cache:
+        if self._cache.get(token) is not None:
             return True
         payload: Optional[Dict[str, object]] = await self._decode(token)
         if payload is None:
             return False
-        self._cache[cache_key] = True
+        self._cache.set(token, True)
         return True
 
     async def verify_service(self, token: str) -> bool:
         """验签服务 JWT：仅放行 UC 签发的 role=service / sub=app_* 令牌。"""
         if not token:
             return False
-        cache_key: str = hashlib.sha256(token.encode()).hexdigest()
-        if cache_key in self._service_cache:
+        if self._service_cache.get(token) is not None:
             return True
         payload: Optional[Dict[str, object]] = await self._decode(token)
         if payload is None:
@@ -84,7 +81,7 @@ class UserTokenVerifier:
         role: str = str(payload.get("role") or "")
         if role != "service" and not sub.startswith("app_"):
             return False
-        self._service_cache[cache_key] = True
+        self._service_cache.set(token, True)
         return True
 
     async def _decode(self, token: str) -> Optional[Dict[str, object]]:

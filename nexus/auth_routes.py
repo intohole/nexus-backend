@@ -1,7 +1,7 @@
 """认证路由工厂：登录/注册/刷新/改密/找回密码等端点装配。"""
 from __future__ import annotations
 
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,21 +19,35 @@ from nexus.auth_models import (
     SendBindCodeRequest,
     UpdateUserRequest,
 )
-from nexus.auth_route_types import (
-    DEFAULT_ENDPOINTS,
-    ErrWrapper,
-    MeTransformer,
-    OkWrapper,
-    PostActionHook,
-    UcSdkProvider,
-    default_err as _default_err,
-    default_ok as _default_ok,
-    map_uc_detail as _map_uc_detail,
-)
 from nexus.logging import get_logger
 
 logger = get_logger("nexus.auth_routes")
 _security: HTTPBearer = HTTPBearer(auto_error=False)
+
+UcSdkProvider = Callable[[], object]
+OkWrapper = Callable[[object, str], object]
+ErrWrapper = Callable[[str, int], object]
+PostActionHook = Callable[[dict[str, object]], Awaitable[None]]
+MeTransformer = Callable[[dict[str, object], str], Awaitable[dict[str, object]]]
+
+DEFAULT_ENDPOINTS: frozenset[str] = frozenset(
+    {"login", "register", "refresh", "me", "logout", "config", "login-page-config"}
+)
+
+
+def _default_ok(data: object, message: str = "") -> object:
+    return data
+
+
+def _default_err(message: str, status_code: int) -> object:
+    raise HTTPException(status_code=status_code, detail=message)
+
+
+def _map_uc_detail(result: dict[str, object], default_msg: str) -> str:
+    detail: object = result.get("detail", result.get("message", default_msg))
+    if isinstance(detail, dict):
+        return str(detail.get("message", detail.get("detail", default_msg)))
+    return str(detail)
 
 
 async def _require_auth(credentials: HTTPAuthorizationCredentials = Depends(_security)) -> HTTPAuthorizationCredentials:

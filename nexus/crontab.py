@@ -138,12 +138,3 @@ class CronScheduler:
         job["next_run_at"] = next_run_at(str(job["expr"]), base=now_naive, tz=self._tz)
         logger.info("crontab job %s fired, next run at %s", job_id, job["next_run_at"])
 
-
-_scheduler: Optional[CronScheduler] = None
-
-
-def get_cron_scheduler() -> CronScheduler:
-    global _scheduler
-    if _scheduler is None:
-        _scheduler = CronScheduler()
-    return _scheduler

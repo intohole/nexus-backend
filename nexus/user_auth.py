@@ -29,6 +29,15 @@ UserCreator = Callable[[AsyncSession, int, dict], Awaitable[Any]]
 UserUpdater = Callable[[AsyncSession, Any, dict], Awaitable[bool]]
 
 
+async def get_bearer_token(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> Optional[str]:
+    """提取 Bearer token（未携带返回 None）。收编各业务仓逐字重复的样板依赖。"""
+    if not credentials or not credentials.credentials:
+        return None
+    return credentials.credentials
+
+
 async def _fetch_uc_user(token: str) -> dict:
     sdk = _current_uc_sdk()
     result = await sdk.get_current_user(token=token)

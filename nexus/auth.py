@@ -2,16 +2,15 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 from typing import Awaitable, Callable, Optional
 
-from cachetools import TTLCache
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from nexus.config import NexusConfig, get_settings
 from nexus.context import set_request_context
 from nexus.logging import get_logger
+from nexus.middleware_base import TokenCache
 from nexus.user_display import resolve_display_name
 
 logger = get_logger("nexus.auth")
@@ -20,10 +19,6 @@ _security: HTTPBearer = HTTPBearer(auto_error=False)
 _uc_sdk_ready: bool = False
 _TOKEN_CACHE_TTL: int = 60
 _TOKEN_CACHE_MAXSIZE: int = 500
-
-
-def _hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
 
 
 class AuthDependencies:
@@ -35,7 +30,7 @@ class AuthDependencies:
         self._public_paths: set[str] = set()
         self._public_prefixes: list[str] = []
         self._local_user_sync: Optional[Callable[[dict[str, object]], Awaitable[None]]] = None
-        self._token_cache: TTLCache = TTLCache(maxsize=_TOKEN_CACHE_MAXSIZE, ttl=_TOKEN_CACHE_TTL)
+        self._token_cache: TokenCache = TokenCache(maxsize=_TOKEN_CACHE_MAXSIZE, ttl=_TOKEN_CACHE_TTL)
 
     def add_public_path(self, path: str) -> None:
         self._public_paths.add(path)
@@ -72,51 +67,43 @@ class AuthDependencies:
             if self._sdk is not None and self._ready:
                 return self._sdk
             if self._sdk is None:
+                from nexus.uc_sdk_helper import get_uc_sdk
+
                 try:
-                    from nexus.uc_sdk import UserCenterSDK
+                    self._sdk = get_uc_sdk()
+                    self._ready = True
+                    return self._sdk
+                except RuntimeError:
+                    try:
+                        from nexus.uc_sdk import UserCenterSDK
 
-                    uc_cfg = self._config.uc
-                    self._sdk = UserCenterSDK(
-                        base_url=uc_cfg.base_url,
-                        app_key=uc_cfg.app_key,
-                        app_secret=uc_cfg.app_secret,
-                        jwt_secret_key=uc_cfg.jwt_secret,
-                    )
-                except ImportError:
-                    logger.warning("usercenter SDK not installed, auth disabled")
-                    self._sdk = None
-                    return None
+                        uc_cfg = self._config.uc
+                        self._sdk = UserCenterSDK(
+                            base_url=uc_cfg.base_url,
+                            app_key=uc_cfg.app_key,
+                            app_secret=uc_cfg.app_secret,
+                            jwt_secret_key=uc_cfg.jwt_secret,
+                        )
+                    except ImportError:
+                        logger.warning("usercenter SDK not installed, auth disabled")
+                        self._sdk = None
+                        return None
             if not self._ready:
-                await self._bootstrap_sdk(self._sdk)
-            return self._sdk if self._ready else None
+                from nexus.uc_sdk_helper import bootstrap_sdk
 
-    async def _bootstrap_sdk(self, sdk: object) -> None:
-        uc_cfg = self._config.uc
-        if not uc_cfg.app_key or not uc_cfg.app_secret:
-            self._ready = True
-            logger.info("UC SDK ready without bootstrap (no app_key/app_secret)")
-            return
-        try:
-            ok: bool = await sdk.bootstrap()
-            if ok:
-                logger.info("UC SDK service token bootstrap success")
-            else:
-                logger.warning("UC SDK bootstrap failed, verify_token will use local/remote verification")
-        except Exception as exc:
-            logger.warning("UC SDK bootstrap error: %s, verify_token will use local/remote verification", str(exc))
-        start = getattr(sdk, "start_background_refresh", None)
-        if start is not None:
-            try:
-                await start()
-            except Exception as exc:
-                logger.warning("UC SDK background refresh start error: %s", str(exc))
-        self._ready = True
+                uc_cfg = self._config.uc
+                if not uc_cfg.app_key or not uc_cfg.app_secret:
+                    self._ready = True
+                    logger.info("UC SDK ready without bootstrap (no app_key/app_secret)")
+                else:
+                    await bootstrap_sdk(self._sdk)
+                    self._ready = True
+            return self._sdk if self._ready else None
 
     async def validate_token(self, token: str) -> Optional[dict[str, object]]:
         if not token or not token.strip():
             return None
-        token_key: str = _hash_token(token)
-        cached: Optional[dict[str, object]] = self._token_cache.get(token_key)
+        cached: Optional[dict[str, object]] = self._token_cache.get(token)
         if cached is not None:
             self._apply_request_context(cached)
             if self._local_user_sync:
@@ -138,7 +125,7 @@ class AuthDependencies:
                         await self._local_user_sync(result)
                     except Exception as exc:
                         logger.warning("Local user sync failed: %s", str(exc))
-                self._token_cache[token_key] = result
+                self._token_cache.set(token, result)
                 return result
             return None
         except Exception as exc:
@@ -158,7 +145,7 @@ class AuthDependencies:
         if token is None:
             self._token_cache.clear()
         else:
-            self._token_cache.pop(_hash_token(token), None)
+            self._token_cache.pop(token)
 
     async def get_user_id_required(
         self,
@@ -324,12 +311,6 @@ def parse_user_id(user_id: str | int) -> int:
         return int(user_id)
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid user_id format")
-
-
-async def get_current_user_id_int(
-    user_id: str = Depends(get_current_user_id_required),
-) -> int:
-    return parse_user_id(user_id)
 
 
 def require_api_key(scope: Optional[str] = None) -> Callable:
