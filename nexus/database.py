@@ -64,23 +64,24 @@ class DatabaseManager:
             )
 
             if self._config.database.sqlite_pragma and "sqlite" in db_url:
-                await self._apply_sqlite_pragma()
+                self._register_sqlite_pragma()
 
-    async def _apply_sqlite_pragma(self) -> None:
-        if self._engine is None:
+    def _register_sqlite_pragma(self) -> None:
+        from sqlalchemy import event
+
+        engine = self._engine
+        if engine is None:
             return
-        async with self._engine.begin() as conn:
-            from sqlalchemy import text
 
-            pragmas: list[str] = [
-                "PRAGMA journal_mode=WAL",
-                "PRAGMA busy_timeout=5000",
-                "PRAGMA synchronous=NORMAL",
-                "PRAGMA cache_size=-64000",
-                "PRAGMA foreign_keys=ON",
-            ]
-            for pragma in pragmas:
-                await conn.execute(text(pragma))
+        @event.listens_for(engine.sync_engine, "connect")
+        def _set_sqlite_pragma(dbapi_connection, connection_record) -> None:
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA cache_size=-64000")
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
 
     async def close(self) -> None:
         if self._engine is not None:
