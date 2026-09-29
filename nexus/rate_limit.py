@@ -33,6 +33,11 @@ class SlidingWindow:
             self._timestamps.append(now)
             return True
 
+    def is_exceeded(self) -> bool:
+        now: float = time.time()
+        cutoff: float = now - self._window_seconds
+        return len([t for t in self._timestamps if t > cutoff]) >= self._max_requests
+
     def retry_after(self) -> int:
         if not self._timestamps:
             return 0

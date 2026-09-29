@@ -1,10 +1,23 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from nexus.config import NexusConfig
-from nexus.rate_limit import RateLimitMiddleware, parse_rate_limit, rate_limit
+from nexus.rate_limit import RateLimitMiddleware, SlidingWindow, parse_rate_limit, rate_limit
+
+
+def test_sliding_window_readonly_exceeded() -> None:
+    window: SlidingWindow = SlidingWindow(2, 60)
+    assert window.is_exceeded() is False
+    assert asyncio.run(window.is_allowed()) is True
+    assert window.is_exceeded() is False
+    assert asyncio.run(window.is_allowed()) is True
+    assert window.is_exceeded() is True
+    assert asyncio.run(window.is_allowed()) is False
+    assert window.is_exceeded() is True
 
 
 def _app(scope: str) -> FastAPI:
