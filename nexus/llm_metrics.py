@@ -10,8 +10,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from threading import Lock
+import time
 from typing import Optional
+
+from nexus.logging import get_logger
 
 
 class LLMMetrics:
@@ -119,3 +123,25 @@ class LLMMetrics:
 def get_llm_metrics() -> LLMMetrics:
     """获取 LLM 指标收集器单例。"""
     return LLMMetrics()
+
+
+@asynccontextmanager
+async def llm_telemetry(kind: str, app_name: str, request_id: str):
+    """LLM 调用遥测上下文：异常时统一记账并按错误类型分级落日志。
+
+    yield (metrics, start)；成功路径由调用方用 metrics 自行记账。
+    """
+    metrics = get_llm_metrics()
+    start: float = time.monotonic()
+    try:
+        yield metrics, start
+    except Exception as e:
+        latency: float = time.monotonic() - start
+        error_type: str = type(e).__name__
+        metrics.record(app_name, "unknown", latency, tokens=0, error=error_type)
+        log_fn = logger.warning if error_type == "CircuitBreakerOpenError" else logger.error
+        log_fn(
+            "LLM %s failed [req_id=%s, app=%s, latency=%.2fs]: %s",
+            kind, request_id, app_name, latency, e,
+        )
+        raise

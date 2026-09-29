@@ -97,3 +97,61 @@ def record_usage(
         cached_tokens=cached_tokens,
         cost_usd=cost_usd,
     )
+
+async def stream_chunks(
+    chat_stream,
+    msgs: list,
+    llm_opts: object,
+) -> AsyncGenerator[str, None]:
+    """流式调用统一引擎：think 过滤、空内容重试与用量记账。
+
+    chat_stream 为 ironman.chat_stream；msgs/llm_opts 由调用方按
+    convert_messages + LLMOptions 组装。
+    """
+    import time
+    from typing import Optional as _Optional
+
+    from nexus.context import get_request_id
+    from nexus.llm_config import resolve_app_name
+    from nexus.llm_metrics import get_llm_metrics
+    from nexus.streaming import ThinkStreamFilter
+
+    metrics = get_llm_metrics()
+    app_name: str = resolve_app_name()
+    request_id: str = get_request_id() or "-"
+    start: float = time.monotonic()
+    has_content: bool = False
+    think_filter = ThinkStreamFilter()
+    last_usage: _Optional[object] = None
+    last_model: str = "unknown"
+    max_attempts: int = 2
+    for attempt in range(max_attempts):
+        async for chunk in chat_stream(messages=msgs, llm=llm_opts):
+            if chunk.content:
+                piece = think_filter.feed(chunk.content)
+                if piece:
+                    has_content = True
+                    yield piece
+            if chunk.usage is not None:
+                last_usage = chunk.usage
+            if chunk.model:
+                last_model = chunk.model
+        tail = think_filter.flush()
+        if tail:
+            has_content = True
+            yield tail
+        if has_content:
+            break
+        if attempt + 1 < max_attempts:
+            think_filter = ThinkStreamFilter()
+            logger.warning(f"stream_chat: empty visible content (attempt {attempt + 1}), retrying [req_id=%s]", request_id)
+    metrics.record(
+        app_name,
+        last_model,
+        time.monotonic() - start,
+        tokens=int(getattr(last_usage, "total_tokens", 0) or 0),
+        error=None,
+    )
+    if not has_content:
+        logger.warning("stream_chat: no visible content after think-filter [req_id=%s]", request_id)
+        yield "抱歉，本次未能生成有效回答，请换个问法或稍后重试。"

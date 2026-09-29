@@ -5,7 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from nexus.llm import DEFAULT_MAX_OUTPUT_TOKENS, _resolve_budget, OutputMode
+from nexus.llm import DEFAULT_MAX_OUTPUT_TOKENS
+from nexus.llm_budget import OutputMode, resolve_effective_budget as _resolve_budget
 from nexus.llm_helpers import apply_output_discipline
 from nexus.llm_optimizer import CONCISENESS_HINT, JSON_ONLY_HINT
 from nexus.llm_budget import PROSE_HINT

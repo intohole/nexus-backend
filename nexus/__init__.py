@@ -186,7 +186,6 @@ from nexus.streaming import (
     sse_event_dict,
     sse_data_line,
     sse_response,
-    sse_chat_stream,
     sse_chat_stream_v2,
 )
 from nexus.circuit_breaker import (
@@ -267,7 +266,7 @@ __all__ = [
     "get_bootstrap", "is_ironman_available", "reload_ironman", "get_web_search_service",
     "SpiderSearchResult", "SpiderSearchResponse", "get_deep_research_service",
     "InMemoryStore", "SQLiteStore", "get_history", "sse_event_dict", "sse_data_line",
-    "sse_response", "sse_chat_stream", "sse_chat_stream_v2", "SSE_HEADERS", "SSEManager",
+    "sse_response", "sse_chat_stream_v2", "SSE_HEADERS", "SSEManager",
     "SSEConnectionError", "sse_event_generator", "NotificationChannel", "VALID_CHANNELS",
     "ChannelDispatcher", "CircuitBreaker", "CircuitBreakerConfig", "CircuitState",
     "CircuitMetrics", "CircuitBreakerOpenError", "get_circuit_breaker", "CostGuard",

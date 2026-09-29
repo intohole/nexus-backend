@@ -99,14 +99,6 @@ class ThinkStreamFilter:
         return out
 
 
-def sse_event(event: str, data: Optional[dict[str, Any]] = None) -> str:
-    """格式化单个 SSE 事件（旧 schema：payload 含 event 字段）。"""
-    payload = {"event": event}
-    if data:
-        payload.update(data)
-    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-
-
 def sse_event_dict(event_type: str, payload: Optional[dict[str, Any]] = None) -> str:
     """格式化单个 SSE 事件（新 schema：统一 type 字段）。
 
@@ -143,47 +135,6 @@ def sse_response(
     return StreamingResponse(generator, media_type=media_type, headers=SSE_HEADERS)
 
 
-async def _sse_generator(
-    chat_fn: AsyncIterator[str],
-    on_complete: Optional[Callable[[str], Awaitable[None]]] = None,
-) -> AsyncIterator[str]:
-    """将文本 chunk 流包装为 SSE 事件流。"""
-    accumulated: list[str] = []
-    try:
-        async for chunk in chat_fn:
-            if not chunk:
-                continue
-            accumulated.append(chunk)
-            yield sse_event("delta", {"content": chunk})
-        full_content = "".join(accumulated)
-        if on_complete:
-            try:
-                await on_complete(full_content)
-            except Exception as exc:
-                logger.warning("on_complete callback failed: %s", exc)
-        yield sse_event("done", {"content": full_content})
-    except Exception as exc:
-        logger.error("SSE stream error: %s", exc)
-        yield sse_event("error", {"error": str(exc)})
-
-
-def sse_chat_stream(
-    chat_fn: AsyncIterator[str],
-    on_complete: Optional[Callable[[str], Awaitable[None]]] = None,
-):
-    """将异步生成器包装为 FastAPI StreamingResponse。
-
-    用法：
-        async def my_chat_stream(msg: str) -> AsyncIterator[str]:
-            # 调用 LLM，yield 每个 chunk
-            ...
-        return sse_chat_stream(my_chat_stream(user_msg))
-
-    返回的 StreamingResponse media_type 为 text/event-stream。
-    """
-    return sse_response(_sse_generator(chat_fn, on_complete))
-
-
 async def with_disconnect_check(
     request: Optional[Any],
     chat_fn: AsyncIterator[str],
@@ -217,18 +168,41 @@ async def _sse_generator_v2(
     on_event: Optional[Callable[[str, dict[str, Any]], Awaitable[None]]] = None,
     heartbeat_interval: float = 0.0,
 ) -> AsyncIterator[str]:
-    """增强版 SSE 生成器：支持断连检测 + 事件回调 + 心跳 + done 去重。
+    """SSE 生成器：断连检测 + 事件回调 + 心跳 + done 去重。
 
     chat_fn 可 yield str（当作 delta）或 dict（必须含 type 字段）。
-    heartbeat_interval > 0 时，超过该秒数无新事件则下发 {"type":"heartbeat"} 保活，
-    便于前端做读空闲判断；业务流自身已发过 done 时不重复补发 done。
+    heartbeat_interval > 0 时，超过该秒数无新事件则下发 {"type":"heartbeat"} 保活；
+    业务流自身已发过 done 时不重复补发 done。
     """
     accumulated: list[str] = []
     try:
         ait = with_disconnect_check(request, chat_fn).__aiter__()
         done_sent = False
-        if heartbeat_interval <= 0:
-            async for chunk in ait:
+        queue: asyncio.Queue = asyncio.Queue()
+
+        async def _pump() -> None:
+            try:
+                async for item in ait:
+                    await queue.put(item)
+            except Exception as exc:
+                await queue.put(exc)
+            finally:
+                await queue.put(_STREAM_SENTINEL)
+
+        pump_task = asyncio.create_task(_pump())
+        try:
+            while True:
+                try:
+                    chunk = await asyncio.wait_for(
+                        queue.get(), timeout=heartbeat_interval or None
+                    )
+                except asyncio.TimeoutError:
+                    yield sse_event_dict("heartbeat")
+                    continue
+                if chunk is _STREAM_SENTINEL:
+                    break
+                if isinstance(chunk, BaseException):
+                    raise chunk
                 if not chunk:
                     continue
                 if isinstance(chunk, dict):
@@ -251,59 +225,13 @@ async def _sse_generator_v2(
                         except Exception as exc:
                             logger.warning("on_event callback failed: %s", exc)
                     yield sse_event_dict("delta", {"content": str(chunk)})
-        else:
-            queue: asyncio.Queue = asyncio.Queue()
-
-            async def _pump() -> None:
+        finally:
+            if not pump_task.done():
+                pump_task.cancel()
                 try:
-                    async for item in ait:
-                        await queue.put(item)
-                except Exception as exc:
-                    await queue.put(exc)
-                finally:
-                    await queue.put(_STREAM_SENTINEL)
-
-            pump_task = asyncio.create_task(_pump())
-            try:
-                while True:
-                    try:
-                        chunk = await asyncio.wait_for(queue.get(), timeout=heartbeat_interval)
-                    except asyncio.TimeoutError:
-                        yield sse_event_dict("heartbeat")
-                        continue
-                    if chunk is _STREAM_SENTINEL:
-                        break
-                    if isinstance(chunk, BaseException):
-                        raise chunk
-                    if not chunk:
-                        continue
-                    if isinstance(chunk, dict):
-                        event_type = chunk.get("type", "delta")
-                        if event_type == "delta" and "content" in chunk:
-                            accumulated.append(str(chunk["content"]))
-                        if event_type == "done":
-                            done_sent = True
-                        if on_event:
-                            try:
-                                await on_event(event_type, chunk)
-                            except Exception as exc:
-                                logger.warning("on_event callback failed: %s", exc)
-                        yield sse_event_dict(event_type, {k: v for k, v in chunk.items() if k != "type"})
-                    else:
-                        accumulated.append(str(chunk))
-                        if on_event:
-                            try:
-                                await on_event("delta", {"content": str(chunk)})
-                            except Exception as exc:
-                                logger.warning("on_event callback failed: %s", exc)
-                        yield sse_event_dict("delta", {"content": str(chunk)})
-            finally:
-                if not pump_task.done():
-                    pump_task.cancel()
-                    try:
-                        await pump_task
-                    except (asyncio.CancelledError, Exception):
-                        pass
+                    await pump_task
+                except (asyncio.CancelledError, Exception):
+                    pass
         full_content = "".join(accumulated)
         if on_complete:
             try:
@@ -347,11 +275,9 @@ def sse_chat_stream_v2(
 
 __all__ = [
     "SSE_HEADERS",
-    "sse_event",
     "sse_event_dict",
     "sse_data_line",
     "sse_response",
-    "sse_chat_stream",
     "sse_chat_stream_v2",
     "ThinkStreamFilter",
 ]

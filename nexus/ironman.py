@@ -1,21 +1,37 @@
-"""ironman Bootstrap 接入层：从 Lion 拉取 chat/embed 配置并插桩调用链。
+"""ironman Bootstrap 生命周期：init/reload/ensure 与状态查询。
 
-职责：default_config_loader 组装配置（禁止环境变量兜底，配置缺失直接报错）、
-init_ironman 建 Bootstrap 并按 TTL 热重载、_instrument_ironman 包装
-chat/ask/embed/extract/stream 注入 metrics/circuit_breaker/req_id。
+三职责拆分：配置加载见 ironman_config.py，调用链插桩见 ironman_instrument.py，
+本模块只持有 Bootstrap 状态与生命周期编排。
 """
 from __future__ import annotations
 
 import asyncio
 import time
-from typing import Awaitable, Callable, Optional
+from typing import Optional
 
-from nexus.lion import get_chat_config, get_embed_config
+from nexus.ironman_config import (
+    ConfigLoader,
+    IronmanConfigError,
+    default_config_loader,
+    is_gateway_mode,
+)
 from nexus.logging import get_logger
 
 logger = get_logger("nexus.ironman")
 
-ConfigLoader = Callable[[str], Awaitable[dict[str, object]]]
+__all__ = [
+    "ConfigLoader",
+    "IronmanConfigError",
+    "default_config_loader",
+    "is_gateway_mode",
+    "init_ironman",
+    "reload_ironman",
+    "get_bootstrap",
+    "is_ironman_available",
+    "get_init_app_name",
+    "startup",
+    "ensure_ironman",
+]
 
 _bootstrap: Optional[object] = None
 _init_app_name: Optional[str] = None
@@ -24,238 +40,10 @@ _lock: asyncio.Lock = asyncio.Lock()
 # P0: 配置热更新 - Bootstrap TTL 自动重载（5分钟过期，下次调用时重建）
 _BOOTSTRAP_TTL: float = 300.0
 _bootstrap_ts: float = 0.0
-# P2: 网关模式标志（由 default_config_loader 写入，is_gateway_mode() 读取）
-_via_gateway: bool = False
 
-# A4: ironman 插桩状态（避免重复包装）
-_instrumented: bool = False
-_original_chat: Optional[Callable[..., Awaitable[object]]] = None
-_original_embed: Optional[Callable[..., Awaitable[object]]] = None
-_original_ask: Optional[Callable[..., Awaitable[object]]] = None
-_original_extract: Optional[Callable[..., Awaitable[object]]] = None
-_original_stream: Optional[Callable[..., object]] = None
-
-
-class IronmanConfigError(RuntimeError):
-    pass
-
-
-def _is_placeholder(value: str) -> bool:
-    return value.startswith("${") and value.endswith("}")
-
-
-def _clean(value: str, *fallbacks: str) -> str:
-    if value and not _is_placeholder(value):
-        return value
-    for fb in fallbacks:
-        if fb and not _is_placeholder(fb):
-            return fb
-    return ""
-
-
-async def default_config_loader(app_name: str) -> dict[str, object]:
-    """ironman Bootstrap 默认配置加载器。
-
-    配置唯一来源：Lion（nexus.lion.get_chat_config / get_embed_config）。
-    不再从环境变量兜底（PROMPTFORGE_API_KEY / LLM_API_KEY 等），
-    避免配置散落在环境变量中难以管控。LLM 连接配置（api_key/base_url）
-    缺失时直接抛错，拒绝静默进入降级模式掩盖问题。
-    """
-    global _via_gateway
-    chat_cfg = await get_chat_config(prefer_gateway=True)
-    _via_gateway = bool(chat_cfg.get("via_gateway", False))
-    embed_cfg = await get_embed_config(prefer_gateway=True)
-
-    api_key = _clean(str(chat_cfg.get("api_key", "")))
-    base_url = _clean(str(chat_cfg.get("base_url", "")))
-    model = _clean(str(chat_cfg.get("model", "")))
-    provider = str(chat_cfg.get("provider", "") or "openai")
-
-    if not api_key or not base_url:
-        raise IronmanConfigError(
-            f"Lion 未返回 {app_name} 可用的 LLM chat 配置（api_key/base_url 为空）。"
-            f"请检查 LION_NAMESPACE={app_name} 的 llm/chat 配置是否存在、Lion 服务是否可达、"
-            f"SERVICE_TOKEN 是否注入应用环境。收到配置: {chat_cfg or '{}'}"
-        )
-
-    emb_api_key = _clean(str(embed_cfg.get("api_key", ""))) or api_key
-    emb_base_url = _clean(str(embed_cfg.get("base_url", ""))) or base_url
-    emb_model = _clean(str(embed_cfg.get("model", "")))
-    emb_provider = str(embed_cfg.get("provider", "") or provider)
-    emb_dim = embed_cfg.get("dimensions") or embed_cfg.get("dimension") or 0
-
-    return {
-        "api_key": api_key,
-        "base_url": base_url,
-        "model": model,
-        "provider": provider,
-        "embedding_api_key": emb_api_key,
-        "embedding_base_url": emb_base_url,
-        "embedding_model": emb_model,
-        "embedding_provider": emb_provider,
-        "embedding_dimensions": int(emb_dim),
-    }
-
-
-def _instrument_ironman() -> None:
-    """A4: 包装 ironman.chat 和 ironman.embed，注入 metrics/circuit_breaker/req_id。
-
-    所有业务应用直接调用 ironman.chat()/ironman.embed()，不经过 nexus.llm.LLMClient。
-    因此在 init_ironman() 完成后包装 ironman 模块级函数，确保 A4 插桩对所有应用生效。
-    """
-    global _instrumented, _original_chat, _original_embed, _original_ask
-    global _original_extract, _original_stream
-    if _instrumented:
-        return
-
-    import ironman as _ironman_mod
-
-    _original_chat = _ironman_mod.chat
-    _original_embed = _ironman_mod.embed
-    _original_ask = getattr(_ironman_mod, "ask", None)
-    _original_extract = getattr(_ironman_mod, "extract", None)
-    _original_stream = getattr(_ironman_mod, "stream", None)
-
-    def _ctx() -> tuple:
-        from nexus.context import get_request_id
-        from nexus.llm_metrics import get_llm_metrics
-        from nexus.circuit_breaker import get_llm_circuit
-        return (
-            get_request_id() or "-",
-            _init_app_name or "unknown",
-            get_llm_circuit(),
-            get_llm_metrics(),
-            time.monotonic(),
-        )
-
-    def _usage(result: object) -> tuple:
-        tokens: int = 0
-        usage = getattr(result, "usage", None)
-        if usage:
-            tokens = (getattr(usage, "prompt_tokens", 0) or 0) + (
-                getattr(usage, "completion_tokens", 0) or 0
-            )
-        model: str = getattr(result, "model", None) or "unknown"
-        return model, tokens
-
-    def _ok(op: str, req_id: str, app_name: str, metrics: object, model: str, start: float, tokens: int = 0) -> float:
-        latency: float = time.monotonic() - start
-        metrics.record(app_name, model, latency, tokens=tokens, error=None)
-        logger.info(
-            "LLM %s [req_id=%s, app=%s, model=%s, latency=%.2fs, tokens=%d]",
-            op, req_id, app_name, model, latency, tokens,
-        )
-        return latency
-
-    def _fail(op: str, req_id: str, app_name: str, metrics: object, start: float, e: Exception, model: str = "unknown") -> None:
-        latency: float = time.monotonic() - start
-        error_type: str = type(e).__name__
-        metrics.record(app_name, model, latency, tokens=0, error=error_type)
-        log_fn = logger.warning if error_type == "CircuitBreakerOpenError" else logger.error
-        log_fn(
-            "LLM %s failed [req_id=%s, app=%s, latency=%.2fs]: %s: %s",
-            op, req_id, app_name, latency, error_type, e or "(无错误详情)",
-        )
-
-    async def _wrapped_chat(messages: object, llm: object = None, tools: object = None) -> object:
-        request_id, app_name, circuit, metrics, start = _ctx()
-
-        async def _do() -> object:
-            return await _original_chat(messages, llm=llm, tools=tools)  # type: ignore[misc]
-
-        try:
-            result: object = await circuit.call(_do)
-            model, tokens = _usage(result)
-            _ok("chat", request_id, app_name, metrics, model, start, tokens)
-            return result
-        except Exception as e:
-            _fail("chat", request_id, app_name, metrics, start, e)
-            raise
-
-    async def _wrapped_embed(
-        text: object, model: object = None, provider: object = None,
-        dimensions: object = None, encoding_format: object = None,
-    ) -> object:
-        request_id, app_name, _circuit, metrics, start = _ctx()
-        try:
-            result: object = await _original_embed(  # type: ignore[misc]
-                text, model=model, provider=provider,
-                dimensions=dimensions, encoding_format=encoding_format,
-            )
-            emb_model: str = model or "unknown"
-            _ok("embed", request_id, app_name, metrics, f"embed:{emb_model}", start)
-            return result
-        except Exception as e:
-            _fail("embed", request_id, app_name, metrics, start, e, model="embed:unknown")
-            raise
-
-    async def _wrapped_ask(*args: object, **kwargs: object) -> object:
-        request_id, app_name, circuit, metrics, start = _ctx()
-
-        async def _do() -> object:
-            return await _original_ask(*args, **kwargs)  # type: ignore[misc]
-
-        try:
-            result: object = await circuit.call(_do)
-            model, tokens = _usage(result)
-            _ok("ask", request_id, app_name, metrics, model, start, tokens)
-            return result
-        except Exception as e:
-            _fail("ask", request_id, app_name, metrics, start, e)
-            raise
-
-    async def _wrapped_extract(*args: object, **kwargs: object) -> object:
-        request_id, app_name, circuit, metrics, start = _ctx()
-
-        async def _do() -> object:
-            return await _original_extract(*args, **kwargs)  # type: ignore[misc]
-
-        try:
-            result: object = await circuit.call(_do)
-            schema_obj = kwargs.get("schema") if kwargs else None
-            schema_name: str = "raw"
-            if schema_obj is not None:
-                schema_name = getattr(schema_obj, "__name__", None) or "extract"
-            _ok("extract", request_id, app_name, metrics, f"extract:{schema_name}", start)
-            return result
-        except Exception as e:
-            _fail("extract", request_id, app_name, metrics, start, e, model="extract:unknown")
-            raise
-
-    def _wrapped_stream(*args: object, **kwargs: object) -> object:
-        async def _gen() -> object:
-            from nexus.circuit_breaker import CircuitBreakerOpenError, CircuitState
-
-            request_id, app_name, circuit, metrics, start = _ctx()
-
-            if circuit.state == CircuitState.OPEN:
-                metrics.record(app_name, "stream", 0.0, tokens=0, error="CircuitBreakerOpenError")
-                logger.warning(
-                    "LLM stream blocked by open circuit [req_id=%s, app=%s]",
-                    request_id, app_name,
-                )
-                raise CircuitBreakerOpenError("Circuit 'llm_gateway' is OPEN")
-
-            try:
-                async for chunk in _original_stream(*args, **kwargs):  # type: ignore[misc]
-                    yield chunk
-                _ok("stream", request_id, app_name, metrics, "stream", start)
-            except Exception as e:
-                _fail("stream", request_id, app_name, metrics, start, e, model="stream")
-                raise
-
-        return _gen()
-
-    _ironman_mod.chat = _wrapped_chat
-    _ironman_mod.embed = _wrapped_embed
-    if _original_ask is not None:
-        _ironman_mod.ask = _wrapped_ask
-    if _original_extract is not None:
-        _ironman_mod.extract = _wrapped_extract
-    if _original_stream is not None:
-        _ironman_mod.stream = _wrapped_stream
-    _instrumented = True
-    logger.info("ironman instrumented (chat + embed + ask + extract + stream wrapped with metrics/circuit/req_id)")
+_ENSURE_RETRY_INITIAL: float = 30.0
+_ENSURE_RETRY_MAX: float = 300.0
+_ensure_task: Optional[asyncio.Task] = None
 
 
 async def init_ironman(
@@ -263,7 +51,7 @@ async def init_ironman(
     config_loader: Optional[ConfigLoader] = None,
     middleware: str = "production",
 ) -> object:
-    global _bootstrap, _init_app_name, _bootstrap_ts, _via_gateway
+    global _bootstrap, _init_app_name, _bootstrap_ts
     # P0: Bootstrap TTL 过期检查，过期则重置（下次调用时重建）
     if _bootstrap is not None and _bootstrap_ts > 0:
         age = time.monotonic() - _bootstrap_ts
@@ -296,8 +84,9 @@ async def init_ironman(
         _init_app_name = app_name
         _bootstrap_ts = time.monotonic()
 
-        # A4: Bootstrap 创建后立即插桩（包装 ironman.chat/embed）
-        _instrument_ironman()
+        # A4: Bootstrap 创建后立即插桩（包装 ironman 模块级函数）
+        from nexus.ironman_instrument import _instrument_ironman
+        _instrument_ironman(app_name)
 
         # 统一标记 ironman 已配置，避免各项目重复调用 mark_ironman_configured()
         from nexus.llm_config import mark_ironman_configured
@@ -307,7 +96,7 @@ async def init_ironman(
             "ironman Bootstrap initialized (app=%s, middleware=%s, via_gateway=%s)",
             app_name,
             middleware,
-            _via_gateway,
+            is_gateway_mode(),
         )
         return _bootstrap
 
@@ -345,15 +134,6 @@ def is_ironman_available() -> bool:
     return _bootstrap.is_available() if _bootstrap else False
 
 
-def is_gateway_mode() -> bool:
-    """P2: 当前 ironman 是否通过 prompt-manager 网关模式调用。
-
-    由 default_config_loader 写入。用于 LLMService 判断是否降低重试次数
-    （网关已有 failover，无需业务层多重试）。
-    """
-    return _via_gateway
-
-
 def get_init_app_name() -> Optional[str]:
     return _init_app_name
 
@@ -384,11 +164,6 @@ async def startup(
         "via_gateway": is_gateway_mode(),
         "degraded": False,
     }
-
-
-_ENSURE_RETRY_INITIAL: float = 30.0
-_ENSURE_RETRY_MAX: float = 300.0
-_ensure_task: Optional[asyncio.Task] = None
 
 
 async def ensure_ironman(

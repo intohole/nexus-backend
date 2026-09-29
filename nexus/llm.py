@@ -7,18 +7,18 @@ from typing import AsyncGenerator, Optional
 
 from nexus.context import get_request_id
 from nexus.logging import get_logger
-from nexus.llm_metrics import get_llm_metrics
 from nexus.circuit_breaker import get_llm_circuit
+from nexus.llm_metrics import llm_telemetry
 from nexus.llm_utils import parse_llm_json, with_retry
-from nexus.streaming import ThinkStreamFilter
 from nexus.llm_helpers import (
     apply_output_discipline,
     convert_messages,
     extract_content,
     record_usage,
     resolve_namespace,
+    stream_chunks,
 )
-from nexus.llm_budget import OutputMode, TASK_BUDGETS
+from nexus.llm_budget import OutputMode, resolve_effective_budget
 from nexus.llm_cache import PromptCache, get_prompt_cache
 from nexus.llm_config import (
     configure_ironman,
@@ -29,23 +29,6 @@ from nexus.llm_config import (
 logger = get_logger("nexus.llm")
 
 DEFAULT_MAX_OUTPUT_TOKENS: int = int(os.environ.get("LLM_DEFAULT_MAX_OUTPUT_TOKENS", "2048"))
-
-
-def _resolve_budget(
-    task_type: Optional[str],
-    max_tokens: Optional[int],
-    temperature: float,
-    output_mode: Optional[OutputMode],
-) -> tuple[Optional[int], float, Optional[OutputMode]]:
-    if not task_type:
-        return max_tokens, temperature, output_mode
-    budget = TASK_BUDGETS.get(task_type)
-    if budget is None:
-        return max_tokens, temperature, output_mode
-    resolved_max = max_tokens if max_tokens is not None else budget.max_tokens
-    resolved_temp = temperature if temperature is not None else (budget.temperature or 0.7)
-    resolved_mode = output_mode if output_mode is not None else budget.output_mode
-    return resolved_max, resolved_temp, resolved_mode
 
 
 class LLMService:
@@ -74,6 +57,41 @@ class LLMService:
             extra["task_type"] = task_type
         return extra
 
+    async def _prepare_call(
+        self,
+        *,
+        temperature: float,
+        max_tokens: Optional[int],
+        task_type: Optional[str],
+        output_mode: Optional[OutputMode],
+        json_mode: bool,
+        namespace: Optional[str],
+        model: Optional[str],
+        enable_thinking: bool,
+        thinking_budget: int,
+    ) -> tuple[object, float, int, Optional[OutputMode]]:
+        """公共前置：配置 ironman、预算解析并构造 LLMOptions。
+
+        返回 (llm_opts, 生效温度, 生效 max_tokens, output_mode)。
+        """
+        await configure_ironman()
+        budget_max, budget_temp, budget_mode = resolve_effective_budget(
+            task_type, max_tokens, temperature, output_mode
+        )
+        temp = 0.7 if budget_temp is None else budget_temp
+        eff_max: int = budget_max if budget_max is not None else DEFAULT_MAX_OUTPUT_TOKENS
+        from ironman.types import LLMOptions
+
+        opts = LLMOptions(
+            temperature=temp,
+            max_tokens=eff_max,
+            model=model,
+            enable_thinking=enable_thinking,
+            thinking_budget=thinking_budget,
+            extra=self._build_extra(json_mode, namespace, task_type),
+        )
+        return opts, temp, eff_max, budget_mode
+
     async def _execute(
         self,
         do,
@@ -84,9 +102,7 @@ class LLMService:
         kind: str,
     ) -> str:
         circuit = get_llm_circuit()
-        metrics = get_llm_metrics()
-        start: float = time.monotonic()
-        try:
+        async with llm_telemetry(kind, app_name, request_id) as (metrics, start):
             async def _do_with_circuit() -> object:
                 return await circuit.call(do)
             response: object = await with_retry(
@@ -99,14 +115,6 @@ class LLMService:
                 kind, request_id, app_name, time.monotonic() - start,
             )
             return result
-        except Exception as e:
-            latency: float = time.monotonic() - start
-            metrics.record(app_name, "unknown", latency, tokens=0, error=type(e).__name__)
-            logger.error(
-                "LLM %s failed [req_id=%s, app=%s, latency=%.2fs]: %s",
-                kind, request_id, app_name, latency, e,
-            )
-            raise
 
     async def chat(
         self,
@@ -125,167 +133,52 @@ class LLMService:
         enable_thinking: bool = False,
         thinking_budget: int = 8192,
     ) -> str:
-        await configure_ironman()
-        from ironman import chat as _chat
-        from ironman.types import LLMOptions
-
-        request_id: str = get_request_id() or "-"
-        app_name: str = resolve_app_name()
-        budget_max, budget_temp, budget_mode = _resolve_budget(
-            task_type, max_tokens, temperature, output_mode
+        opts, temp, eff_max, budget_mode = await self._prepare_call(
+            temperature=temperature, max_tokens=max_tokens, task_type=task_type,
+            output_mode=output_mode, json_mode=json_mode, namespace=namespace,
+            model=model, enable_thinking=enable_thinking, thinking_budget=thinking_budget,
         )
-        temperature = 0.7 if budget_temp is None else budget_temp
-        eff_max_tokens: Optional[int] = (
-            budget_max if budget_max is not None else DEFAULT_MAX_OUTPUT_TOKENS
-        )
-        system, _ = apply_output_discipline(
-            system, "", concise, json_mode, budget_mode
-        )
+        system, _ = apply_output_discipline(system, "", concise, json_mode, budget_mode)
         ironman_messages = convert_messages(messages, system)
-        cache = get_prompt_cache() if temperature <= 0.0 else None
+        cache = get_prompt_cache() if temp <= 0.0 else None
         if cache is not None:
-            key: str = PromptCache.make_messages_key(system, messages, temperature, eff_max_tokens)
+            key: str = PromptCache.make_messages_key(system, messages, temp, eff_max)
             hit: Optional[str] = cache.get(key)
             if hit is not None:
                 return hit
-        llm_opts = LLMOptions(
-            temperature=temperature,
-            max_tokens=eff_max_tokens,
-            model=model,
-            enable_thinking=enable_thinking,
-            thinking_budget=thinking_budget,
-            extra=self._build_extra(json_mode, namespace, task_type),
-        )
+        from ironman import chat as _chat
+        request_id: str = get_request_id() or "-"
+        app_name: str = resolve_app_name()
 
         async def _do() -> object:
-            return await _chat(messages=ironman_messages, llm=llm_opts)
+            return await _chat(messages=ironman_messages, llm=opts)
 
         result = await self._execute(_do, timeout, max_retries, app_name, request_id, "chat")
         if cache is not None and result:
             cache.set(key, result)
         return result
 
-    async def ask(
-        self,
-        prompt: str,
-        system: Optional[str] = None,
-        temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
-        timeout: float = 60.0,
-        max_retries: int = 3,
-        json_mode: bool = False,
-        concise: bool = False,
-        output_mode: Optional[OutputMode] = None,
-        namespace: Optional[str] = None,
-        task_type: Optional[str] = None,
-        model: Optional[str] = None,
-        enable_thinking: bool = False,
-        thinking_budget: int = 8192,
-    ) -> str:
-        await configure_ironman()
-        from ironman import chat as _chat
-        from ironman.types import LLMOptions, Message, Role
-
-        request_id: str = get_request_id() or "-"
-        app_name: str = resolve_app_name()
-        budget_max, budget_temp, budget_mode = _resolve_budget(
-            task_type, max_tokens, temperature, output_mode
-        )
-        temperature = 0.7 if budget_temp is None else budget_temp
-        eff_max_tokens: Optional[int] = (
-            budget_max if budget_max is not None else DEFAULT_MAX_OUTPUT_TOKENS
-        )
-        system, prompt = apply_output_discipline(
-            system, prompt, concise, json_mode, budget_mode
-        )
-        cache = get_prompt_cache() if temperature <= 0.0 else None
-        if cache is not None:
-            key: str = PromptCache.make_key(system, prompt, temperature, eff_max_tokens)
-            hit: Optional[str] = cache.get(key)
-            if hit is not None:
-                return hit
-        llm_opts = LLMOptions(
-            temperature=temperature,
-            max_tokens=eff_max_tokens,
-            model=model,
-            enable_thinking=enable_thinking,
-            thinking_budget=thinking_budget,
-            extra=self._build_extra(json_mode, namespace, task_type),
+    async def ask(self, prompt: str, system: Optional[str] = None, **kwargs) -> str:
+        """单轮提问 = 单条 user 消息的 chat。"""
+        return await self.chat(
+            messages=[{"role": "user", "content": prompt}], system=system, **kwargs
         )
 
-        msgs: list = []
-        if system:
-            msgs.append(Message(role=Role.SYSTEM, content=system))
-        msgs.append(Message(role=Role.USER, content=prompt))
-
-        async def _do() -> object:
-            return await _chat(messages=msgs, llm=llm_opts)
-
-        result = await self._execute(_do, timeout, max_retries, app_name, request_id, "ask")
-        if cache is not None and result:
-            cache.set(key, result)
-        return result
-
-    async def ask_json(
-        self,
-        prompt: str,
-        system: Optional[str] = None,
-        temperature: float = 0.2,
-        max_tokens: Optional[int] = 1500,
-        timeout: float = 60.0,
-        max_retries: int = 3,
-        concise: bool = False,
-        task_type: Optional[str] = None,
-        model: Optional[str] = None,
-        enable_thinking: bool = False,
-        thinking_budget: int = 8192,
-    ) -> dict[str, object]:
-        raw = await self.ask(
-            prompt=prompt,
-            system=system,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=timeout,
-            max_retries=max_retries,
-            json_mode=True,
-            concise=concise,
-            task_type=task_type,
-            model=model,
-            enable_thinking=enable_thinking,
-            thinking_budget=thinking_budget,
-        )
+    async def ask_json(self, prompt: str, system: Optional[str] = None, **kwargs) -> dict[str, object]:
+        kwargs.setdefault("temperature", 0.2)
+        kwargs.setdefault("max_tokens", 1500)
+        raw = await self.ask(prompt=prompt, system=system, json_mode=True, **kwargs)
         return parse_llm_json(raw)
 
     async def chat_json(
         self,
         messages: list[dict[str, str]],
         system: Optional[str] = None,
-        temperature: float = 0.2,
-        max_tokens: Optional[int] = 1500,
-        timeout: float = 60.0,
-        max_retries: int = 3,
-        concise: bool = False,
-        task_type: Optional[str] = None,
-        namespace: Optional[str] = None,
-        model: Optional[str] = None,
-        enable_thinking: bool = False,
-        thinking_budget: int = 8192,
+        **kwargs,
     ) -> dict[str, object]:
-        raw = await self.chat(
-            messages=messages,
-            system=system,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=timeout,
-            max_retries=max_retries,
-            json_mode=True,
-            concise=concise,
-            task_type=task_type,
-            namespace=namespace,
-            model=model,
-            enable_thinking=enable_thinking,
-            thinking_budget=thinking_budget,
-        )
+        kwargs.setdefault("temperature", 0.2)
+        kwargs.setdefault("max_tokens", 1500)
+        raw = await self.chat(messages=messages, system=system, json_mode=True, **kwargs)
         return parse_llm_json(raw)
 
     async def extract(
@@ -303,8 +196,6 @@ class LLMService:
         request_id: str = get_request_id() or "-"
         app_name: str = resolve_app_name()
         circuit = get_llm_circuit()
-        metrics = get_llm_metrics()
-        start: float = time.monotonic()
 
         async def _do() -> object:
             return await _extract(
@@ -314,31 +205,19 @@ class LLMService:
             )
 
         try:
-            async def _do_with_circuit() -> object:
-                return await circuit.call(_do)
-            result: object = await with_retry(
-                _do_with_circuit, timeout, effective_retries(max_retries)
-            )
-            metrics.record(app_name, "unknown", time.monotonic() - start, tokens=0, error=None)
-            logger.info(
-                "LLM extract completed [req_id=%s, app=%s, latency=%.2fs]",
-                request_id, app_name, time.monotonic() - start,
-            )
-            return result
-        except Exception as e:
-            latency: float = time.monotonic() - start
-            error_type: str = type(e).__name__
-            metrics.record(app_name, "unknown", latency, tokens=0, error=error_type)
-            if error_type == "CircuitBreakerOpenError":
-                logger.warning(
-                    "LLM extract blocked by open circuit [req_id=%s, app=%s, latency=%.2fs]: %s",
-                    request_id, app_name, latency, e,
+            async with llm_telemetry("extract", app_name, request_id) as (metrics, start):
+                async def _do_with_circuit() -> object:
+                    return await circuit.call(_do)
+                result: object = await with_retry(
+                    _do_with_circuit, timeout, effective_retries(max_retries)
                 )
-                raise
-            logger.error(
-                "LLM extract failed [req_id=%s, app=%s, latency=%.2fs]: %s",
-                request_id, app_name, latency, e,
-            )
+                metrics.record(app_name, "unknown", time.monotonic() - start, tokens=0, error=None)
+                logger.info(
+                    "LLM extract completed [req_id=%s, app=%s, latency=%.2fs]",
+                    request_id, app_name, time.monotonic() - start,
+                )
+                return result
+        except Exception:
             if raise_on_error:
                 raise
             return None
@@ -356,114 +235,23 @@ class LLMService:
         enable_thinking: bool = False,
         thinking_budget: int = 8192,
     ) -> AsyncGenerator[str, None]:
-        await configure_ironman()
-        from ironman import chat_stream as _chat_stream
-        from ironman.types import LLMOptions
-
-        budget_max, budget_temp, budget_mode = _resolve_budget(
-            task_type, max_tokens, temperature, output_mode
-        )
-        temperature = 0.7 if budget_temp is None else budget_temp
-        eff_max_tokens: Optional[int] = (
-            budget_max if budget_max is not None else DEFAULT_MAX_OUTPUT_TOKENS
+        opts, _temp, _eff_max, budget_mode = await self._prepare_call(
+            temperature=temperature, max_tokens=max_tokens, task_type=task_type,
+            output_mode=output_mode, json_mode=False, namespace=namespace,
+            model=model, enable_thinking=enable_thinking, thinking_budget=thinking_budget,
         )
         system, _ = apply_output_discipline(system, "", False, False, budget_mode)
         ironman_messages = convert_messages(messages, system)
-        llm_opts = LLMOptions(
-            temperature=temperature,
-            max_tokens=eff_max_tokens,
-            model=model,
-            enable_thinking=enable_thinking,
-            thinking_budget=thinking_budget,
-            extra=self._build_extra(False, namespace, task_type),
-        )
-        async for chunk in self._stream(_chat_stream, ironman_messages, llm_opts):
-            yield chunk
-
-    async def stream_ask(
-        self,
-        prompt: str,
-        system: Optional[str] = None,
-        temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
-        output_mode: Optional[OutputMode] = None,
-        namespace: Optional[str] = None,
-        task_type: Optional[str] = None,
-        model: Optional[str] = None,
-        enable_thinking: bool = False,
-        thinking_budget: int = 8192,
-    ) -> AsyncGenerator[str, None]:
-        await configure_ironman()
         from ironman import chat_stream as _chat_stream
-        from ironman.types import LLMOptions, Message, Role
-
-        budget_max, budget_temp, budget_mode = _resolve_budget(
-            task_type, max_tokens, temperature, output_mode
-        )
-        temperature = 0.7 if budget_temp is None else budget_temp
-        eff_max_tokens: Optional[int] = (
-            budget_max if budget_max is not None else DEFAULT_MAX_OUTPUT_TOKENS
-        )
-        system, prompt = apply_output_discipline(system, prompt, False, False, budget_mode)
-        llm_opts = LLMOptions(
-            temperature=temperature,
-            max_tokens=eff_max_tokens,
-            model=model,
-            enable_thinking=enable_thinking,
-            thinking_budget=thinking_budget,
-            extra=self._build_extra(False, namespace, task_type),
-        )
-        msgs: list = []
-        if system:
-            msgs.append(Message(role=Role.SYSTEM, content=system))
-        msgs.append(Message(role=Role.USER, content=prompt))
-        async for chunk in self._stream(_chat_stream, msgs, llm_opts):
+        async for chunk in stream_chunks(_chat_stream, ironman_messages, opts):
             yield chunk
 
-    async def _stream(
-        self,
-        chat_stream,
-        msgs: list,
-        llm_opts: object,
-    ) -> AsyncGenerator[str, None]:
-        metrics = get_llm_metrics()
-        app_name: str = resolve_app_name()
-        start: float = time.monotonic()
-        has_content: bool = False
-        think_filter = ThinkStreamFilter()
-        last_usage: Optional[object] = None
-        last_model: str = "unknown"
-        max_attempts: int = 2
-        for attempt in range(max_attempts):
-            async for chunk in chat_stream(messages=msgs, llm=llm_opts):
-                if chunk.content:
-                    piece = think_filter.feed(chunk.content)
-                    if piece:
-                        has_content = True
-                        yield piece
-                if chunk.usage is not None:
-                    last_usage = chunk.usage
-                if chunk.model:
-                    last_model = chunk.model
-            tail = think_filter.flush()
-            if tail:
-                has_content = True
-                yield tail
-            if has_content:
-                break
-            if attempt + 1 < max_attempts:
-                think_filter = ThinkStreamFilter()
-                logger.warning(f"stream_chat: empty visible content (attempt {attempt + 1}), retrying")
-        metrics.record(
-            app_name,
-            last_model,
-            time.monotonic() - start,
-            tokens=int(getattr(last_usage, "total_tokens", 0) or 0),
-            error=None,
-        )
-        if not has_content:
-            logger.warning("stream_chat: no visible content after think-filter")
-            yield "抱歉，本次未能生成有效回答，请换个问法或稍后重试。"
+    async def stream_ask(self, prompt: str, system: Optional[str] = None, **kwargs) -> AsyncGenerator[str, None]:
+        """单轮流式提问 = 单条 user 消息的 stream_chat。"""
+        async for chunk in self.stream_chat(
+            messages=[{"role": "user", "content": prompt}], system=system, **kwargs
+        ):
+            yield chunk
 
     async def embed(
         self,

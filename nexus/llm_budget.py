@@ -53,6 +53,24 @@ def resolve_budget(task_type: Optional[str]) -> TaskBudget:
     return TASK_BUDGETS.get(task_type, DEFAULT_TASK_BUDGET)
 
 
+def resolve_effective_budget(
+    task_type: Optional[str],
+    max_tokens: Optional[int],
+    temperature: float,
+    output_mode: Optional[OutputMode],
+) -> tuple[Optional[int], float, Optional[OutputMode]]:
+    """任务预算与显式参数叠加：显式传参优先，未传参回退任务预算档位。"""
+    if not task_type:
+        return max_tokens, temperature, output_mode
+    budget = TASK_BUDGETS.get(task_type)
+    if budget is None:
+        return max_tokens, temperature, output_mode
+    resolved_max = max_tokens if max_tokens is not None else budget.max_tokens
+    resolved_temp = temperature if temperature is not None else (budget.temperature or 0.7)
+    resolved_mode = output_mode if output_mode is not None else budget.output_mode
+    return resolved_max, resolved_temp, resolved_mode
+
+
 __all__ = [
     "OutputMode",
     "TaskBudget",
@@ -60,4 +78,5 @@ __all__ = [
     "TASK_BUDGETS",
     "DEFAULT_TASK_BUDGET",
     "resolve_budget",
+    "resolve_effective_budget",
 ]
