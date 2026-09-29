@@ -25,16 +25,6 @@ class PromptCache:
         self._store: TTLCache = TTLCache(maxsize=maxsize, ttl=ttl)
 
     @staticmethod
-    def make_key(
-        system: Optional[str],
-        prompt: str,
-        temperature: float,
-        max_tokens: Optional[int],
-    ) -> str:
-        raw: str = f"{system or ''}|{prompt}|{temperature}|{max_tokens or 0}"
-        return hashlib.sha256(raw.encode()).hexdigest()
-
-    @staticmethod
     def make_messages_key(
         system: Optional[str],
         messages: list[dict[str, str]],
