@@ -226,7 +226,7 @@ from nexus.automation import (
 )
 from nexus.sanitize import sanitize_agent_output, sanitize_platform_text, sanitize_text_stream
 
-__version__ = "1.26.0"
+__version__ = "1.27.0"
 
 __all__ = [
     "NexusConfig", "get_settings", "configure", "load_project_config", "yaml_get",

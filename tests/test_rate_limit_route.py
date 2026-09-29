@@ -102,3 +102,179 @@ def test_global_middleware_skips_route_with_own_limit() -> None:
     assert client.get("/limited").status_code == 200
     assert client.get("/plain").status_code == 200
     assert client.get("/plain").status_code == 429
+
+
+def test_sliding_window_current_count() -> None:
+    window: SlidingWindow = SlidingWindow(3, 60)
+    assert window.current_count() == 0
+    asyncio.run(window.is_allowed())
+    asyncio.run(window.is_allowed())
+    assert window.current_count() == 2
+    assert window.is_exceeded() is False
+
+
+def _rule_app() -> FastAPI:
+    from nexus.rate_limit import PathRule
+
+    app: FastAPI = FastAPI()
+
+    @app.get("/api/llm/chat")
+    async def llm_chat() -> dict[str, str]:
+        return {"ok": "1"}
+
+    @app.get("/api/other")
+    async def other() -> dict[str, str]:
+        return {"ok": "1"}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        config=NexusConfig(),
+        requests_per_minute=10,
+        requests_per_hour=0,
+        exclude_paths=[],
+        route_rules=[PathRule("/api/llm", 1)],
+    )
+    return app
+
+
+def test_route_rules_tier_prefix_limit() -> None:
+    client: TestClient = TestClient(_rule_app())
+    assert client.get("/api/llm/chat").status_code == 200
+    assert client.get("/api/llm/chat").status_code == 429
+    assert client.get("/api/other").status_code == 200
+    assert client.get("/api/other").status_code == 200
+
+
+def test_route_rules_longest_prefix_wins() -> None:
+    from nexus.rate_limit import PathRule
+
+    app: FastAPI = FastAPI()
+
+    @app.get("/api/llm/chat")
+    async def llm_chat() -> dict[str, str]:
+        return {"ok": "1"}
+
+    @app.get("/api/other")
+    async def other() -> dict[str, str]:
+        return {"ok": "1"}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        config=NexusConfig(),
+        requests_per_minute=10,
+        requests_per_hour=0,
+        exclude_paths=[],
+        route_rules=[PathRule("/api", 5), PathRule("/api/llm", 1)],
+    )
+    client: TestClient = TestClient(app)
+    assert client.get("/api/llm/chat").status_code == 200
+    assert client.get("/api/llm/chat").status_code == 429
+    for _ in range(5):
+        assert client.get("/api/other").status_code == 200
+    assert client.get("/api/other").status_code == 429
+
+
+def test_limit_response_hook_custom_body() -> None:
+    from starlette.responses import PlainTextResponse
+
+    from nexus.rate_limit import LimitInfo
+
+    def hook(request: Request, info: LimitInfo) -> PlainTextResponse:
+        return PlainTextResponse(
+            f"blocked:{info.scope}:{info.retry_after}",
+            status_code=429,
+            headers={"Retry-After": str(info.retry_after)},
+        )
+
+    app: FastAPI = FastAPI()
+
+    @app.get("/x")
+    async def x() -> dict[str, str]:
+        return {"ok": "1"}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        config=NexusConfig(),
+        requests_per_minute=1,
+        requests_per_hour=0,
+        exclude_paths=[],
+        limit_response=hook,
+    )
+    client: TestClient = TestClient(app)
+    assert client.get("/x").status_code == 200
+    resp = client.get("/x")
+    assert resp.status_code == 429
+    assert resp.text.startswith("blocked:minute:")
+    assert int(resp.headers["Retry-After"]) >= 1
+
+
+def test_default_429_carries_remaining_header() -> None:
+    app: FastAPI = FastAPI()
+
+    @app.get("/y")
+    async def y() -> dict[str, str]:
+        return {"ok": "1"}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        config=NexusConfig(),
+        requests_per_minute=2,
+        requests_per_hour=0,
+        exclude_paths=[],
+    )
+    client: TestClient = TestClient(app)
+    assert client.get("/y").status_code == 200
+    assert client.get("/y").status_code == 200
+    resp = client.get("/y")
+    assert resp.status_code == 429
+    assert resp.headers["X-RateLimit-Limit"] == "2"
+    assert resp.headers["X-RateLimit-Remaining"] == "0"
+    body: dict = resp.json()
+    assert body["error_code"] == "RATE_LIMIT_EXCEEDED"
+
+
+def test_zero_global_rpm_disables_global_window() -> None:
+    app: FastAPI = FastAPI()
+
+    @app.get("/free")
+    async def free() -> dict[str, str]:
+        return {"ok": "1"}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        config=NexusConfig(),
+        requests_per_minute=0,
+        requests_per_hour=0,
+        exclude_paths=[],
+    )
+    client: TestClient = TestClient(app)
+    for _ in range(30):
+        assert client.get("/free").status_code == 200
+
+
+def test_rule_only_mode_keeps_rule_limit() -> None:
+    from nexus.rate_limit import PathRule
+
+    app: FastAPI = FastAPI()
+
+    @app.get("/api/x")
+    async def x() -> dict[str, str]:
+        return {"ok": "1"}
+
+    @app.get("/free")
+    async def free() -> dict[str, str]:
+        return {"ok": "1"}
+
+    app.add_middleware(
+        RateLimitMiddleware,
+        config=NexusConfig(),
+        requests_per_minute=0,
+        requests_per_hour=0,
+        exclude_paths=[],
+        route_rules=[PathRule("/api/", 1)],
+    )
+    client: TestClient = TestClient(app)
+    assert client.get("/api/x").status_code == 200
+    assert client.get("/api/x").status_code == 429
+    for _ in range(5):
+        assert client.get("/free").status_code == 200
