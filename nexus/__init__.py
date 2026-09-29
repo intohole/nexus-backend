@@ -22,6 +22,7 @@ from nexus.errors import (
     RateLimitError,
     ForbiddenError,
     ConflictError,
+    ContentFilterError,
 )
 from nexus.context import (
     set_request_context,
@@ -284,7 +285,7 @@ from nexus.automation import (
 )
 from nexus.sanitize import sanitize_agent_output, sanitize_platform_text, sanitize_text_stream
 
-__version__ = "1.21.0"
+__version__ = "1.22.0"
 
 __all__ = [
     "__version__",
@@ -307,6 +308,7 @@ __all__ = [
     "RateLimitError",
     "ForbiddenError",
     "ConflictError",
+    "ContentFilterError",
     "set_request_context",
     "get_request_id",
     "get_user_id",

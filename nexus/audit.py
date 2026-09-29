@@ -1,7 +1,6 @@
 """审计日志客户端：异步上报操作留痕至审计服务。"""
 from __future__ import annotations
 
-import asyncio
 import os
 from typing import Any
 from urllib.parse import urljoin
@@ -13,30 +12,6 @@ from nexus.logging import get_logger
 from nexus.service_client import get_service_token
 
 logger = get_logger("nexus.audit")
-
-_client: httpx.AsyncClient | None = None
-_lock: asyncio.Lock | None = None
-
-
-def _get_lock() -> asyncio.Lock:
-    global _lock
-    if _lock is None:
-        _lock = asyncio.Lock()
-    return _lock
-
-
-async def _get_client() -> httpx.AsyncClient:
-    global _client
-    if _client is None or _client.is_closed:
-        _client = httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0))
-    return _client
-
-
-async def close_client() -> None:
-    global _client
-    if _client and not _client.is_closed:
-        await _client.aclose()
-        _client = None
 
 
 def _base_url() -> str:
@@ -54,14 +29,16 @@ async def log_audit(
     user_agent: str | None = None,
     status_code: int | None = None,
 ) -> bool:
-    """上报业务审计到 usercenter（失败仅记日志，不影响主流程）"""
+    """上报业务审计到 usercenter（失败仅记日志，不影响主流程）。
+
+    管理操作低频，每次走短连接，免维护模块级 client 的关闭路径。
+    """
     token = await get_service_token()
     if not token:
         logger.debug("service token 未配置, 跳过审计上报 action=%s", action)
         return False
     try:
-        async with _get_lock():
-            client = await _get_client()
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
             response = await client.post(
                 urljoin(_base_url(), "/api/internal/audit/record"),
                 headers={"X-Service-Token": token},

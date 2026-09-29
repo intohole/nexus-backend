@@ -56,6 +56,7 @@ async def resilient_ask(
     fallback 非 None 时，任何失败都返回 fallback 而不是抛异常。
     use_rate_limit=True 时额外启用 LLMRateLimiter 全局限流（高并发场景）。
     system 为可选的系统提示词，max_tokens 限制输出长度，透传底层 LLMService.ask。
+    重试唯一样板：retry_count+1 次调用，内层 LLMService 已禁用重试（max_retries=0），不再叠加放大。
     """
     cb = get_circuit_breaker(f"llm_{alias}", config=_CB_CONFIG)
     cost_guard = get_cost_guard()
@@ -110,7 +111,7 @@ async def resilient_ask(
 async def _call_llm(prompt: str, system: str, temperature: float, max_tokens: Optional[int], timeout: float, namespace: Optional[str] = None, task_type: Optional[str] = None) -> str:
     svc = get_llm_service()
     return await asyncio.wait_for(
-        svc.ask(prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout, namespace=namespace, task_type=task_type),
+        svc.ask(prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout, max_retries=0, namespace=namespace, task_type=task_type),
         timeout=timeout + 5,
     )
 

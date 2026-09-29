@@ -23,7 +23,6 @@ logger = logging.getLogger("nexus.user_auth")
 
 security = HTTPBearer(auto_error=False)
 
-UcUserFetcher = Callable[[str], Awaitable[dict]]
 UserFinder = Callable[[AsyncSession, int], Awaitable[Any]]
 UserCreator = Callable[[AsyncSession, int, dict], Awaitable[Any]]
 UserUpdater = Callable[[AsyncSession, Any, dict], Awaitable[bool]]

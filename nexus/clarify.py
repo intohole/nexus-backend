@@ -97,22 +97,6 @@ def _merge_candidates(
     ]
 
 
-def missing_keys(values: Dict[str, Optional[str]], fields: List[str]) -> List[str]:
-    found = set()
-    for key, value in (values or {}).items():
-        if value:
-            found.add(key)
-    return [field for field in fields if field not in found]
-
-
-def apply_answers(base: Dict[str, Optional[str]], answers: Optional[Dict[str, object]]) -> Dict[str, Optional[str]]:
-    result = dict(base or {})
-    for key, value in (answers or {}).items():
-        if _normalize(value):
-            result[key] = _normalize(value)
-    return result
-
-
 def _normalize(value: object) -> Optional[str]:
     if isinstance(value, list):
         text = "；".join(str(v).strip() for v in value if str(v).strip())

@@ -136,6 +136,7 @@ def setup_middleware(
     enable_security_headers: bool = False,
     enable_not_found_check: bool = False,
     enable_loading_splash: bool = False,
+    enable_audit: bool = False,
     no_cache_prefix: str = "/static",
 ) -> None:
     """在已存在的 FastAPI app 上注册统一中间件栈。
@@ -166,6 +167,9 @@ def setup_middleware(
         app.add_middleware(NotFoundCheckMiddleware)
     if enable_loading_splash:
         app.add_middleware(LoadingSplashMiddleware, app_name=cfg.app_name)
+    if enable_audit:
+        from nexus.audit_middleware import AuditMiddleware
+        app.add_middleware(AuditMiddleware, config=cfg)
     if enable_cors:
         setup_cors(app, cfg, origins=cors_origins)
 
