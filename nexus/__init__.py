@@ -73,7 +73,7 @@ from nexus.middleware import (
     setup_exception_handlers,
     REQUEST_ID_HEADER,
 )
-from nexus.rate_limit import RateLimitMiddleware
+from nexus.rate_limit import RateLimitMiddleware, SlidingWindow
 from nexus.audit_middleware import AuditMiddleware
 from nexus.audit import log_audit
 from nexus.config import RateLimitConfig as RateLimitConfig
@@ -285,7 +285,7 @@ from nexus.automation import (
 )
 from nexus.sanitize import sanitize_agent_output, sanitize_platform_text, sanitize_text_stream
 
-__version__ = "1.22.0"
+__version__ = "1.23.0"
 
 __all__ = [
     "__version__",
@@ -356,6 +356,7 @@ __all__ = [
     "setup_exception_handlers",
     "REQUEST_ID_HEADER",
     "RateLimitMiddleware",
+    "SlidingWindow",
     "RateLimitConfig",
     "AuditMiddleware",
     "log_audit",
