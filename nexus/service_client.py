@@ -30,6 +30,7 @@ class ServiceClient:
         self._token: str = ""
         self._expires_at: float = 0.0
         self._lock: asyncio.Lock = asyncio.Lock()
+        self._refreshing_task: Optional[asyncio.Task] = None
         self._client: Optional[httpx.AsyncClient] = None
 
     @staticmethod
@@ -44,6 +45,8 @@ class ServiceClient:
     async def get_token(self) -> str:
         if self._token and time.time() < self._expires_at - _REFRESH_MARGIN:
             return self._token
+        if self._refreshing_task is asyncio.current_task():
+            return self.get_cached_token()
         async with self._lock:
             if self._token and time.time() < self._expires_at - _REFRESH_MARGIN:
                 return self._token
@@ -51,6 +54,13 @@ class ServiceClient:
         return self._token
 
     async def _refresh(self) -> None:
+        self._refreshing_task = asyncio.current_task()
+        try:
+            await self._refresh_locked()
+        finally:
+            self._refreshing_task = None
+
+    async def _refresh_locked(self) -> None:
         from nexus.infra import get_uc_config
 
         try:

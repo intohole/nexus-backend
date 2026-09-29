@@ -20,12 +20,48 @@ class LionConfigError(RuntimeError):
 _CACHE_TTL: int = 60
 
 
+class _ReentrantAsyncLock:
+    """同任务可重入的异步锁。
+
+    Lion 配置解析会嵌套：get_business_config 持锁期间经 ServiceClient 解析
+    UC 凭证，后者又回读 get_infra_config。asyncio.Lock 不可重入，同任务
+    二次 acquire 会永久挂起；这里允许同任务重入，跨任务仍互斥。
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._owner: Optional[asyncio.Task] = None
+        self._depth: int = 0
+
+    async def __aenter__(self) -> "_ReentrantAsyncLock":
+        task = asyncio.current_task()
+        if self._owner is task and task is not None:
+            self._depth += 1
+            return self
+        await self._lock.acquire()
+        self._owner = task
+        self._depth = 1
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[object],
+    ) -> None:
+        self._depth -= 1
+        if self._depth <= 0:
+            self._owner = None
+            self._depth = 0
+            self._lock.release()
+
+
 class LionIntegration:
     def __init__(self, config: Optional[NexusConfig] = None) -> None:
         self._config: NexusConfig = config or get_settings()
         self._cache: dict[str, dict[str, object]] = {}
         self._cache_ts: dict[str, float] = {}
-        self._lock: asyncio.Lock = asyncio.Lock()
+        self._lock: "_ReentrantAsyncLock" = _ReentrantAsyncLock()
 
     async def get_config(
         self,

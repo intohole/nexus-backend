@@ -167,7 +167,7 @@ def _resolve_dict(data: dict[str, object]) -> dict[str, object]:
 class ConfigFactory:
     _instance: Optional[NexusConfig] = None
     _raw_yaml: dict[str, object] = {}
-    _lock: threading.Lock = threading.Lock()
+    _lock: threading.RLock = threading.RLock()
 
     @classmethod
     def get(cls) -> NexusConfig:
