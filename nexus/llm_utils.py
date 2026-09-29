@@ -131,14 +131,7 @@ def find_balanced_json(content: str) -> Optional[str]:
 
 
 def parse_llm_json(raw: str) -> dict[str, object]:
-    text = raw.strip()
-
-    if text.startswith("```"):
-        lines = text.split("\n")
-        if lines and lines[-1].strip() == "```":
-            text = "\n".join(lines[1:-1])
-        else:
-            text = "\n".join(lines[1:])
+    text = strip_code_fence(raw)
 
     try:
         result = json.loads(text)
@@ -203,7 +196,7 @@ def parse_llm_json(raw: str) -> dict[str, object]:
     logger.warning("JSON parse failed after all attempts: %s", text[:300])
     return {"raw_response": text}
 
-def parse_llm_json_lenient(raw: str) -> Any:
+def parse_llm_json_lenient(raw: str) -> Optional[object]:
     """LLM 输出的宽容解析：支持顶层对象或数组，逐级降级提取，全部失败返回 None。
 
     与 parse_llm_json 的分工：parse_llm_json 面向"必须是 JSON 对象"的结构化抽取

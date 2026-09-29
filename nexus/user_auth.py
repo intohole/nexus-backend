@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Generic, Optional, TypeVar
 
 from cachetools import TTLCache
 from fastapi import Depends, HTTPException, status
@@ -23,9 +23,11 @@ logger = logging.getLogger("nexus.user_auth")
 
 security = HTTPBearer(auto_error=False)
 
-UserFinder = Callable[[AsyncSession, int], Awaitable[Any]]
-UserCreator = Callable[[AsyncSession, int, dict], Awaitable[Any]]
-UserUpdater = Callable[[AsyncSession, Any, dict], Awaitable[bool]]
+UserT = TypeVar("UserT")
+
+UserFinder = Callable[[AsyncSession, int], Awaitable[Optional[UserT]]]
+UserCreator = Callable[[AsyncSession, int, dict], Awaitable[UserT]]
+UserUpdater = Callable[[AsyncSession, UserT, dict], Awaitable[bool]]
 
 
 async def get_bearer_token(
@@ -46,13 +48,13 @@ async def _fetch_uc_user(token: str) -> dict:
 
 
 @dataclass
-class UserAuthDeps:
+class UserAuthDeps(Generic[UserT]):
     """create_user_auth 的产物：可直接用于 Depends 的三件套 + 底层能力。"""
 
-    get_current_user: Callable
-    get_optional_user: Callable
-    get_current_user_id: Callable
-    ensure_local_user: Callable
+    get_current_user: Callable[..., Awaitable[UserT]]
+    get_optional_user: Callable[..., Awaitable[Optional[UserT]]]
+    get_current_user_id: Callable[..., Awaitable[int]]
+    ensure_local_user: Callable[..., Awaitable[UserT]]
 
 
 def create_user_auth(
@@ -64,7 +66,7 @@ def create_user_auth(
     cache_size: int = 500,
     cache_ttl: float = 60.0,
     unauthorized_detail: str = "无法验证凭据",
-) -> UserAuthDeps:
+) -> UserAuthDeps[UserT]:
     """生成 UC 登录态依赖三件套。
 
     find_by_uc_id(db, uc_user_id) -> User | None
@@ -86,9 +88,9 @@ def create_user_auth(
 
     async def ensure_local_user(
         db: AsyncSession,
-        uc_info: dict,
+        uc_info: dict[str, object],
         token: Optional[str] = None,
-    ) -> Any:
+    ) -> UserT:
         uc_user_id = int(uc_info["user_id"])
         user = await find_by_uc_id(db, uc_user_id)
         if user is None:
@@ -105,7 +107,7 @@ def create_user_auth(
     async def _resolve(
         credentials: Optional[HTTPAuthorizationCredentials],
         db: AsyncSession,
-    ) -> Any:
+    ) -> UserT:
         if not credentials or not credentials.credentials:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -113,7 +115,7 @@ def create_user_auth(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         token = credentials.credentials
-        uc_info: Optional[dict] = _cache.get(token)
+        uc_info: Optional[dict[str, object]] = _cache.get(token)
         if uc_info is None:
             uc_info = await _validate(token)
             if not uc_info.get("username"):
@@ -126,13 +128,13 @@ def create_user_auth(
     async def get_current_user(
         credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
         db: AsyncSession = Depends(get_db),
-    ) -> Any:
+    ) -> UserT:
         return await _resolve(credentials, db)
 
     async def get_optional_user(
         credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
         db: AsyncSession = Depends(get_db),
-    ) -> Any:
+    ) -> Optional[UserT]:
         if not credentials or not credentials.credentials:
             return None
         try:
