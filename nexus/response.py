@@ -1,33 +1,16 @@
-"""统一响应结构：成功/错误响应与分页包装。"""
+"""统一响应结构：成功/错误响应、分页包装与 SPA 入口注入。"""
 from __future__ import annotations
 
-from typing import Generic, Optional, TypeVar
+import os
+import re
+from html import escape as html_escape
+from pathlib import Path
+from typing import Optional
 
-from pydantic import BaseModel, Field
+from fastapi import Request
+from fastapi.responses import HTMLResponse
 
-T = TypeVar("T")
-
-
-class ApiResponse(BaseModel, Generic[T]):
-    code: int = Field(default=200)
-    message: str = Field(default="success")
-    data: Optional[T] = None
-    trace_id: Optional[str] = None
-
-
-class PaginationMeta(BaseModel):
-    page: int
-    page_size: int
-    total: int
-    total_pages: int
-
-
-class PaginatedResponse(BaseModel, Generic[T]):
-    code: int = Field(default=200)
-    message: str = Field(default="success")
-    data: list[T] = Field(default_factory=list)
-    pagination: PaginationMeta
-    trace_id: Optional[str] = None
+_PREFIX_PATTERN = re.compile(r"[a-zA-Z0-9_\-/]+")
 
 
 def success_response(
@@ -85,3 +68,19 @@ def paginate_response(
     if trace_id:
         result["trace_id"] = trace_id
     return result
+
+
+def spa_index_response(request: Request, index_path: str) -> HTMLResponse:
+    """读取 SPA index.html 并注入 window.PATH_PREFIX（反代子路径部署场景）。
+
+    前缀优先取 X-Forwarded-Prefix 请求头，缺省回退 PATH_PREFIX 环境变量；
+    白名单字符校验通过且 html 转义后注入到 </head> 前。
+    """
+    html = Path(index_path).read_text(encoding="utf-8")
+    prefix = (request.headers.get("X-Forwarded-Prefix") or "").strip() or os.environ.get("PATH_PREFIX", "")
+    if prefix and not _PREFIX_PATTERN.fullmatch(prefix):
+        prefix = ""
+    if prefix:
+        inject = f'<script>window.PATH_PREFIX="{html_escape(prefix, quote=True)}"</script>'
+        html = html.replace("</head>", inject + "</head>", 1)
+    return HTMLResponse(content=html)

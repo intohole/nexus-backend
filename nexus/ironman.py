@@ -386,24 +386,6 @@ async def startup(
     }
 
 
-def require_ironman(func: Callable[..., Awaitable[object]]) -> Callable[..., Awaitable[object]]:
-    """装饰器：被装饰的协程函数执行前检查 ironman 是否可用，不可用则抛 RuntimeError。
-
-    消除各项目散落的 `if not is_ironman_available(): raise RuntimeError(...)` 样板。
-    """
-    import functools
-
-    @functools.wraps(func)
-    async def wrapper(*args: object, **kwargs: object) -> object:
-        if not is_ironman_available():
-            raise RuntimeError(
-                "ironman not initialized, call init_ironman() or startup() first"
-            )
-        return await func(*args, **kwargs)
-
-    return wrapper
-
-
 _ENSURE_RETRY_INITIAL: float = 30.0
 _ENSURE_RETRY_MAX: float = 300.0
 _ensure_task: Optional[asyncio.Task] = None

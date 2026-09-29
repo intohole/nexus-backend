@@ -8,7 +8,6 @@ from nexus.config import (
     yaml_int,
     yaml_float,
     yaml_bool,
-    resolve_env_string,
     resolve_env_tree,
 )
 from nexus.errors import (
@@ -32,12 +31,10 @@ from nexus.context import (
 from nexus.database import DatabaseManager, get_db, db_manager, Base, init_db, close_db
 from nexus.logging import setup_logging, setup_loguru, get_logger
 from nexus.response import (
-    ApiResponse,
-    PaginatedResponse,
-    PaginationMeta,
     success_response,
     error_response,
     paginate_response,
+    spa_index_response,
 )
 from nexus.utils import (
     TimeUtils,
@@ -98,7 +95,7 @@ from nexus.uc_sdk_helper import (
     standard_ok,
     standard_err,
 )
-from nexus.repository import BaseRepository, StatelessRepository
+from nexus.repository import StatelessRepository
 from nexus.storage import read_limited
 from nexus.lifespan import create_standard_lifespan
 from nexus.service import BaseService
@@ -156,6 +153,7 @@ from nexus.datacenter import (
 from nexus.llm_utils import (
     parse_llm_json,
     parse_llm_json_lenient,
+    parse_llm_json_or,
     find_balanced_json,
     with_retry,
     strip_code_fence,
@@ -201,7 +199,6 @@ from nexus.ironman import (
     init_ironman,
     ensure_ironman,
     startup as startup_ironman,
-    require_ironman,
     default_config_loader,
     get_bootstrap,
     is_ironman_available,
@@ -285,7 +282,7 @@ from nexus.automation import (
 )
 from nexus.sanitize import sanitize_agent_output, sanitize_platform_text, sanitize_text_stream
 
-__version__ = "1.23.0"
+__version__ = "1.25.0"
 
 __all__ = [
     "__version__",
@@ -321,12 +318,10 @@ __all__ = [
     "setup_logging",
     "setup_loguru",
     "get_logger",
-    "ApiResponse",
-    "PaginatedResponse",
-    "PaginationMeta",
     "success_response",
     "error_response",
     "paginate_response",
+    "spa_index_response",
     "TimeUtils",
     "MemoryCache",
     "MoutainClient",
@@ -385,7 +380,6 @@ __all__ = [
     "DOMAIN_ASSET",
     "get_client_ip",
     "sanitize_platform_text",
-    "resolve_env_string",
     "resolve_env_tree",
     "init_uc_sdk",
     "init_uc_sdk_from_lion",
@@ -395,7 +389,6 @@ __all__ = [
     "extract_bearer_token",
     "standard_ok",
     "standard_err",
-    "BaseRepository",
     "StatelessRepository",
     "read_limited",
     "create_standard_lifespan",
@@ -434,6 +427,7 @@ __all__ = [
     "AppLifecycle",
     "parse_llm_json",
     "parse_llm_json_lenient",
+    "parse_llm_json_or",
     "find_balanced_json",
     "with_retry",
     "strip_code_fence",
@@ -456,7 +450,6 @@ __all__ = [
     "init_ironman",
     "ensure_ironman",
     "startup_ironman",
-    "require_ironman",
     "default_config_loader",
     "get_bootstrap",
     "is_ironman_available",

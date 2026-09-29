@@ -12,10 +12,8 @@ from nexus.chat.models import ChatBase, ChatConversation, ChatMessage
 from nexus.chat.router import chat_router
 from nexus.chat.schemas import (
     ConversationCreate,
-    ConversationOut,
     ConversationUpdate,
     MessageCreate,
-    MessageOut,
 )
 from nexus.chat.store import ChatStore, LocalChatStore
 from nexus.chat.transport import ChatTransport, JSONTransport, SSETransport
@@ -44,7 +42,5 @@ __all__ = [
     "chat_router",
     "ConversationCreate",
     "ConversationUpdate",
-    "ConversationOut",
     "MessageCreate",
-    "MessageOut",
 ]

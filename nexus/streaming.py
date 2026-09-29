@@ -48,25 +48,6 @@ THINK_OPEN = "<think>"
 THINK_CLOSE = "</think>"
 
 
-def strip_think_tags(text: str) -> str:
-    """剥离完整文本中的 <think>...</think> 思维链段落。"""
-    if not text:
-        return text
-    result: list[str] = []
-    rest = text
-    while True:
-        start = rest.find(THINK_OPEN)
-        if start == -1:
-            result.append(rest)
-            break
-        result.append(rest[:start])
-        end = rest.find(THINK_CLOSE, start + len(THINK_OPEN))
-        if end == -1:
-            break
-        rest = rest[end + len(THINK_CLOSE):]
-    return "".join(result).lstrip()
-
-
 class ThinkStreamFilter:
     """流式 <think> 标签过滤器：增量喂入 content，输出剥离思维链后的文本。
 
@@ -372,6 +353,5 @@ __all__ = [
     "sse_response",
     "sse_chat_stream",
     "sse_chat_stream_v2",
-    "strip_think_tags",
     "ThinkStreamFilter",
 ]

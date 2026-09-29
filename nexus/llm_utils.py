@@ -225,6 +225,15 @@ def parse_llm_json_lenient(raw: str) -> Any:
     return None
 
 
+def parse_llm_json_or(raw: str, default: T) -> T:
+    """lenient 解析的带默认值版本：解析失败（含结果为 null）返回 default。
+
+    收敛各业务 `result = parse_llm_json_lenient(raw); if result is None: result = default` 样板。
+    """
+    result = parse_llm_json_lenient(raw)
+    return result if result is not None else default
+
+
 async def with_retry(
     coro_fn: Callable[[], Awaitable[T]],
     timeout: float = 60.0,
