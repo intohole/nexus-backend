@@ -51,7 +51,7 @@
     "pdfplumber": {"version": "0.11.10"},
     "akshare": {"version": "1.18.81"},
     "baostock": {"version": "0.9.3"},
-    "ironman-llm": {"version": "0.3.4"}
+    "ironman-llm": {"version": "0.9.0"}
   },
   "ignore_paths": []
 }
