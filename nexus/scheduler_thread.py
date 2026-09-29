@@ -1,48 +1,26 @@
-"""调度器抽象：AsyncIOScheduler(事件循环内) 与 BackgroundScheduler(线程) 两种模式。
-
-- NexusScheduler       : async 任务调度（asyncio 事件循环内执行）
-- NexusThreadScheduler : 同步/阻塞型周期任务调度（后台线程，不阻塞事件循环）
-"""
+"""线程模式调度器：NexusThreadScheduler（后台线程，不阻塞事件循环）。"""
 from __future__ import annotations
 
-import asyncio
-from collections.abc import AsyncIterator
-from typing import Awaitable, Callable, Optional, Union
+from typing import Optional, Union
 
-from nexus.logging import get_logger
+from nexus.scheduler import CoroFunc, SyncFunc, logger
+from nexus.scheduler_jobs import JobManager  # noqa: F401
 
-logger = get_logger("nexus.scheduler")
+class NexusThreadScheduler:
+    """后台线程调度器：封装 BackgroundScheduler，用于同步/阻塞型周期任务。
 
-try:
-    from apscheduler.schedulers.asyncio import AsyncIOScheduler
-    from apscheduler.schedulers.background import BackgroundScheduler
-    from apscheduler.triggers.interval import IntervalTrigger
-    from apscheduler.triggers.cron import CronTrigger
-    from apscheduler.triggers.date import DateTrigger
-    from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
+    与 NexusScheduler(AsyncIOScheduler) 区分：周期任务含同步阻塞调用
+    （socket/DB/子进程等）时必须使用线程调度，避免卡死应用事件循环。
+    """
 
-    _HAS_APSCHEDULER = True
-except ImportError:
-    _HAS_APSCHEDULER = False
-    AsyncIOScheduler = None
-    BackgroundScheduler = None
-    IntervalTrigger = None
-    CronTrigger = None
-    DateTrigger = None
-
-CoroFunc = Callable[..., Awaitable[object]]
-SyncFunc = Callable[..., object]
-
-
-class NexusScheduler:
-    _instance: Optional["NexusScheduler"] = None
-    _scheduler: Optional[object] = None
+    _instance: Optional["NexusThreadScheduler"] = None
 
     def __init__(self) -> None:
+        self._scheduler: Optional[object] = None
         self._jobs: dict[str, str] = {}
 
     @classmethod
-    def get_instance(cls) -> "NexusScheduler":
+    def get_instance(cls) -> "NexusThreadScheduler":
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
@@ -53,7 +31,7 @@ class NexusScheduler:
                 "APScheduler is not installed. Run: pip install apscheduler"
             )
         if self._scheduler is None:
-            self._scheduler = AsyncIOScheduler()
+            self._scheduler = BackgroundScheduler()
             self._scheduler.add_listener(self._on_error, EVENT_JOB_ERROR | EVENT_JOB_MISSED)
         return self._scheduler
 
@@ -61,9 +39,9 @@ class NexusScheduler:
         job_id = getattr(event, "job_id", "unknown")
         exception = getattr(event, "exception", None)
         if exception:
-            logger.error(f"Job '{job_id}' failed: {exception}", exc_info=exception)
+            logger.error(f"Thread job '{job_id}' failed: {exception}", exc_info=exception)
         else:
-            logger.warning(f"Job '{job_id}' missed its schedule")
+            logger.warning(f"Thread job '{job_id}' missed its schedule")
 
     def add_interval_job(
         self,
@@ -91,10 +69,6 @@ class NexusScheduler:
             func, trigger=trigger, id=job_id, replace_existing=True, **kwargs
         )
         self._jobs[job_id] = "interval"
-        logger.info(
-            f"Registered interval job '{job_id}': "
-            f"{interval_hours}h {interval_minutes}m {interval_seconds}s"
-        )
         return job_id
 
     def add_cron_job(
@@ -119,28 +93,12 @@ class NexusScheduler:
                 trigger_kwargs["minute"] = minute
             if day_of_week is not None:
                 trigger_kwargs["day_of_week"] = day_of_week
+
             trigger = CronTrigger(**trigger_kwargs)
         scheduler.add_job(
             func, trigger=trigger, id=job_id, replace_existing=True, **kwargs
         )
         self._jobs[job_id] = "cron"
-        logger.info(f"Registered cron job '{job_id}': {expr or trigger}")
-        return job_id
-
-    def add_date_job(
-        self,
-        func: Union[CoroFunc, SyncFunc],
-        job_id: str,
-        run_date: str,
-        **kwargs: object,
-    ) -> str:
-        scheduler = self._ensure_scheduler()
-        trigger = DateTrigger(run_date=run_date)
-        scheduler.add_job(
-            func, trigger=trigger, id=job_id, replace_existing=True, **kwargs
-        )
-        self._jobs[job_id] = "date"
-        logger.info(f"Registered date job '{job_id}': run at {run_date}")
         return job_id
 
     def remove_job(self, job_id: str) -> bool:
@@ -149,7 +107,6 @@ class NexusScheduler:
         try:
             self._scheduler.remove_job(job_id)
             self._jobs.pop(job_id, None)
-            logger.info(f"Removed job '{job_id}'")
             return True
         except Exception:
             return False
@@ -159,18 +116,18 @@ class NexusScheduler:
 
     def start(self) -> None:
         if self._scheduler is None:
-            logger.info("No jobs registered, scheduler not started")
+            logger.info("No thread jobs registered, scheduler not started")
             return
         if not self._scheduler.running:
             self._scheduler.start()
-            logger.info(f"Scheduler started with {len(self._jobs)} jobs")
+            logger.info(f"Thread scheduler started with {len(self._jobs)} jobs")
         else:
-            logger.info("Scheduler already running")
+            logger.info("Thread scheduler already running")
 
     def shutdown(self, wait: bool = True) -> None:
         if self._scheduler is not None and self._scheduler.running:
             self._scheduler.shutdown(wait=wait)
-            logger.info("Scheduler shutdown complete")
+            logger.info("Thread scheduler shutdown complete")
 
     @property
     def running(self) -> bool:
@@ -179,12 +136,9 @@ class NexusScheduler:
         return self._scheduler.running
 
 
-def get_scheduler() -> NexusScheduler:
-    return NexusScheduler.get_instance()
-from nexus.scheduler_jobs import JobManager  # noqa: E402
-from nexus.scheduler_thread import NexusThreadScheduler, get_thread_scheduler  # noqa: E402
+def get_thread_scheduler() -> NexusThreadScheduler:
+    return NexusThreadScheduler.get_instance()
 
-__all__ = [
-    "NexusScheduler", "NexusThreadScheduler",
-    "get_scheduler", "get_thread_scheduler", "JobManager",
-]
+from nexus.scheduler_jobs import JobManager  # noqa: E402
+
+__all__ = ["NexusScheduler", "NexusThreadScheduler", "get_scheduler", "get_thread_scheduler", "JobManager"]

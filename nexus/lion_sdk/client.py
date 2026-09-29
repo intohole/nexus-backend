@@ -298,16 +298,6 @@ class LionSDK(BaseAsyncClient):
         data = {"release_id": release_id, "comment": comment}
         return await self._request(path, method="POST", data=data)
 
-    async def get_config_tracking(
-        self,
-        key: str,
-        namespace: str | None = None,
-        limit: int = 20,
-    ) -> dict[str, object]:
-        path = f"/api/v1/tracking/key/{key}/history"
-        params = {"page": 1, "page_size": limit}
-        return await self._request(path, params=params)
-
     async def get_recent_changes(
         self,
         namespace: str | None = None,

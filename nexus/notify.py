@@ -152,7 +152,6 @@ class NotifyClient:
         subject: str,
         body: str,
         html: str | None = None,
-        from_addr: str = "",
     ) -> bool:
         recipients: list[str] = [to] if isinstance(to, str) else list(to)
         if len(recipients) == 1:
@@ -224,173 +223,11 @@ def get_notify_client(base_url: str = "") -> NotifyClient:
         _notify_client = NotifyClient(base_url=base_url)
     return _notify_client
 
-
-async def send_notification(
-    user_id: str,
-    title: str,
-    content: str = "",
-    **kwargs: object,
-) -> dict[str, object]:
-    client: NotifyClient = get_notify_client()
-    return await client.send(
-        user_id=user_id, title=title, content=content, **kwargs
-    )
-
-
-async def send_email(
-    to: str | list[str],
-    subject: str,
-    body: str,
-    html: str | None = None,
-    from_addr: str = "",
-) -> bool:
-    client: NotifyClient = get_notify_client()
-    return await client.send_email(
-        to=to, subject=subject, body=body, html=html, from_addr=from_addr
-    )
-
-
-async def send_admin_email(
-    subject: str,
-    content: str = "",
-    email: str = "",
-    priority: int = 3,
-    app_id: str = "system",
-    type: str = "alert",
-) -> dict[str, object]:
-    client: NotifyClient = get_notify_client()
-    return await client.send_admin_email(
-        subject=subject,
-        content=content,
-        email=email,
-        priority=priority,
-        app_id=app_id,
-        type=type,
-    )
-
-
-async def send_sms(
-    phone: str,
-    template_code: str,
-    template_param: Optional[dict[str, object]] = None,
-    sign_name: str = "",
-) -> bool:
-    client: NotifyClient = get_notify_client()
-    return await client.send_sms(
-        phone=phone,
-        template_code=template_code,
-        template_param=template_param,
-        sign_name=sign_name,
-    )
-
-
-async def send_webhook_robot(
-    channel: str,
-    webhook_url: str,
-    title: str,
-    content: str,
-    level: str = "info",
-    *,
-    api_key: str = "",
-    chat_id: str = "",
-) -> bool:
-    """群机器人 webhook 告警发送：支持 wechat / dingtalk / telegram / bark。
-
-    统一 httpx 发送与结果判定，吸收各项目自建渠道样板。
-    """
-    import httpx as _httpx
-
-    try:
-        if channel == "wechat":
-            if not webhook_url:
-                return False
-            payload: dict[str, object] = {
-                "msgtype": "markdown",
-                "markdown": {"content": f"### {title}\n\n{content}\n\n> 级别: {level}"},
-            }
-            async with _httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(webhook_url, json=payload)
-                return resp.json().get("errcode", -1) == 0
-        elif channel == "dingtalk":
-            if not webhook_url:
-                return False
-            payload = {
-                "msgtype": "markdown",
-                "markdown": {"title": title, "text": f"### {title}\n\n{content}\n\n> 级别: {level}"},
-            }
-            async with _httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(webhook_url, json=payload)
-                return resp.json().get("errcode", -1) == 0
-        elif channel == "telegram":
-            if not api_key or not chat_id:
-                return False
-            url = f"https://api.telegram.org/bot{api_key}/sendMessage"
-            payload = {
-                "chat_id": chat_id,
-                "text": f"*{title}*\n\n{content}\n\n_级别: {level}_",
-                "parse_mode": "Markdown",
-            }
-            async with _httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(url, json=payload)
-                return resp.json().get("ok", False)
-        elif channel == "bark":
-            if not api_key:
-                return False
-            url = f"https://api.day.app/{api_key}/{title}/{content}"
-            async with _httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(url)
-                return resp.json().get("code", -1) == 200
-        return False
-    except Exception:
-        return False
-
-
-def register_notify_proxy(app: FastAPI) -> None:
-    """在任意 FastAPI app 上注册 /api/notify/* 反向代理到 notifyCenter。
-
-    前端通过项目后端代理访问 notifyCenter，避免跨域和鉴权问题。
-    目标地址经 Lion infra 权威解析（与 async_init_notify_client 同源），
-    Lion 不可达时回退 NOTIFY_CENTER_URL 环境变量或 defaults 默认值。
-    """
-    proxy_client = httpx.AsyncClient(timeout=30.0)
-
-    @app.api_route("/api/notify/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
-    async def notify_proxy(path: str, request: Request) -> Response:
-        base_url: str = await get_notify_center_url()
-        target_url: str = f"{base_url}/api/notify/{path}"
-        query: str = request.url.query
-        if query:
-            target_url += f"?{query}"
-        req_headers: dict[str, str] = {
-            k: v
-            for k, v in request.headers.items()
-            if k.lower() not in ("host", "content-length", "accept-encoding")
-        }
-        resp: httpx.Response = await proxy_client.request(
-            method=request.method,
-            url=target_url,
-            content=await request.body(),
-            headers=req_headers,
-        )
-        resp_headers: dict[str, str] = {
-            k: v
-            for k, v in resp.headers.items()
-            if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")
-        }
-        return Response(
-            content=resp.content,
-            status_code=resp.status_code,
-            headers=resp_headers,
-        )
-
+from nexus.notify_api import send_admin_email, send_email, send_notification, send_sms, send_webhook_robot  # noqa: E402
+from nexus.notify_proxy import register_notify_proxy  # noqa: E402
 
 __all__ = [
-    "NotifyClient",
-    "get_notify_client",
-    "async_init_notify_client",
-    "send_notification",
-    "send_email",
-    "send_admin_email",
-    "send_sms",
+    "NotifyClient", "async_init_notify_client", "get_notify_client",
+    "send_notification", "send_email", "send_admin_email", "send_sms", "send_webhook_robot",
     "register_notify_proxy",
 ]

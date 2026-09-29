@@ -28,7 +28,7 @@ class LLMRateLimiter:
         self._throttled_calls = 0
 
     @asynccontextmanager
-    async def limited(self, caller: str = "", priority: int = 1) -> AsyncGenerator[None, None]:
+    async def limited(self, caller: str = "") -> AsyncGenerator[None, None]:
         async with self._semaphore:
             await self._wait_for_rate_limit(caller)
             self._total_calls += 1

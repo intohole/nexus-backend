@@ -21,9 +21,9 @@ from nexus.middleware import (
     NoCacheMiddleware,
     NotFoundCheckMiddleware,
     RequestIdMiddleware,
-    SecurityHeadersMiddleware,
     setup_cors,
 )
+from nexus.middleware_base import SecurityHeadersMiddleware
 from nexus.rate_limit import RateLimitMiddleware
 from nexus.utils import HealthRegistry
 

@@ -8,7 +8,8 @@ from nexus.chat.store import ChatStore
 
 
 def _estimate_tokens(text: str) -> int:
-    return len(text) // 2 + 1 if text else 0
+    from nexus.llm_optimizer import estimate_tokens
+    return estimate_tokens(text)
 
 
 class CostMiddleware(BaseChatMiddleware):

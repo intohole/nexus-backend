@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import functools
-import hashlib
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone, timedelta
@@ -218,33 +216,6 @@ class MemoryCache:
             value = factory()
         await self.set(key, value, ttl=ttl)
         return value
-
-
-_cache: MemoryCache = MemoryCache()
-
-
-def cached(ttl: int = 300) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
-    def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
-        @functools.wraps(func)
-        async def wrapper(*args: object, **kwargs: object) -> T:
-            key_parts: list[str] = [func.__name__]
-            for arg in args:
-                key_parts.append(str(arg))
-            for k, v in sorted(kwargs.items()):
-                key_parts.append(f"{k}={v}")
-            key: str = hashlib.md5("|".join(key_parts).encode()).hexdigest()
-
-            cached_result: object = await _cache.get(key)
-            if cached_result is not _MISSING:
-                return cast(T, cached_result)
-
-            result = await func(*args, **kwargs)
-            await _cache.set(key, result, ttl)
-            return result
-
-        return wrapper
-
-    return decorator
 
 
 class HttpClient:

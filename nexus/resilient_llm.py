@@ -61,7 +61,7 @@ async def resilient_ask(
     cb = get_circuit_breaker(f"llm_{alias}", config=_CB_CONFIG)
     cost_guard = get_cost_guard()
 
-    budget_check = await cost_guard.check_budget(estimated_tokens=estimated_tokens, model=alias)
+    budget_check = await cost_guard.check_budget(estimated_tokens=estimated_tokens)
     if not budget_check["allowed"]:
         logger.warning("CostGuard blocked LLM call: %s", budget_check["reason"])
         if fallback is not None:

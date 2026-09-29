@@ -9,9 +9,6 @@ _PLACEHOLDER_TOKENS = {"unknown", "未知", "undefined", "null", "none", "n/a", 
 _SYNTHETIC_EMAIL_MARK = "@users.internal"
 
 
-def _is_blank(value: Optional[str]) -> bool:
-    return not value or not str(value).strip()
-
 
 def _is_synthetic_email(email: Optional[str]) -> bool:
     return bool(email and _SYNTHETIC_EMAIL_MARK in str(email).strip().lower())

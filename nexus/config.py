@@ -5,7 +5,7 @@ import os
 import re
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import yaml
 from pydantic import Field
@@ -114,54 +114,59 @@ class NexusConfig(BaseSettings):
     model_config = SettingsConfigDict(extra="allow", env_nested_delimiter="__")
 
 
-_ENV_PATTERN = re.compile(r"^\$\{(\w+)(?::-([^}]*))?\}$")
+_ENV_SUB = re.compile(r"\$\{(\w+)(?::-([^}]*))?\}")
+_ENV_FULL = re.compile(r"^\$\{(\w+)(?::-([^}]*))?\}$")
 
 
+def _substitute_env(value: str, *, anchored: bool, missing: str) -> str:
+    if anchored:
+        m = _ENV_FULL.match(value)
+        if m is None:
+            return value
+        val = os.environ.get(m.group(1))
+        if val is not None:
+            return val
+        return m.group(2) if m.group(2) is not None else ""
+
+    def _repl(m: re.Match) -> str:
+        val = os.environ.get(m.group(1))
+        if val is not None:
+            return val
+        if m.group(2) is not None:
+            return m.group(2)
+        return "" if missing == "empty" else m.group(0)
+
+    return _ENV_SUB.sub(_repl, value)
+
+
+def _walk_env(data: object, resolve: Callable[[str], str]) -> object:
+    if isinstance(data, dict):
+        return {k: _walk_env(v, resolve) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_walk_env(i, resolve) for i in data]
+    if isinstance(data, str):
+        return resolve(data)
+    return data
 
 
 def resolve_env_string(value: str) -> str:
     if not isinstance(value, str):
         return value
-    def _replacer(m):
-        name, default = m.group(1), m.group(2)
-        val = os.environ.get(name)
-        if val is not None:
-            return val
-        if default is not None:
-            return default
-        return m.group(0)
-    return re.sub(r'\$\{(\w+)(?::-([^}]*))?\}', _replacer, value)
+    return _substitute_env(value, anchored=False, missing="keep")
 
 
 def resolve_env_tree(data: object) -> object:
-    if isinstance(data, dict):
-        return {k: resolve_env_tree(v) for k, v in data.items()}
-    if isinstance(data, list):
-        return [resolve_env_tree(i) for i in data]
-    if isinstance(data, str):
-        return resolve_env_string(data)
-    return data
+    return _walk_env(data, resolve_env_string)
 
 
 def _resolve_env(value: object) -> object:
     if isinstance(value, str):
-        match = _ENV_PATTERN.match(value)
-        if match:
-            env_key: str = match.group(1)
-            return os.environ.get(env_key, match.group(2) if match.group(2) is not None else "")
+        return _substitute_env(value, anchored=True, missing="empty")
     return value
 
 
 def _resolve_dict(data: dict[str, object]) -> dict[str, object]:
-    result: dict[str, object] = {}
-    for key, value in data.items():
-        if isinstance(value, dict):
-            result[key] = _resolve_dict(value)
-        elif isinstance(value, list):
-            result[key] = [_resolve_env(v) if isinstance(v, str) else v for v in value]
-        else:
-            result[key] = _resolve_env(value)
-    return result
+    return _walk_env(data, _resolve_env)
 
 
 class ConfigFactory:
@@ -226,9 +231,6 @@ def get_settings() -> NexusConfig:
     return ConfigFactory.get()
 
 
-_ENV_SUB_PATTERN = re.compile(r"\$\{(\w+)(?::-([^}]*))?\}")
-
-
 def _deep_merge(base: dict, override: dict) -> dict:
     result = base.copy()
     for key, value in override.items():
@@ -239,26 +241,8 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return result
 
 
-def _resolve_env_mode(value: str, missing: str) -> str:
-    def _replacer(match: re.Match) -> str:
-        name, default = match.group(1), match.group(2)
-        val = os.environ.get(name)
-        if val is not None:
-            return val
-        if default is not None:
-            return default
-        return "" if missing == "empty" else match.group(0)
-    return _ENV_SUB_PATTERN.sub(_replacer, value)
-
-
 def _resolve_env_tree_mode(data: object, missing: str) -> object:
-    if isinstance(data, dict):
-        return {k: _resolve_env_tree_mode(v, missing) for k, v in data.items()}
-    if isinstance(data, list):
-        return [_resolve_env_tree_mode(i, missing) for i in data]
-    if isinstance(data, str):
-        return _resolve_env_mode(data, missing)
-    return data
+    return _walk_env(data, lambda v: _substitute_env(v, anchored=False, missing=missing))
 
 
 def load_project_config(

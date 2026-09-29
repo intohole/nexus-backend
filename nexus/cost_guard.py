@@ -95,7 +95,7 @@ class CostGuard:
         p = _pricing.get(model, _pricing[_FALLBACK_MODEL])
         return (prompt_tokens * p["prompt"] + completion_tokens * p["completion"]) / 1000
 
-    async def check_budget(self, estimated_tokens: int = 0, model: str = "") -> Dict[str, object]:
+    async def check_budget(self, estimated_tokens: int = 0) -> Dict[str, object]:
         async with self._lock:
             usages = self._get_usages_in_period()
             total_tokens = sum(u.total_tokens for u in usages)
