@@ -67,8 +67,8 @@ def build_app(**kwargs) -> FastAPI:
 async def call(app: FastAPI, path: str, headers: dict[str, str] | None = None,
                cookies: dict[str, str] | None = None) -> httpx.Response:
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        return await client.get(path, headers=headers or {}, cookies=cookies or {})
+    async with httpx.AsyncClient(transport=transport, base_url="http://test", cookies=cookies or {}) as client:
+        return await client.get(path, headers=headers or {})
 
 
 @pytest.mark.asyncio

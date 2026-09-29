@@ -1,7 +1,6 @@
 from nexus.config import (
     NexusConfig,
     get_settings,
-    configure,
     load_project_config,
     yaml_get,
     yaml_secret,
@@ -182,7 +181,6 @@ from nexus.dialogue_history import (
     get_history,
 )
 from nexus.streaming import (
-    SSE_HEADERS,
     sse_event_dict,
     sse_data_line,
     sse_response,
@@ -225,10 +223,14 @@ from nexus.automation import (
 )
 from nexus.sanitize import sanitize_agent_output, sanitize_platform_text, sanitize_text_stream
 
-__version__ = "1.27.0"
+try:
+    from importlib.metadata import version as _version
+    __version__ = _version("nexus-backend")
+except Exception:  # source-tree import without installed metadata
+    __version__ = "1.29.0"
 
 __all__ = [
-    "NexusConfig", "get_settings", "configure", "load_project_config", "yaml_get",
+    "NexusConfig", "get_settings", "load_project_config", "yaml_get",
     "yaml_secret", "yaml_int", "yaml_float", "yaml_bool", "NexusError", "ConfigError",
     "DatabaseError", "AuthError", "NotFoundError", "ValidationError",
     "ExternalServiceError", "RateLimitError", "ForbiddenError", "ConflictError",
@@ -266,7 +268,7 @@ __all__ = [
     "get_bootstrap", "is_ironman_available", "reload_ironman", "get_web_search_service",
     "SpiderSearchResult", "SpiderSearchResponse", "get_deep_research_service",
     "InMemoryStore", "SQLiteStore", "get_history", "sse_event_dict", "sse_data_line",
-    "sse_response", "sse_chat_stream_v2", "SSE_HEADERS", "SSEManager",
+    "sse_response", "sse_chat_stream_v2", "SSEManager",
     "SSEConnectionError", "sse_event_generator", "NotificationChannel", "VALID_CHANNELS",
     "ChannelDispatcher", "CircuitBreaker", "CircuitBreakerConfig", "CircuitState",
     "CircuitMetrics", "CircuitBreakerOpenError", "get_circuit_breaker", "CostGuard",

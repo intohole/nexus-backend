@@ -17,6 +17,13 @@ from nexus.logging import get_logger
 
 
 class SlidingWindow:
+    """异步滑窗计数器（HTTP 层 canonical 实现）。
+
+    平行实现互查：nexus.llm_rate_limiter.LLMRateLimiter（LLM 调用维度）、
+    ironman.middleware.rate_limit_mw.SlidingWindowLimiter（ironman 管道内 rpm 单例，
+    依赖方向 nexus→ironman 禁止反向收归）。改动计数/窗口语义时三处同步。
+    """
+
     def __init__(self, max_requests: int, window_seconds: int) -> None:
         self._max_requests: int = max_requests
         self._window_seconds: int = window_seconds

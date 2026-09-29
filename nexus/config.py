@@ -226,23 +226,6 @@ def get_settings() -> NexusConfig:
     return ConfigFactory.get()
 
 
-def configure(
-    config: Optional[NexusConfig] = None,
-    config_path: Optional[str | Path] = None,
-    **kwargs: object,
-) -> NexusConfig:
-    if config is not None:
-        ConfigFactory.set(config)
-        return config
-    if config_path is not None:
-        return ConfigFactory.load_from_yaml(config_path)
-    if kwargs:
-        config = NexusConfig(**kwargs)
-        ConfigFactory.set(config)
-        return config
-    return ConfigFactory.get()
-
-
 _ENV_SUB_PATTERN = re.compile(r"\$\{(\w+)(?::-([^}]*))?\}")
 
 

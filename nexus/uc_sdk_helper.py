@@ -1,9 +1,13 @@
-"""UC SDK 装配：初始化、Lion 凭证引导与凭证失效恢复。"""
+"""UC SDK 装配：初始化、Lion 凭证引导与凭证失效恢复。
+
+infra 层不反向上探 auth：SDK 初始化后通过 _auth_injector 钩子外溢，
+由 nexus.auth 在导入时注册 configure_uc_sdk 完成注入（依赖方向 auth → 本模块）。
+"""
 from __future__ import annotations
 
 import asyncio
 import os
-from typing import Optional
+from typing import Callable, Optional
 
 from fastapi import HTTPException
 
@@ -14,9 +18,15 @@ logger = get_logger("nexus.uc_sdk")
 
 _sdk: Optional[object] = None
 _credential_recovery_task: Optional[asyncio.Task] = None
+_auth_injector: Optional[Callable[[object], None]] = None
 
 CREDENTIAL_RECOVERY_INITIAL_DELAY: float = 15.0
 CREDENTIAL_RECOVERY_MAX_DELAY: float = 300.0
+
+
+def set_auth_injector(fn: Callable[[object], None]) -> None:
+    global _auth_injector
+    _auth_injector = fn
 
 
 def init_uc_sdk(
@@ -46,12 +56,12 @@ def init_uc_sdk(
     except RuntimeError:
         pass
 
-    # 自动注入到 AuthDependencies，替代各应用 _ensure_nexus_configured()
-    try:
-        from nexus.auth import configure_uc_sdk
-        configure_uc_sdk(_sdk)
-    except Exception as exc:
-        logger.debug(f"Auto-inject into AuthDependencies skipped: {exc}")
+    # 自动注入到 AuthDependencies（钩子由 nexus.auth 注册），替代各应用 _ensure_nexus_configured()
+    if _auth_injector is not None:
+        try:
+            _auth_injector(_sdk)
+        except Exception as exc:
+            logger.debug(f"Auto-inject into AuthDependencies skipped: {exc}")
 
     return _sdk
 

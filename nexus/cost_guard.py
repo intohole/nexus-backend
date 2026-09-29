@@ -11,22 +11,21 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Awaitable, Callable, Dict, List, Optional
 
+from ironman.observability.pricing import PRICING_TABLE as _IRONMAN_PRICING
+
 from nexus.logging import get_logger
 
 logger = get_logger("nexus.cost_guard")
 
-# 每 1K token 的美元价格，应用可通过 configure_pricing() 覆盖
+# 每 1K token 的美元价格，应用可通过 configure_pricing() 覆盖。
+# 单源 ironman.observability.pricing.PRICING_TABLE（两套独立价格表会静默漂移，
+# 依赖方向 nexus→ironman 允许直接委托）；仅保留业务用通用 claude 别名（ironman 表只收全名版本）。
+
 DEFAULT_PRICING: Dict[str, Dict[str, float]] = {
-    "gpt-4o": {"prompt": 0.005, "completion": 0.015},
-    "gpt-4o-mini": {"prompt": 0.00015, "completion": 0.0006},
-    "gpt-4": {"prompt": 0.03, "completion": 0.06},
-    "gpt-3.5-turbo": {"prompt": 0.0005, "completion": 0.0015},
+    **_IRONMAN_PRICING,
     "claude-haiku": {"prompt": 0.00025, "completion": 0.00125},
     "claude-sonnet": {"prompt": 0.003, "completion": 0.015},
     "claude-opus": {"prompt": 0.015, "completion": 0.075},
-    "deepseek-chat": {"prompt": 0.00014, "completion": 0.00028},
-    "glm-4": {"prompt": 0.014, "completion": 0.014},
-    "glm-4-flash": {"prompt": 0.0, "completion": 0.0},
 }
 _FALLBACK_MODEL = "gpt-4o-mini"
 

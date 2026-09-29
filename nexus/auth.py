@@ -1,4 +1,4 @@
-"""认证依赖：JWT/UC SDK 鉴权、权限校验与当前用户信息提取。"""
+"""认证依赖：JWT/UC SDK 鉴权与当前用户信息提取（鉴权组合器见 nexus.permissions）。"""
 from __future__ import annotations
 
 import asyncio
@@ -11,6 +11,7 @@ from nexus.config import NexusConfig, get_settings
 from nexus.context import set_request_context
 from nexus.logging import get_logger
 from nexus.middleware_base import TokenCache
+from nexus.uc_sdk_helper import set_auth_injector as _set_uc_auth_injector
 from nexus.user_display import resolve_display_name
 
 logger = get_logger("nexus.auth")
@@ -216,32 +217,7 @@ def configure_uc_sdk(sdk: object) -> None:
     get_auth_deps().set_sdk(sdk)
 
 
-def require_permission(permission_code: str) -> Callable:
-    """返回 FastAPI 依赖，校验当前用户是否具备指定权限码。
-
-    用法: async def ep(user = Depends(require_permission("adsmart.campaign.manage"))): ...
-    """
-    from nexus.permissions import get_permission_deps as _deps
-    async def dependency(
-        credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
-    ) -> dict[str, object]:
-        if credentials is None:
-            raise HTTPException(status_code=401, detail="Not authenticated")
-        user: dict[str, object] = await get_auth_deps().get_user_full(credentials)
-        has: bool = await _deps().user_has_permission(
-            credentials, permission_code
-        )
-        if not has:
-            raise HTTPException(status_code=403, detail=f"权限不足: {permission_code}")
-        return user
-    return dependency
-
-
-async def get_current_org_id_optional(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
-) -> Optional[str]:
-    from nexus.permissions import get_permission_deps as _deps
-    return await _deps().get_user_org_id(credentials)
+_set_uc_auth_injector(configure_uc_sdk)
 
 
 def extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
@@ -311,23 +287,3 @@ def parse_user_id(user_id: str | int) -> int:
         return int(user_id)
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid user_id format")
-
-
-def require_api_key(scope: Optional[str] = None) -> Callable:
-    """返回 FastAPI 依赖，校验开放 API Key（Authorization: Bearer / X-Api-Key）。
-
-    用法: async def ep(info = Depends(require_api_key("adsmart.campaign.read"))): ...
-    """
-    from nexus.permissions import get_api_key_deps
-    async def dependency(
-        authorization: Optional[str] = None,
-        x_api_key: Optional[str] = None,
-    ) -> dict[str, object]:
-        api_key: str = x_api_key or extract_bearer_token(authorization or "")
-        if not api_key:
-            raise HTTPException(status_code=401, detail="缺少 API Key")
-        info: Optional[dict[str, object]] = await get_api_key_deps().verify(api_key, scope)
-        if not info:
-            raise HTTPException(status_code=401, detail="API Key 无效或不具备所需权限")
-        return info
-    return dependency

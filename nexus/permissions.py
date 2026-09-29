@@ -1,13 +1,23 @@
-"""权限依赖：用户令牌与 API Key 两类鉴权依赖装配。"""
+"""权限依赖：用户令牌与 API Key 两类鉴权依赖装配，含鉴权组合器。
+
+依赖方向：本模块（鉴权 authz）→ nexus.auth（认证 authn），单向向下；
+require_permission/require_api_key 等"认证+鉴权"组合器收拢在此，
+auth.py 保持纯认证层，不反向 import 本模块。
+"""
 from __future__ import annotations
 
-from typing import Optional
+from typing import Callable, Optional
 
 from cachetools import TTLCache
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from nexus.auth import extract_bearer_token, get_auth_deps
 from nexus.logging import get_logger
 
 logger = get_logger("nexus.permissions")
+
+_security: HTTPBearer = HTTPBearer(auto_error=False)
 
 
 async def _hash_token(token: str) -> str:
@@ -28,7 +38,6 @@ class PermissionDependencies:
         credentials: object,
         permission_code: str,
     ) -> bool:
-        from nexus.auth import get_auth_deps
         if credentials is None:
             return False
         result = await get_auth_deps().validate_token(
@@ -58,7 +67,6 @@ class PermissionDependencies:
         return has
 
     async def get_user_org_id(self, credentials: object) -> Optional[str]:
-        from nexus.auth import get_auth_deps
         if credentials is None:
             return None
         result = await get_auth_deps().validate_token(
@@ -89,7 +97,6 @@ class ApiKeyDependencies:
         self._cache: TTLCache = TTLCache(maxsize=API_KEY_CACHE_MAXSIZE, ttl=API_KEY_CACHE_TTL)
 
     async def verify(self, api_key: str, scope: Optional[str] = None) -> Optional[dict[str, object]]:
-        from nexus.auth import get_auth_deps
         cache_key = f"{await _hash_token(api_key)}:{scope or '*'}"
         cached = self._cache.get(cache_key)
         if cached is not None:
@@ -123,9 +130,57 @@ def get_api_key_deps() -> ApiKeyDependencies:
     return _api_key_deps
 
 
+def require_permission(permission_code: str) -> Callable:
+    """返回 FastAPI 依赖，校验当前用户是否具备指定权限码。
+
+    用法: async def ep(user = Depends(require_permission("adsmart.campaign.manage"))): ...
+    """
+    async def dependency(
+        credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
+    ) -> dict[str, object]:
+        if credentials is None:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        user: dict[str, object] = await get_auth_deps().get_user_full(credentials)
+        has: bool = await get_permission_deps().user_has_permission(
+            credentials, permission_code
+        )
+        if not has:
+            raise HTTPException(status_code=403, detail=f"权限不足: {permission_code}")
+        return user
+    return dependency
+
+
+async def get_current_org_id_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
+) -> Optional[str]:
+    return await get_permission_deps().get_user_org_id(credentials)
+
+
+def require_api_key(scope: Optional[str] = None) -> Callable:
+    """返回 FastAPI 依赖，校验开放 API Key（Authorization: Bearer / X-Api-Key）。
+
+    用法: async def ep(info = Depends(require_api_key("adsmart.campaign.read"))): ...
+    """
+    async def dependency(
+        authorization: Optional[str] = None,
+        x_api_key: Optional[str] = None,
+    ) -> dict[str, object]:
+        api_key: str = x_api_key or extract_bearer_token(authorization or "")
+        if not api_key:
+            raise HTTPException(status_code=401, detail="缺少 API Key")
+        info: Optional[dict[str, object]] = await get_api_key_deps().verify(api_key, scope)
+        if not info:
+            raise HTTPException(status_code=401, detail="API Key 无效或不具备所需权限")
+        return info
+    return dependency
+
+
 __all__ = [
     "PermissionDependencies",
     "get_permission_deps",
     "ApiKeyDependencies",
     "get_api_key_deps",
+    "require_permission",
+    "get_current_org_id_optional",
+    "require_api_key",
 ]
