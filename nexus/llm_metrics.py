@@ -17,6 +17,8 @@ from typing import Optional
 
 from nexus.logging import get_logger
 
+logger = get_logger("nexus.llm_metrics")
+
 
 class LLMMetrics:
     """进程内 LLM 调用指标收集器（单例）。"""

@@ -98,13 +98,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         key_func: Optional[Callable[[Request], str]] = None,
         route_rules: Optional[Sequence[PathRule]] = None,
         limit_response: Optional[Callable[[Request, LimitInfo], Response]] = None,
+        exclude_ips: Optional[Sequence[str]] = None,
     ) -> None:
         """按客户端维度的滑动窗口限流。
 
         key_func 提供时用其返回值作限流键（支持 ip:app 等复合键），
         缺省按 X-Forwarded-For/客户端 IP；requests_per_hour 传 0 关闭小时窗。
         route_rules 提供路径前缀分档（最长前缀优先），未命中走全局档；
-        limit_response 钩子可完全接管 429 响应体（缺省 JSON + 标准头）。
+        limit_response 钩子可完全接管 429 响应体（缺省 JSON + 标准头）；
+        exclude_ips 提供客户端 IP 前缀豁免（如内网健康检查 "10.100.0."/"127.0.0.1"），
+        按 startswith 匹配 XFF 解析结果与直连地址，任一命中即豁免。
         """
         super().__init__(app)
         cfg: NexusConfig = config or get_settings()
@@ -123,6 +126,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             route_rules or [], key=lambda r: len(r.prefix), reverse=True
         )
         self._limit_response = limit_response
+        self._exclude_ips: tuple[str, ...] = tuple(exclude_ips or ())
         self._minute_buckets: dict[tuple[str, str], SlidingWindow] = {}
         self._hour_buckets: dict[tuple[str, str], SlidingWindow] = defaultdict(
             lambda: SlidingWindow(self._rph, 3600)
@@ -171,10 +175,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 return ips[-1]
         return request.client.host if request.client else "unknown"
 
-    def _is_excluded(self, path: str) -> bool:
+    def _is_excluded(self, path: str, request: Request) -> bool:
         for exclude in self._exclude_paths:
             if path.startswith(exclude):
                 return True
+        if self._exclude_ips:
+            candidates = [self._client_ip(request)]
+            if request.client and request.client.host:
+                candidates.append(request.client.host)
+            for candidate in candidates:
+                for prefix in self._exclude_ips:
+                    if candidate.startswith(prefix):
+                        return True
         return False
 
     @staticmethod
@@ -244,7 +256,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         path: str = request.url.path
-        if self._is_excluded(path):
+        if self._is_excluded(path, request):
             return await call_next(request)
 
         if self._route_has_own_limit(request):

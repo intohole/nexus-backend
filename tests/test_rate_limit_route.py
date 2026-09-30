@@ -104,6 +104,50 @@ def test_global_middleware_skips_route_with_own_limit() -> None:
     assert client.get("/plain").status_code == 429
 
 
+def test_middleware_exclude_ips_skips_limit() -> None:
+    app: FastAPI = _app("test-exclude-ips")
+    app.add_middleware(
+        RateLimitMiddleware,
+        config=NexusConfig(),
+        requests_per_minute=1,
+        requests_per_hour=0,
+        exclude_paths=[],
+        exclude_ips=["10.100.0.", "testclient"],
+    )
+    client: TestClient = TestClient(app)
+    # XFF 解析结果与直连 host 任一命中前缀即豁免
+    for _ in range(3):
+        resp = client.get("/plain", headers={"X-Forwarded-For": "203.0.113.9"})
+        assert resp.status_code == 200
+    # 两个维度都不命中豁免前缀的正常限流
+    app2: FastAPI = _app("test-exclude-ips-strict")
+    app2.add_middleware(
+        RateLimitMiddleware,
+        config=NexusConfig(),
+        requests_per_minute=1,
+        requests_per_hour=0,
+        exclude_paths=[],
+        exclude_ips=["10.100.0."],
+    )
+    client2: TestClient = TestClient(app2)
+    assert client2.get("/plain").status_code == 200
+    assert client2.get("/plain").status_code == 429
+
+
+def test_middleware_without_exclude_ips_still_limits() -> None:
+    app: FastAPI = _app("test-no-exclude")
+    app.add_middleware(
+        RateLimitMiddleware,
+        config=NexusConfig(),
+        requests_per_minute=1,
+        requests_per_hour=0,
+        exclude_paths=[],
+    )
+    client: TestClient = TestClient(app)
+    assert client.get("/plain").status_code == 200
+    assert client.get("/plain").status_code == 429
+
+
 def test_sliding_window_current_count() -> None:
     window: SlidingWindow = SlidingWindow(3, 60)
     assert window.current_count() == 0
