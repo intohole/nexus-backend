@@ -24,6 +24,7 @@ async def asr_transcribe(
     audio_data: str | None = None,
     model: str | None = None,
     format: str | None = None,
+    codec: str | None = None,
     language: str | None = None,
     enable_itn: bool | None = None,
     enable_punc: bool | None = None,
@@ -48,7 +49,7 @@ async def asr_transcribe(
     if audio_data is not None:
         payload["audio_data"] = audio_data
     for key, value in (
-        ("model", model), ("format", format), ("language", language),
+        ("model", model), ("format", format), ("codec", codec), ("language", language),
         ("enable_itn", enable_itn), ("enable_punc", enable_punc), ("enable_ddc", enable_ddc),
         ("enable_speaker_info", enable_speaker_info), ("show_utterances", show_utterances),
     ):
