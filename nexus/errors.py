@@ -31,34 +31,14 @@ class NexusError(Exception):
         return result
 
 
-class ConfigError(NexusError):
-    status_code = 500
-    error_code = "CONFIG_ERROR"
-
-
 class DatabaseError(NexusError):
     status_code = 500
     error_code = "DATABASE_ERROR"
 
 
-class AuthError(NexusError):
-    status_code = 401
-    error_code = "AUTH_ERROR"
-
-
 class NotFoundError(NexusError):
     status_code = 404
     error_code = "NOT_FOUND"
-
-
-class ValidationError(NexusError):
-    status_code = 422
-    error_code = "VALIDATION_ERROR"
-
-
-class ExternalServiceError(NexusError):
-    status_code = 502
-    error_code = "EXTERNAL_SERVICE_ERROR"
 
 
 class RateLimitError(NexusError):
@@ -74,8 +54,3 @@ class ContentFilterError(NexusError):
 class ForbiddenError(NexusError):
     status_code = 403
     error_code = "FORBIDDEN"
-
-
-class ConflictError(NexusError):
-    status_code = 409
-    error_code = "CONFLICT"

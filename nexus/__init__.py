@@ -11,15 +11,10 @@ from nexus.config import (
 )
 from nexus.errors import (
     NexusError,
-    ConfigError,
     DatabaseError,
-    AuthError,
     NotFoundError,
-    ValidationError,
-    ExternalServiceError,
     RateLimitError,
     ForbiddenError,
-    ConflictError,
     ContentFilterError,
 )
 from nexus.context import get_user_id
@@ -113,7 +108,6 @@ from nexus.infra import (
     get_llm_quota_config,
 )
 from nexus.service_client import get_service_client, get_service_token
-from nexus.asr import asr_transcribe
 from nexus.voice import register_voice_endpoints
 from nexus.user_auth import create_user_auth, get_bearer_token
 from nexus.fastapi_setup import (
@@ -157,9 +151,6 @@ from nexus.credits import (
     get_credits_service,
     charged,
     credits_user_scope,
-    CreditsInsufficientError,
-    ConsumeResult,
-    report_llm_usage,
 )
 from nexus.image import get_image_service
 from nexus.vision import get_vision_service
@@ -237,15 +228,14 @@ try:
     from importlib.metadata import version as _version
     __version__ = _version("nexus-backend")
 except Exception:  # source-tree import without installed metadata
-    __version__ = "1.29.0"
+    __version__ = "unknown"
 
 __all__ = [
-    "asr_transcribe",
     "register_voice_endpoints",
     "NexusConfig", "get_settings", "load_project_config", "yaml_get",
-    "yaml_secret", "yaml_int", "yaml_float", "yaml_bool", "NexusError", "ConfigError",
-    "DatabaseError", "AuthError", "NotFoundError", "ValidationError",
-    "ExternalServiceError", "RateLimitError", "ForbiddenError", "ConflictError",
+    "yaml_secret", "yaml_int", "yaml_float", "yaml_bool", "NexusError",
+    "DatabaseError", "NotFoundError",
+    "RateLimitError", "ForbiddenError",
     "ContentFilterError", "get_user_id", "DatabaseManager", "get_db", "db_manager", "Base",
     "init_db", "close_db", "setup_logging", "setup_loguru", "get_logger",
     "success_response", "error_response", "paginate_response", "spa_index_response",
@@ -277,7 +267,6 @@ __all__ = [
     "strip_code_fence", "LLMTimeoutError", "get_llm_service", "LLMJsonClient",
     "get_image_service", "get_vision_service", "JSON_ONLY_HINT", "estimate_tokens",
     "get_credits_service", "charged", "credits_user_scope",
-    "CreditsInsufficientError", "ConsumeResult", "report_llm_usage",
     "trim_context", "compact_history", "init_ironman", "ensure_ironman", "startup_ironman",
     "get_bootstrap", "is_ironman_available", "reload_ironman", "get_web_search_service",
     "SpiderSearchResult", "SpiderSearchResponse", "get_deep_research_service",

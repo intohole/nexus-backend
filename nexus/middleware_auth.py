@@ -209,7 +209,7 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
     @staticmethod
     def _bearer_token(request: Request) -> str:
         auth: str = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
+        if auth[:7].lower() == "bearer ":
             return auth[7:].strip()
         return ""
 

@@ -6,18 +6,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
-import logging
 from typing import Iterable, Optional, Sequence, Union
 
-import httpx
-
+from nexus._gateway_base import _GatewayServiceBase
 from nexus.llm_utils import parse_llm_json
 
-logger = logging.getLogger(__name__)
-
-REQUEST_TIMEOUT = 90.0
 DEFAULT_VISION_MODEL = "glm-4.6v-flash"
 JSON_HINT = "只输出一个 JSON 对象，不要包含解释、markdown 代码块或其他文字。"
 
@@ -51,39 +45,8 @@ def to_data_url(data: bytes, mime_type: str | None = None) -> str:
 GATEWAY_VISION_PATH = "/chat/completions"
 
 
-class VisionService:
+class VisionService(_GatewayServiceBase):
     _instance: Optional["VisionService"] = None
-
-    def __new__(cls) -> "VisionService":
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
-    def __init__(self) -> None:
-        if getattr(self, "_initialized", False):
-            return
-        self._base_url = ""
-        self._api_key = ""
-        self._model = ""
-        self._lock = asyncio.Lock()
-        self._resolved = False
-        self._initialized = True
-
-    async def _resolve_config(self) -> None:
-        if self._resolved:
-            return
-        async with self._lock:
-            if self._resolved:
-                return
-            from nexus.llm_config import resolve_gateway_endpoint
-
-            (
-                self._base_url,
-                self._api_key,
-                self._model,
-            ) = await resolve_gateway_endpoint("vision_model", DEFAULT_VISION_MODEL)
-            self._resolved = True
-            logger.info("VisionService resolved: base_url=%s model=%s", self._base_url, self._model)
 
     @property
     def model(self) -> str:
@@ -114,10 +77,8 @@ class VisionService:
         image_urls: list[str],
         temperature: float,
     ) -> str:
-        await self._resolve_config()
-        if not self._base_url or not self._api_key:
-            raise RuntimeError("vision gateway config missing (base_url/api_key)")
-        url = f"{self._base_url}{GATEWAY_VISION_PATH}"
+        await self._resolve_config("vision_model", DEFAULT_VISION_MODEL)
+        self._require_config("vision")
         content: list[dict[str, object]] = [
             {"type": "image_url", "image_url": {"url": image_url}} for image_url in image_urls
         ]
@@ -130,12 +91,7 @@ class VisionService:
                 {"role": "user", "content": content},
             ],
         }
-        headers = {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            resp = await client.post(url, json=payload, headers=headers)
-        if resp.status_code != 200:
-            raise RuntimeError(f"vision request failed: {resp.status_code} {resp.text[:200]}")
-        data = resp.json()
+        data = await self._post(f"{self._base_url}{GATEWAY_VISION_PATH}", payload, op="vision request")
         choices = data.get("choices") or []
         if not choices:
             raise RuntimeError("vision request returned no choices")

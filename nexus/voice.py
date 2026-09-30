@@ -8,7 +8,10 @@ from __future__ import annotations
 import base64
 
 from fastapi import FastAPI, UploadFile
-from loguru import logger
+
+from nexus.logging import get_logger
+
+logger = get_logger(__name__)
 
 MAX_AUDIO_BYTES = 15 * 1024 * 1024
 
@@ -21,7 +24,7 @@ async def _transcribe_upload(file: UploadFile) -> dict[str, object]:
         return {"success": False, "detail": "语音太长，请控制在1分钟内"}
     audio_data = base64.b64encode(audio).decode()
     try:
-        from nexus import asr_transcribe
+        from nexus.asr import asr_transcribe
         result = await asr_transcribe(audio_data=audio_data, format="wav", enable_punc=True, timeout=60.0)
     except Exception as e:
         logger.error(f"voice transcribe failed: {type(e).__name__}: {e}")
