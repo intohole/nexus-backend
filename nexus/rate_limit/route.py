@@ -1,4 +1,4 @@
-"""路由级限流：端点装饰器与共享滑窗记账（由 rate_limit 再导出公共符号）。"""
+"""路由级限流：端点装饰器与共享滑窗记账。"""
 from __future__ import annotations
 
 import asyncio
@@ -8,8 +8,8 @@ from typing import Callable, Optional, Union
 
 from fastapi import Request
 
-from nexus.logging import get_logger
-from nexus.rate_limit import RateLimitMiddleware, SlidingWindow
+from nexus.rate_limit.keys import resolve_client_id
+from nexus.rate_limit.window import SlidingWindow
 
 _LIMIT_UNITS: dict[str, int] = {
     "second": 1,
@@ -79,25 +79,15 @@ def _find_request(args: tuple, kwargs: dict) -> Optional[Request]:
     return None
 
 
-def _resolve_key(request: Request, key_func: Optional[Callable[[Request], str]]) -> str:
-    if key_func is None:
-        return RateLimitMiddleware._client_ip(request)
-    try:
-        return key_func(request)
-    except Exception as exc:
-        get_logger("nexus.rate_limit").warning("rate_limit key_func failed: %s", exc)
-        return "unknown"
-
-
 async def _retry_after_async(request: Request, limit_value: str, key_func: Optional[Callable[[Request], str]], scope_name: str) -> int:
     max_requests, window_seconds = parse_rate_limit(limit_value)
-    key = _resolve_key(request, key_func)
+    key = resolve_client_id(request, key_func)
     return await _route_limiter.check(scope_name, key, max_requests, window_seconds)
 
 
 def _retry_after_sync(request: Request, limit_value: str, key_func: Optional[Callable[[Request], str]], scope_name: str) -> int:
     max_requests, window_seconds = parse_rate_limit(limit_value)
-    key = _resolve_key(request, key_func)
+    key = resolve_client_id(request, key_func)
     return asyncio.get_event_loop().run_until_complete(
         _route_limiter.check(scope_name, key, max_requests, window_seconds)
     )

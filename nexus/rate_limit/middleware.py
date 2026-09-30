@@ -1,8 +1,6 @@
-"""限流中间件：滑动窗口算法与按 IP/维度限流、路径前缀分档、路由级限流装饰器。"""
+"""滑动窗口限流中间件：按客户端维度、路径前缀分档与豁免配置。"""
 from __future__ import annotations
 
-import asyncio
-import ipaddress
 import time
 from collections import defaultdict
 from typing import Awaitable, Callable, NamedTuple, Optional, Sequence
@@ -13,59 +11,8 @@ from starlette.responses import JSONResponse, Response
 
 from nexus.config import NexusConfig, get_settings
 from nexus.logging import get_logger
-
-
-class SlidingWindow:
-    """异步滑窗计数器（HTTP 层 canonical 实现）。
-
-    平行实现互查：nexus.llm_rate_limiter.LLMRateLimiter（LLM 调用维度）、
-    ironman.middleware.rate_limit_mw.SlidingWindowLimiter（ironman 管道内 rpm 单例，
-    依赖方向 nexus→ironman 禁止反向收归）。改动计数/窗口语义时三处同步。
-    """
-
-    def __init__(self, max_requests: int, window_seconds: int) -> None:
-        self._max_requests: int = max_requests
-        self._window_seconds: int = window_seconds
-        self._timestamps: list[float] = []
-        self._lock: asyncio.Lock = asyncio.Lock()
-
-    async def is_allowed(self) -> bool:
-        async with self._lock:
-            now: float = time.time()
-            cutoff: float = now - self._window_seconds
-            self._timestamps = [t for t in self._timestamps if t > cutoff]
-            if len(self._timestamps) >= self._max_requests:
-                return False
-            self._timestamps.append(now)
-            return True
-
-    def is_exceeded(self) -> bool:
-        now: float = time.time()
-        cutoff: float = now - self._window_seconds
-        return len([t for t in self._timestamps if t > cutoff]) >= self._max_requests
-
-    def current_count(self) -> int:
-        now: float = time.time()
-        cutoff: float = now - self._window_seconds
-        return len([t for t in self._timestamps if t > cutoff])
-
-    def retry_after(self) -> int:
-        if not self._timestamps:
-            return 0
-        now: float = time.time()
-        oldest: float = self._timestamps[0]
-        return max(1, int(oldest + self._window_seconds - now))
-
-    @property
-    def max_requests(self) -> int:
-        return self._max_requests
-
-    @property
-    def window_seconds(self) -> int:
-        return self._window_seconds
-
-    def is_idle(self, now: float, factor: float = 2.0) -> bool:
-        return not self._timestamps or (now - self._timestamps[-1]) > factor * self._window_seconds
+from nexus.rate_limit.keys import client_ip, resolve_client_id
+from nexus.rate_limit.window import SlidingWindow
 
 
 class PathRule(NamedTuple):
@@ -150,37 +97,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             self._minute_buckets[key] = window
         return window
 
-    def _get_client_id(self, request: Request) -> str:
-        if self._key_func is not None:
-            try:
-                return self._key_func(request)
-            except Exception as exc:
-                self._logger.warning("rate limit key_func failed: %s", exc)
-                return "unknown"
-        return self._client_ip(request)
-
-    @staticmethod
-    def _client_ip(request: Request) -> str:
-        forwarded: Optional[str] = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            ips: list[str] = [ip.strip() for ip in forwarded.split(",") if ip.strip()]
-            for ip in reversed(ips):
-                try:
-                    parsed = ipaddress.ip_address(ip)
-                    if not parsed.is_private and not parsed.is_loopback:
-                        return ip
-                except ValueError:
-                    continue
-            if ips:
-                return ips[-1]
-        return request.client.host if request.client else "unknown"
-
     def _is_excluded(self, path: str, request: Request) -> bool:
         for exclude in self._exclude_paths:
             if path.startswith(exclude):
                 return True
         if self._exclude_ips:
-            candidates = [self._client_ip(request)]
+            candidates = [client_ip(request)]
             if request.client and request.client.host:
                 candidates.append(request.client.host)
             for candidate in candidates:
@@ -262,7 +184,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if self._route_has_own_limit(request):
             return await call_next(request)
 
-        client_id: str = self._get_client_id(request)
+        client_id: str = resolve_client_id(request, self._key_func)
 
         self._cleanup_expired()
 
@@ -303,10 +225,3 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 )
 
         return await call_next(request)
-
-from nexus.rate_limit_route import RouteRateLimiter, parse_rate_limit, rate_limit  # noqa: E402
-
-__all__ = [
-    "SlidingWindow", "PathRule", "LimitInfo", "RateLimitMiddleware",
-    "RouteRateLimiter", "parse_rate_limit", "rate_limit",
-]

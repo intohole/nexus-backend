@@ -1,7 +1,7 @@
 """LLM 调用辅助：输出纪律注入、命名空间解析、消息转换与用量记账。"""
 from __future__ import annotations
 
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
 from nexus.logging import get_logger
 from nexus.llm_optimizer import CONCISENESS_HINT, JSON_ONLY_HINT

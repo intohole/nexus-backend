@@ -27,6 +27,18 @@ _GATEWAY_KEY_MAP: dict[str, str] = {
 }
 
 
+def _resolve_env_refs(parsed: dict[str, object]) -> dict[str, object]:
+    """配置值中 ${VAR} 全形式引用按环境白名单前缀解析，未命中置空。"""
+    for k, v in parsed.items():
+        if isinstance(v, str) and v.startswith("${") and v.endswith("}"):
+            env_var = v[2:-1]
+            if not any(env_var.startswith(p) for p in _ALLOWED_ENV_PREFIXES):
+                continue
+            env_val = os.environ.get(env_var)
+            parsed[k] = env_val if env_val else ""
+    return parsed
+
+
 class LionSDK(BaseAsyncClient):
     service_name = "Lion"
 
@@ -72,8 +84,15 @@ class LionSDK(BaseAsyncClient):
             result = await self._request(fallback_path)
         return result
 
-    async def get_llm_config(self, key: str = "chat") -> dict[str, object]:
-        config = await self.get_config("llm", key)
+    async def _get_group_config(
+        self,
+        group: str,
+        key: str,
+        *,
+        resolve_env: bool = True,
+        error_label: str = "",
+    ) -> dict[str, object]:
+        config = await self.get_config(group, key)
         if self._is_error(config):
             return config
         value = config.get("value", "{}")
@@ -82,15 +101,13 @@ class LionSDK(BaseAsyncClient):
         elif isinstance(value, dict):
             parsed = value
         else:
-            return {"success": False, "detail": "Invalid llm config value"}
-        for k, v in parsed.items():
-            if isinstance(v, str) and v.startswith("${") and v.endswith("}"):
-                env_var = v[2:-1]
-                if not any(env_var.startswith(p) for p in _ALLOWED_ENV_PREFIXES):
-                    continue
-                env_val = os.environ.get(env_var)
-                parsed[k] = env_val if env_val else ""
+            return {"success": False, "detail": f"Invalid {error_label or group} config value"}
+        if resolve_env:
+            parsed = _resolve_env_refs(parsed)
         return parsed
+
+    async def get_llm_config(self, key: str = "chat") -> dict[str, object]:
+        return await self._get_group_config("llm", key, error_label="llm")
 
     async def get_chat_config(self) -> dict[str, object]:
         return await self.get_llm_config("chat")
@@ -127,24 +144,7 @@ class LionSDK(BaseAsyncClient):
         return result
 
     async def get_infra_config(self, key: str) -> dict[str, object]:
-        config = await self.get_config("infra", key)
-        if self._is_error(config):
-            return config
-        value = config.get("value", "{}")
-        if isinstance(value, str):
-            parsed: dict[str, object] = json.loads(value)
-        elif isinstance(value, dict):
-            parsed = value
-        else:
-            return {"success": False, "detail": "Invalid infra config value"}
-        for k, v in parsed.items():
-            if isinstance(v, str) and v.startswith("${") and v.endswith("}"):
-                env_var = v[2:-1]
-                if not any(env_var.startswith(p) for p in _ALLOWED_ENV_PREFIXES):
-                    continue
-                env_val = os.environ.get(env_var)
-                parsed[k] = env_val if env_val else ""
-        return parsed
+        return await self._get_group_config("infra", key, error_label="infra")
 
     async def get_infra_value(self, key: str, field: str = "value") -> str:
         config = await self.get_infra_config(key)
@@ -154,17 +154,7 @@ class LionSDK(BaseAsyncClient):
         return str(val) if val else ""
 
     async def get_business_config(self, key: str) -> dict[str, object]:
-        config = await self.get_config("business", key)
-        if self._is_error(config):
-            return config
-        value = config.get("value", "{}")
-        if isinstance(value, str):
-            parsed: dict[str, object] = json.loads(value)
-        elif isinstance(value, dict):
-            parsed = value
-        else:
-            return {"success": False, "detail": "Invalid business config value"}
-        return parsed
+        return await self._get_group_config("business", key, resolve_env=False, error_label="business")
 
     async def get_business_value(self, key: str, field: str, default: str = "") -> str:
         config = await self.get_business_config(key)

@@ -104,5 +104,4 @@ __all__ = [
     "estimate_tokens",
     "trim_context",
     "compact_history",
-    "within_budget",
 ]

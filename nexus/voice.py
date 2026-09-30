@@ -42,7 +42,7 @@ def register_voice_endpoints(app: FastAPI, prefix: str = "/api/v1") -> None:
     依赖 python-multipart，缺失时跳过注册并告警，不阻断应用启动。
     """
     try:
-        import multipart  # noqa: F401
+        __import__("multipart")
     except ImportError:
         logger.warning("python-multipart 未安装，voice/transcribe 未注册（pip install python-multipart）")
         return

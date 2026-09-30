@@ -165,7 +165,7 @@ class VisionService:
         images: Union[ImageInput, Iterable[ImageInput]],
         system: Optional[str] = None,
         temperature: float = 0.2,
-    ) -> Dict[str, object]:
+    ) -> dict[str, object]:
         """结构化图片识别：要求模型输出 JSON 并解析为 dict，失败抛 RuntimeError。"""
         image_urls = self._normalize_images(images)
         merged_system = f"{system or '你是图片识别助手。'}\n{JSON_HINT}"
