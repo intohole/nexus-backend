@@ -17,7 +17,6 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from nexus.auth import get_auth_deps
-from nexus.uc_sdk_helper import get_uc_sdk as _current_uc_sdk
 
 logger = logging.getLogger("nexus.user_auth")
 
@@ -40,8 +39,19 @@ async def get_bearer_token(
 
 
 async def _fetch_uc_user(token: str) -> dict:
-    sdk = _current_uc_sdk()
-    result = await sdk.get_current_user(token=token)
+    try:
+        sdk = await get_auth_deps().get_sdk()
+    except Exception as exc:
+        logger.warning("UC SDK 解析失败，跳过用户信息补全: %s", exc)
+        return {}
+    if sdk is None:
+        logger.warning("UC SDK 未就绪，跳过用户信息补全")
+        return {}
+    try:
+        result = await sdk.get_current_user(token=token)
+    except Exception as exc:
+        logger.warning("UC 用户信息补全失败: %s", exc)
+        return {}
     if not isinstance(result, dict) or not result.get("success"):
         return {}
     return result.get("data") or {}
