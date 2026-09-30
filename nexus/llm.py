@@ -8,6 +8,7 @@ from typing import AsyncGenerator, Optional
 from nexus.context import get_request_id
 from nexus.logging import get_logger
 from nexus.circuit_breaker import get_llm_circuit
+from nexus.credits import report_llm_usage
 from nexus.llm_metrics import llm_telemetry
 from nexus.llm_utils import parse_llm_json, with_retry
 from nexus.llm_helpers import (
@@ -27,6 +28,12 @@ from nexus.llm_config import (
 )
 
 logger = get_logger("nexus.llm")
+
+
+async def _meter(kind: str, app_name: str, request_id: str, response: object = None,
+                 start: float = 0.0, calls: int = 1) -> None:
+    await report_llm_usage(app_name=app_name, kind=kind, request_id=request_id, response=response,
+                           latency_s=(time.monotonic() - start) if start else 0.0, calls=calls)
 
 DEFAULT_MAX_OUTPUT_TOKENS: int = int(os.environ.get("LLM_DEFAULT_MAX_OUTPUT_TOKENS", "2048"))
 
@@ -110,6 +117,7 @@ class LLMService:
             )
             result: str = extract_content(response, request_id)
             record_usage(metrics, app_name, response, time.monotonic() - start, None)
+            await _meter(kind, app_name, request_id, response, start)
             logger.info(
                 "LLM %s completed [req_id=%s, app=%s, latency=%.2fs]",
                 kind, request_id, app_name, time.monotonic() - start,
@@ -212,6 +220,7 @@ class LLMService:
                     _do_with_circuit, timeout, effective_retries(max_retries)
                 )
                 metrics.record(app_name, "unknown", time.monotonic() - start, tokens=0, error=None)
+                await _meter("extract", app_name, request_id, start=start)
                 logger.info(
                     "LLM extract completed [req_id=%s, app=%s, latency=%.2fs]",
                     request_id, app_name, time.monotonic() - start,
@@ -243,8 +252,14 @@ class LLMService:
         system, _ = apply_output_discipline(system, "", False, False, budget_mode)
         ironman_messages = convert_messages(messages, system)
         from ironman import chat_stream as _chat_stream
-        async for chunk in stream_chunks(_chat_stream, ironman_messages, opts):
-            yield chunk
+        request_id: str = get_request_id() or "-"
+        app_name: str = resolve_app_name()
+        start: float = time.monotonic()
+        try:
+            async for chunk in stream_chunks(_chat_stream, ironman_messages, opts):
+                yield chunk
+        finally:
+            await _meter("chat_stream", app_name, request_id, start=start)
 
     async def stream_ask(self, prompt: str, system: Optional[str] = None, **kwargs) -> AsyncGenerator[str, None]:
         """单轮流式提问 = 单条 user 消息的 stream_chat。"""
@@ -267,7 +282,9 @@ class LLMService:
             return await _embed(text=texts)
 
         try:
-            return await with_retry(_do, timeout, effective_retries(max_retries))
+            result = await with_retry(_do, timeout, effective_retries(max_retries))
+            await _meter("embed", resolve_app_name(), get_request_id() or "-", calls=len(texts) or 1)
+            return result
         except Exception as e:
             logger.error("Embed failed: %s: %s", type(e).__name__, e or "(无错误详情)")
             if raise_on_error:

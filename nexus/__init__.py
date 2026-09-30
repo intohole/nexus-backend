@@ -153,6 +153,14 @@ from nexus.channels import (
     ChannelDispatcher,
 )
 from nexus.llm_client import LLMJsonClient
+from nexus.credits import (
+    get_credits_service,
+    charged,
+    credits_user_scope,
+    CreditsInsufficientError,
+    ConsumeResult,
+    report_llm_usage,
+)
 from nexus.image import get_image_service
 from nexus.vision import get_vision_service
 from nexus.llm_optimizer import (
@@ -268,6 +276,8 @@ __all__ = [
     "parse_llm_json_lenient", "parse_llm_json_or", "find_balanced_json", "with_retry",
     "strip_code_fence", "LLMTimeoutError", "get_llm_service", "LLMJsonClient",
     "get_image_service", "get_vision_service", "JSON_ONLY_HINT", "estimate_tokens",
+    "get_credits_service", "charged", "credits_user_scope",
+    "CreditsInsufficientError", "ConsumeResult", "report_llm_usage",
     "trim_context", "compact_history", "init_ironman", "ensure_ironman", "startup_ironman",
     "get_bootstrap", "is_ironman_available", "reload_ironman", "get_web_search_service",
     "SpiderSearchResult", "SpiderSearchResponse", "get_deep_research_service",

@@ -14,6 +14,7 @@ from .mixins import (
     ThirdPartyMixin, DiscoveryMixin, ApiTokenMixin, SessionMixin, AuditMixin,
     QuotaMixin,
 )
+from .billing_mixin import BillingMixin
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ from .resilience import BlacklistCache, CircuitBreaker  # noqa: F401  (再导出
 
 class UserCenterSDK(BaseAsyncClient, AuthMixin, UserMixin, AppMixin, VipMixin, InviteCodeMixin,
                     ThirdPartyMixin, DiscoveryMixin, ApiTokenMixin, SessionMixin, AuditMixin,
-                    QuotaMixin):
+                    QuotaMixin, BillingMixin):
     service_name = "UC"
 
     def __init__(self, base_url: str = "", app_key: str = None, app_secret: str = None,
