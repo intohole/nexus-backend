@@ -114,6 +114,7 @@ from nexus.infra import (
 )
 from nexus.service_client import get_service_client, get_service_token
 from nexus.asr import asr_transcribe
+from nexus.voice import register_voice_endpoints
 from nexus.user_auth import create_user_auth, get_bearer_token
 from nexus.fastapi_setup import (
     create_app,
@@ -232,6 +233,7 @@ except Exception:  # source-tree import without installed metadata
 
 __all__ = [
     "asr_transcribe",
+    "register_voice_endpoints",
     "NexusConfig", "get_settings", "load_project_config", "yaml_get",
     "yaml_secret", "yaml_int", "yaml_float", "yaml_bool", "NexusError", "ConfigError",
     "DatabaseError", "AuthError", "NotFoundError", "ValidationError",
