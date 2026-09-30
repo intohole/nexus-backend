@@ -14,7 +14,8 @@ from nexus.logging import get_logger
 
 logger = get_logger("nexus.asr")
 
-_TRANSCRIBE_PATH = "/api/gateway/v1/audio/transcriptions"
+_API_PREFIX = "/api/gateway/v1"
+_TRANSCRIBE_PATH = _API_PREFIX + "/audio/transcriptions"
 _MAX_RETRIES = 2
 
 
@@ -38,6 +39,8 @@ async def asr_transcribe(
     api_key = str(config.get("api_key") or "")
     if not base_url or not api_key:
         return {"success": False, "detail": "promptmanager infra config missing (base_url/api_key)"}
+    if base_url.endswith(_API_PREFIX):
+        base_url = base_url[: -len(_API_PREFIX)]
 
     payload: dict[str, object] = {}
     if audio_url is not None:
