@@ -8,7 +8,6 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from nexus.auth import get_current_user_full
 from nexus.logging import get_logger
 from nexus.uc_sdk_helper import standard_err
 

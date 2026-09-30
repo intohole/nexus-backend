@@ -3,8 +3,17 @@ from __future__ import annotations
 
 from typing import Optional, Union
 
-from nexus.scheduler import CoroFunc, SyncFunc, logger
-from nexus.scheduler_jobs import JobManager  # noqa: F401
+from nexus.scheduler import (
+    CoroFunc,
+    SyncFunc,
+    BackgroundScheduler,
+    CronTrigger,
+    EVENT_JOB_ERROR,
+    EVENT_JOB_MISSED,
+    IntervalTrigger,
+    _HAS_APSCHEDULER,
+    logger,
+)
 
 class NexusThreadScheduler:
     """后台线程调度器：封装 BackgroundScheduler，用于同步/阻塞型周期任务。
@@ -139,6 +148,4 @@ class NexusThreadScheduler:
 def get_thread_scheduler() -> NexusThreadScheduler:
     return NexusThreadScheduler.get_instance()
 
-from nexus.scheduler_jobs import JobManager  # noqa: E402
-
-__all__ = ["NexusScheduler", "NexusThreadScheduler", "get_scheduler", "get_thread_scheduler", "JobManager"]
+__all__ = ["NexusThreadScheduler", "get_thread_scheduler"]

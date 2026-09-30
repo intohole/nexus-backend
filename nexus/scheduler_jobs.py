@@ -3,7 +3,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from typing import Callable
+from typing import Awaitable, Callable, Optional
+
+from nexus.logging import get_logger
+
+logger = get_logger("nexus.scheduler")
 
 class JobManager:
     """一次性任务状态机 + SSE 订阅广播。

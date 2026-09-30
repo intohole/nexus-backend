@@ -1,6 +1,8 @@
 """通知便捷函数层：模块级 send_* 一行直达（委托 NotifyClient 单例）。"""
 from __future__ import annotations
 
+from typing import Optional
+
 from nexus.notify import NotifyClient, get_notify_client
 
 async def send_notification(

@@ -1,6 +1,12 @@
 """通知反代注册：把 notifyCenter API 挂到业务 FastAPI 的 /api/notify 路径。"""
 from __future__ import annotations
 
+import httpx
+from fastapi import FastAPI, Request, Response
+
+from nexus.infra import get_notify_center_url
+
+
 def register_notify_proxy(app: FastAPI) -> None:
     """在任意 FastAPI app 上注册 /api/notify/* 反向代理到 notifyCenter。
 
@@ -40,13 +46,3 @@ def register_notify_proxy(app: FastAPI) -> None:
         )
 
 
-__all__ = [
-    "NotifyClient",
-    "get_notify_client",
-    "async_init_notify_client",
-    "send_notification",
-    "send_email",
-    "send_admin_email",
-    "send_sms",
-    "register_notify_proxy",
-]

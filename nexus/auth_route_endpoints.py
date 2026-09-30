@@ -6,7 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 
 from nexus.auth import get_current_user_full
 from nexus.auth_models import LoginRequest, RefreshTokenRequest, RegisterRequest
-from nexus.auth_routes import _AuthCtx, _map_uc_detail, _require_auth, _security
+from nexus.auth_routes import _AuthCtx, _map_uc_detail, _security
 from nexus.logging import get_logger
 
 logger = get_logger("nexus.auth_route_endpoints")

@@ -5,7 +5,6 @@ import os
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, Request, Response
 
 from nexus.defaults import DEFAULT_NOTIFY_CENTER_URL
 from nexus.infra import get_notify_center_url
