@@ -41,30 +41,37 @@ class DatabaseManager:
         async with self._lock:
             if self._engine is not None:
                 return
-            self._config = self._config_arg or get_settings()
-            db_url: str = self._config.database.url
-            if db_url.startswith("sqlite://"):
-                db_url = db_url.replace("sqlite://", "sqlite+aiosqlite://", 1)
-            elif db_url.startswith("postgresql://"):
-                db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            self._build_engine()
 
-            engine_kwargs: dict[str, object] = {
-                "echo": self._config.database.echo,
-            }
-            if not db_url.startswith("sqlite"):
-                engine_kwargs["pool_size"] = self._config.database.pool_size
-                engine_kwargs["max_overflow"] = self._config.database.max_overflow
-                engine_kwargs["pool_recycle"] = self._config.database.pool_recycle
+    def ensure_engine(self) -> None:
+        if self._engine is None:
+            self._build_engine()
 
-            self._engine = create_async_engine(db_url, **engine_kwargs)
-            self._session_factory = async_sessionmaker(
-                self._engine,
-                class_=AsyncSession,
-                expire_on_commit=False,
-            )
+    def _build_engine(self) -> None:
+        self._config = self._config_arg or get_settings()
+        db_url: str = self._config.database.url
+        if db_url.startswith("sqlite://"):
+            db_url = db_url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+        elif db_url.startswith("postgresql://"):
+            db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-            if self._config.database.sqlite_pragma and "sqlite" in db_url:
-                self._register_sqlite_pragma()
+        engine_kwargs: dict[str, object] = {
+            "echo": self._config.database.echo,
+        }
+        if not db_url.startswith("sqlite"):
+            engine_kwargs["pool_size"] = self._config.database.pool_size
+            engine_kwargs["max_overflow"] = self._config.database.max_overflow
+            engine_kwargs["pool_recycle"] = self._config.database.pool_recycle
+
+        self._engine = create_async_engine(db_url, **engine_kwargs)
+        self._session_factory = async_sessionmaker(
+            self._engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+
+        if self._config.database.sqlite_pragma and "sqlite" in db_url:
+            self._register_sqlite_pragma()
 
     def _register_sqlite_pragma(self) -> None:
         from sqlalchemy import event
