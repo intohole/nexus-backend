@@ -23,13 +23,15 @@ class FakeSdk:
         }
         self.raise_on_report = raise_on_report
         self.reported: list = []
-        self.consumed: list = {}
+        self.consumed: list = []
+        self.precheck_calls: int = 0
 
     async def billing_precheck(self, **kwargs) -> dict:
+        self.precheck_calls += 1
         return self.precheck_result
 
     async def billing_consume(self, **kwargs) -> dict:
-        self.consumed = kwargs
+        self.consumed.append(kwargs)
         return self.consume_result
 
     async def billing_report_meters(self, items: list) -> dict:
@@ -112,8 +114,8 @@ async def test_consume_success_parses_envelope(service, monkeypatch):
     assert outcome.allowed and outcome.charged
     assert outcome.balance == 90
     assert outcome.charge_mode == "trial"
-    assert sdk.consumed["ref_id"] == "r1"
-    assert sdk.consumed["feature"] == "chat"
+    assert sdk.consumed[0]["ref_id"] == "r1"
+    assert sdk.consumed[0]["feature"] == "chat"
 
 
 @pytest.mark.asyncio
@@ -192,3 +194,122 @@ async def test_precheck_no_user_context(service):
     outcome = await service.precheck("generate")
     assert outcome.allowed is True
     assert isinstance(outcome, PrecheckResult)
+
+
+def test_credits_insufficient_error_is_402_nexus_error():
+    from nexus.errors import NexusError
+
+    exc = CreditsInsufficientError("积分余额不足")
+    assert isinstance(exc, NexusError)
+    assert exc.status_code == 402
+    assert exc.error_code == "INSUFFICIENT_CREDITS"
+
+
+def test_gateway_feature_default_kinds():
+    assert CreditsService.gateway_feature("chat") == "chat"
+    assert CreditsService.gateway_feature("chat_stream") == "chat"
+    assert CreditsService.gateway_feature("extract") == "extract"
+    assert CreditsService.gateway_feature("embed") == ""
+    assert CreditsService.gateway_feature("unknown") == ""
+
+
+def test_gateway_feature_disabled_by_config(monkeypatch):
+    monkeypatch.setattr(credits_module, "yaml_bool", lambda *a, **k: False)
+    assert CreditsService.gateway_feature("chat") == ""
+
+
+def test_gateway_feature_respects_kinds_filter(monkeypatch):
+    monkeypatch.setattr(credits_module, "yaml_get", lambda *a, **k: "chat")
+    assert CreditsService.gateway_feature("chat") == "chat"
+    assert CreditsService.gateway_feature("extract") == ""
+
+
+@pytest.mark.asyncio
+async def test_auto_charge_llm_consumes_platform_price(service, monkeypatch):
+    sdk = FakeSdk()
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    with credits_user_scope(7):
+        await service.auto_charge_llm(kind="chat", app_name="demo", request_id="req-1")
+    assert len(sdk.consumed) == 1
+    call = sdk.consumed[0]
+    assert call["feature"] == "chat"
+    assert call["app_key"] == "demo"
+    assert call["ref_id"].startswith("llm:req-1:")
+    assert call["description"] == "AI 对话"
+
+
+@pytest.mark.asyncio
+async def test_auto_charge_llm_skips_anonymous(service, monkeypatch):
+    sdk = FakeSdk()
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    await service.auto_charge_llm(kind="chat", app_name="demo", request_id="req-1")
+    assert not sdk.consumed
+
+
+@pytest.mark.asyncio
+async def test_auto_charge_llm_never_raises_on_sdk_error(service, monkeypatch):
+    class BoomSdk(FakeSdk):
+        async def billing_consume(self, **kwargs):
+            raise RuntimeError("uc down")
+
+    monkeypatch.setattr(service, "_sdk", lambda: BoomSdk())
+    with credits_user_scope(7):
+        await service.auto_charge_llm(kind="chat", app_name="demo", request_id="req-1")
+
+
+@pytest.mark.asyncio
+async def test_auto_charge_llm_insufficient_does_not_raise(service, monkeypatch):
+    sdk = FakeSdk({"success": False, "message": "积分余额不足，请先充值"})
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    with credits_user_scope(7):
+        await service.auto_charge_llm(kind="extract", app_name="demo", request_id="req-2")
+    assert len(sdk.consumed) == 1
+
+
+@pytest.mark.asyncio
+async def test_consume_caches_charge_mode(service, monkeypatch):
+    sdk = FakeSdk({"success": True, "data": {"charged": True, "balance": 90, "charge_mode": "formal"}})
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    await service.consume("chat", user_id=1)
+    assert service._cached_charge_mode() == "formal"
+
+
+@pytest.mark.asyncio
+async def test_gateway_preflight_blocks_formal(service, monkeypatch):
+    sdk = FakeSdk(precheck_result={"success": True, "data": {
+        "allowed": False, "cost": 10, "balance": 5,
+        "charge_mode": "formal", "reason": "insufficient_balance",
+    }})
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    service._remember_charge_mode("formal")
+    with credits_user_scope(7), pytest.raises(CreditsInsufficientError):
+        await service.gateway_preflight("chat")
+
+
+@pytest.mark.asyncio
+async def test_gateway_preflight_skips_when_cache_not_formal(service, monkeypatch):
+    sdk = FakeSdk()
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    await service.gateway_preflight("chat")
+    service._remember_charge_mode("trial")
+    await service.gateway_preflight("chat")
+    assert sdk.precheck_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_gateway_preflight_skips_unbilled_kind(service, monkeypatch):
+    sdk = FakeSdk()
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    service._remember_charge_mode("formal")
+    await service.gateway_preflight("embed")
+    assert sdk.precheck_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_gateway_preflight_allows_formal_with_balance(service, monkeypatch):
+    sdk = FakeSdk()
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    service._remember_charge_mode("formal")
+    with credits_user_scope(7):
+        await service.gateway_preflight("chat")
+    assert sdk.precheck_calls == 1

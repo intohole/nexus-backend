@@ -8,7 +8,7 @@ from typing import AsyncGenerator, Optional
 from nexus.context import get_request_id
 from nexus.logging import get_logger
 from nexus.circuit_breaker import get_llm_circuit
-from nexus.credits import report_llm_usage
+from nexus.credits import CreditsInsufficientError, get_credits_service, report_llm_usage
 from nexus.llm_metrics import llm_telemetry
 from nexus.llm_utils import parse_llm_json, with_retry
 from nexus.llm_helpers import (
@@ -34,6 +34,26 @@ async def _meter(kind: str, app_name: str, request_id: str, response: object = N
                  start: float = 0.0, calls: int = 1) -> None:
     await report_llm_usage(app_name=app_name, kind=kind, request_id=request_id, response=response,
                            latency_s=(time.monotonic() - start) if start else 0.0, calls=calls)
+
+
+async def _preflight(kind: str) -> None:
+    """正式计费模式下调用前预检；CreditsInsufficientError(402) 放行，其余积分故障静默。"""
+    try:
+        await get_credits_service().gateway_preflight(kind)
+    except CreditsInsufficientError:
+        raise
+    except Exception:
+        pass
+
+
+async def _charge(kind: str, app_name: str, request_id: str) -> None:
+    """调用成功后网关自动计费（fail-open，绝不影响响应）。"""
+    try:
+        await get_credits_service().auto_charge_llm(
+            kind=kind, app_name=app_name, request_id=request_id
+        )
+    except Exception:
+        pass
 
 DEFAULT_MAX_OUTPUT_TOKENS: int = int(os.environ.get("LLM_DEFAULT_MAX_OUTPUT_TOKENS", "2048"))
 
@@ -157,11 +177,13 @@ class LLMService:
         from ironman import chat as _chat
         request_id: str = get_request_id() or "-"
         app_name: str = resolve_app_name()
+        await _preflight("chat")
 
         async def _do() -> object:
             return await _chat(messages=ironman_messages, llm=opts)
 
         result = await self._execute(_do, timeout, max_retries, app_name, request_id, "chat")
+        await _charge("chat", app_name, request_id)
         if cache is not None and result:
             cache.set(key, result)
         return result
@@ -204,6 +226,7 @@ class LLMService:
         request_id: str = get_request_id() or "-"
         app_name: str = resolve_app_name()
         circuit = get_llm_circuit()
+        await _preflight("extract")
 
         async def _do() -> object:
             return await _extract(
@@ -221,6 +244,7 @@ class LLMService:
                 )
                 metrics.record(app_name, "unknown", time.monotonic() - start, tokens=0, error=None)
                 await _meter("extract", app_name, request_id, start=start)
+                await _charge("extract", app_name, request_id)
                 logger.info(
                     "LLM extract completed [req_id=%s, app=%s, latency=%.2fs]",
                     request_id, app_name, time.monotonic() - start,
@@ -255,11 +279,16 @@ class LLMService:
         request_id: str = get_request_id() or "-"
         app_name: str = resolve_app_name()
         start: float = time.monotonic()
+        await _preflight("chat_stream")
+        produced: bool = False
         try:
             async for chunk in stream_chunks(_chat_stream, ironman_messages, opts):
+                produced = True
                 yield chunk
         finally:
             await _meter("chat_stream", app_name, request_id, start=start)
+            if produced:
+                await _charge("chat_stream", app_name, request_id)
 
     async def stream_ask(self, prompt: str, system: Optional[str] = None, **kwargs) -> AsyncGenerator[str, None]:
         """单轮流式提问 = 单条 user 消息的 stream_chat。"""
@@ -278,12 +307,17 @@ class LLMService:
         await configure_ironman()
         from ironman import embed as _embed
 
+        app_name: str = resolve_app_name()
+        request_id: str = get_request_id() or "-"
+        await _preflight("embed")
+
         async def _do() -> list[list[float]]:
             return await _embed(text=texts)
 
         try:
             result = await with_retry(_do, timeout, effective_retries(max_retries))
-            await _meter("embed", resolve_app_name(), get_request_id() or "-", calls=len(texts) or 1)
+            await _meter("embed", app_name, request_id, calls=len(texts) or 1)
+            await _charge("embed", app_name, request_id)
             return result
         except Exception as e:
             logger.error("Embed failed: %s: %s", type(e).__name__, e or "(无错误详情)")

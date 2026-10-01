@@ -1,11 +1,14 @@
-"""平台积分钱包统一接入层：动作级计费 + LLM 用量自动计量（收归中间件，全应用共用）。
+"""平台积分钱包统一接入层：动作级计费 + LLM 网关自动计费 + 用量自动计量（全应用共用）。
 
 - 计费：consume(feature) 按 billing_prices 定价扣积分，任何积分系统故障 fail-open 不阻塞业务；
-  体验期(charge_mode=trial)余额不足不拦截，正式期(formal)返回 CreditsInsufficientError 由应用决定文案。
+  体验期(charge_mode=trial)余额不足不拦截，正式期(formal)返回 CreditsInsufficientError（NexusError 402，
+  ErrorHandlerMiddleware 统一转 JSON 响应）。
+- 网关自动计费：auto_charge_llm 挂在 LLMService 四路出口，调用成功后按平台价扣积分——
+  未做显式动作计费的应用零改动建立扣费流水；显式计费的应用用 credits.auto_charge=false 关停防双重扣费。
 - 计量：report_meter / report_llm_usage 把用户级 LLM 用量批量上报 usercenter（usage_meters），
-  免费 期即开始积累，作为定价校准与未来按量计费的数据底座。
+  免费期即开始积累，作为定价校准与未来按量计费的数据底座。
 - 用户归因：HTTP 请求内自动取 nexus.context 的 user_id（auth 中间件写入）；
-  非HTTP上下文（后台任务/脚本）用 credits_user_scope(user_id) 显式声明。
+  非HTTP上下文（后台任务/脚本）用 credits_user_scope(user_id) 显式声明，匿名调用自动跳过。
 """
 from __future__ import annotations
 
@@ -13,12 +16,15 @@ import asyncio
 import contextlib
 import contextvars
 import functools
+import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Optional
 
+from nexus.config import yaml_bool, yaml_get
 from nexus.context import get_request_id, get_user_id
+from nexus.errors import NexusError
 from nexus.logging import get_logger
 from nexus.llm_config import resolve_app_name
 
@@ -32,9 +38,28 @@ METER_FLUSH_THRESHOLD = 20
 METER_FLUSH_DELAY = 15.0
 METER_BUFFER_MAX = 500
 
+# LLM 网关自动计费：kind → 计费 feature 映射（embed 是基础设施型调用，默认不计费）
+GATEWAY_KIND_FEATURE: dict[str, str] = {
+    "chat": "chat",
+    "chat_stream": "chat",
+    "extract": "extract",
+    "embed": "embed",
+}
+GATEWAY_KIND_DESC: dict[str, str] = {
+    "chat": "AI 对话",
+    "chat_stream": "AI 对话",
+    "extract": "AI 抽取",
+    "embed": "AI 向量",
+}
+DEFAULT_AUTO_CHARGE_KINDS = "chat,chat_stream,extract"
+CHARGE_MODE_CACHE_TTL = 300.0
 
-class CreditsInsufficientError(Exception):
-    """正式计费模式下余额不足（应用层捕获后转 402/引导充值文案）。"""
+
+class CreditsInsufficientError(NexusError):
+    """正式计费模式下余额不足（NexusError 402，全局异常处理自动转 JSON）。"""
+
+    status_code = 402
+    error_code = "INSUFFICIENT_CREDITS"
 
 
 @dataclass
@@ -86,6 +111,8 @@ class CreditsService:
         self._buffer: deque = deque(maxlen=METER_BUFFER_MAX)
         self._flush_task: Optional[asyncio.Task] = None
         self._meter_seq = 0
+        self._charge_seq = 0
+        self._charge_mode_cache: tuple[str, float] = ("", 0.0)
 
     @staticmethod
     def _sdk():
@@ -134,6 +161,7 @@ class CreditsService:
             logger.warning("积分消费异常(放行): %s", message)
             return ConsumeResult(allowed=True, reason="credits_unavailable")
         data = res.get("data") or {}
+        self._remember_charge_mode(str(data.get("charge_mode") or ""))
         return ConsumeResult(
             allowed=True,
             charged=bool(data.get("charged")),
@@ -178,6 +206,74 @@ class CreditsService:
             reason=str(data.get("reason") or "ok"),
             raw=data,
         )
+
+    def _remember_charge_mode(self, mode: str) -> None:
+        if mode:
+            self._charge_mode_cache = (mode, time.monotonic())
+
+    def _cached_charge_mode(self) -> str:
+        mode, ts = self._charge_mode_cache
+        if mode and time.monotonic() - ts < CHARGE_MODE_CACHE_TTL:
+            return mode
+        return ""
+
+    def _next_charge_seq(self) -> int:
+        self._charge_seq += 1
+        return self._charge_seq
+
+    @staticmethod
+    def _auto_charge_kinds() -> set[str]:
+        raw = yaml_get("credits", "auto_charge_kinds", DEFAULT_AUTO_CHARGE_KINDS)
+        return {k.strip() for k in raw.split(",") if k.strip()}
+
+    @classmethod
+    def gateway_feature(cls, kind: str) -> str:
+        """LLM kind → 计费 feature；网关计费关停（credits.auto_charge=false）返回空。"""
+        feature = GATEWAY_KIND_FEATURE.get(kind, "")
+        if not feature:
+            return ""
+        if not yaml_bool("credits", "auto_charge", True):
+            return ""
+        if kind not in cls._auto_charge_kinds():
+            return ""
+        return feature
+
+    async def auto_charge_llm(self, *, kind: str, app_name: str, request_id: str) -> None:
+        """LLM 网关出口自动计费：调用成功后按平台价扣积分，任何故障静默放行（绝不抛错）。
+
+        ref_id 幂等防 HTTP 重试双扣；显式动作计费的应用用 credits.auto_charge=false 关停。
+        """
+        feature = self.gateway_feature(kind)
+        if not feature:
+            return
+        try:
+            outcome = await self.consume(
+                feature,
+                ref_id=f"llm:{request_id}:{self._next_charge_seq()}"[:100],
+                description=GATEWAY_KIND_DESC.get(kind, ""),
+                app_key=app_name,
+            )
+            if not outcome.allowed:
+                logger.warning(
+                    "LLM 网关计费余额不足(trial 透支/formal 已由前置预检拦截): kind=%s app=%s",
+                    kind, app_name,
+                )
+        except Exception as exc:
+            logger.warning("LLM 网关计费失败(放行): %s", exc)
+
+    async def gateway_preflight(self, kind: str) -> None:
+        """正式计费模式下 LLM 调用前预检，余额不足抛 CreditsInsufficientError（402）。
+
+        仅当缓存的 charge_mode=formal 才发起预检请求——体验期/免费期零额外开销、零行为变化。
+        """
+        if self._cached_charge_mode() != "formal":
+            return
+        feature = self.gateway_feature(kind)
+        if not feature:
+            return
+        result = await self.precheck(feature)
+        if not result.allowed:
+            raise CreditsInsufficientError("积分余额不足，请充值后重试")
 
     def report_meter(
         self,
