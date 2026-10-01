@@ -50,3 +50,10 @@ class BillingMixin:
     async def billing_report_meters(self, items: list) -> dict:
         return await self._request("POST", "/api/billing/meters",
                                    json={"items": items}, headers=await self._service_headers())
+
+    async def billing_precheck(self, user_id: int, app_key: str, feature: str) -> dict:
+        return await self._request(
+            "GET",
+            f"/api/billing/precheck?app={app_key}&feature={feature}&user_id={user_id}",
+            headers=await self._service_headers(),
+        )

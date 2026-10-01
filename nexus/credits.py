@@ -38,6 +38,16 @@ class CreditsInsufficientError(Exception):
 
 
 @dataclass
+class PrecheckResult:
+    allowed: bool
+    cost: Optional[int] = None
+    balance: Optional[int] = None
+    charge_mode: str = ""
+    reason: str = ""
+    raw: dict = field(default_factory=dict)
+
+
+@dataclass
 class ConsumeResult:
     allowed: bool
     charged: bool = False
@@ -133,27 +143,41 @@ class CreditsService:
             raw=data,
         )
 
-    async def wallet(self, token: str) -> dict | None:
-        sdk = self._sdk()
-        if sdk is None or not token:
-            return None
-        try:
-            res = await sdk.billing_wallet_summary(token=token)
-            return res.get("data") if res.get("success") is not False else None
-        except Exception as exc:
-            logger.warning("积分钱包查询失败: %s", exc)
-            return None
+    async def precheck(
+        self,
+        feature: str,
+        user_id: int | str | None = None,
+        app_key: str | None = None,
+    ) -> PrecheckResult:
+        """动作前检查（定价+余额）：trial/off 恒放行；formal 余额不足 allowed=False。
 
-    async def catalog(self, token: str, app_key: str | None = None) -> dict | None:
+        任何积分系统故障 fail-open 放行，不阻塞业务主流程。
+        """
+        uid = str(user_id or _current_user_id() or "")
+        if not uid:
+            return PrecheckResult(allowed=True, reason="no_user_context")
         sdk = self._sdk()
-        if sdk is None or not token:
-            return None
+        if sdk is None:
+            return PrecheckResult(allowed=True, reason="credits_disabled")
         try:
-            res = await sdk.billing_catalog(token=token, app_key=app_key)
-            return res.get("data") if res.get("success") is not False else None
+            res = await sdk.billing_precheck(
+                user_id=int(uid), app_key=app_key or resolve_app_name(), feature=feature
+            )
         except Exception as exc:
-            logger.warning("积分目录查询失败: %s", exc)
-            return None
+            logger.warning("积分预检调用失败，放行: %s", exc)
+            return PrecheckResult(allowed=True, reason="credits_unavailable")
+        if res.get("success") is False:
+            logger.warning("积分预检异常(放行): %s", res.get("message"))
+            return PrecheckResult(allowed=True, reason="credits_unavailable")
+        data = res.get("data") or {}
+        return PrecheckResult(
+            allowed=bool(data.get("allowed", True)),
+            cost=data.get("cost"),
+            balance=data.get("balance"),
+            charge_mode=str(data.get("charge_mode") or ""),
+            reason=str(data.get("reason") or "ok"),
+            raw=data,
+        )
 
     def report_meter(
         self,

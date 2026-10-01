@@ -149,6 +149,7 @@ from nexus.channels import (
 from nexus.llm_client import LLMJsonClient
 from nexus.credits import (
     get_credits_service,
+    PrecheckResult,
     charged,
     credits_user_scope,
 )
@@ -266,7 +267,7 @@ __all__ = [
     "parse_llm_json_lenient", "parse_llm_json_or", "find_balanced_json", "with_retry",
     "strip_code_fence", "LLMTimeoutError", "get_llm_service", "LLMJsonClient",
     "get_image_service", "get_vision_service", "JSON_ONLY_HINT", "estimate_tokens",
-    "get_credits_service", "charged", "credits_user_scope",
+    "get_credits_service", "charged", "credits_user_scope", "PrecheckResult",
     "trim_context", "compact_history", "init_ironman", "ensure_ironman", "startup_ironman",
     "get_bootstrap", "is_ironman_available", "reload_ironman", "get_web_search_service",
     "SpiderSearchResult", "SpiderSearchResponse", "get_deep_research_service",

@@ -6,6 +6,7 @@ import pytest
 import nexus.credits as credits_module
 from nexus.credits import (
     CreditsInsufficientError,
+    PrecheckResult,
     CreditsService,
     charged,
     credits_user_scope,
@@ -14,11 +15,18 @@ from nexus.credits import (
 
 
 class FakeSdk:
-    def __init__(self, consume_result: dict | None = None, raise_on_report: bool = False):
+    def __init__(self, consume_result: dict | None = None, raise_on_report: bool = False,
+                 precheck_result: dict | None = None):
         self.consume_result = consume_result or {"success": True, "data": {"charged": True, "balance": 90}}
+        self.precheck_result = precheck_result or {
+            "success": True, "data": {"allowed": True, "cost": 30, "balance": 1200, "charge_mode": "trial", "reason": "ok"}
+        }
         self.raise_on_report = raise_on_report
         self.reported: list = []
         self.consumed: list = {}
+
+    async def billing_precheck(self, **kwargs) -> dict:
+        return self.precheck_result
 
     async def billing_consume(self, **kwargs) -> dict:
         self.consumed = kwargs
@@ -156,3 +164,31 @@ async def test_charged_decorator_passes_on_success(service, monkeypatch):
 def test_get_credits_service_singleton(monkeypatch):
     svc = get_credits_service()
     assert get_credits_service() is svc
+
+
+@pytest.mark.asyncio
+async def test_precheck_blocked_on_insufficient(service, monkeypatch):
+    sdk = FakeSdk(precheck_result={"success": True, "data": {
+        "allowed": False, "cost": 30, "balance": 10,
+        "charge_mode": "formal", "reason": "insufficient_balance",
+    }})
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    outcome = await service.precheck("generate", user_id=1)
+    assert outcome.allowed is False
+    assert outcome.reason == "insufficient_balance"
+    assert outcome.cost == 30
+
+
+@pytest.mark.asyncio
+async def test_precheck_fail_open_without_sdk(service, monkeypatch):
+    monkeypatch.setattr(service, "_sdk", lambda: None)
+    outcome = await service.precheck("generate", user_id=1)
+    assert outcome.allowed is True
+    assert outcome.reason == "credits_disabled"
+
+
+@pytest.mark.asyncio
+async def test_precheck_no_user_context(service):
+    outcome = await service.precheck("generate")
+    assert outcome.allowed is True
+    assert isinstance(outcome, PrecheckResult)
