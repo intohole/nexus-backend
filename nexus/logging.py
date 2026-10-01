@@ -123,6 +123,7 @@ def setup_loguru(
     log_dir: str = "logs",
     retention_days: int = 3,
     bridge_stdlib: bool = True,
+    extra_bridge_loggers: tuple[str, ...] = (),
 ) -> None:
     try:
         from loguru import logger
@@ -167,7 +168,7 @@ def setup_loguru(
 
     if bridge_stdlib:
         logging.basicConfig(handlers=[_StdlibToLoguruHandler()], level=logging.INFO, force=True)
-        for _name in ("uvicorn", "uvicorn.access", "uvicorn.error", "fastapi", "sqlalchemy", "ironman"):
+        for _name in ("uvicorn", "uvicorn.access", "uvicorn.error", "fastapi", "sqlalchemy", "ironman", *extra_bridge_loggers):
             _log = logging.getLogger(_name)
             _log.handlers = [_StdlibToLoguruHandler()]
             _log.propagate = False

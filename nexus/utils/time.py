@@ -45,6 +45,10 @@ class TimeUtils:
         return cls.now().replace(tzinfo=None)
 
     @classmethod
+    def now_utc_naive(cls) -> datetime:
+        return cls.now_utc().replace(tzinfo=None)
+
+    @classmethod
     def ensure_naive(cls, dt: datetime) -> datetime:
         if dt.tzinfo is not None:
             return dt.replace(tzinfo=None)
