@@ -14,20 +14,11 @@ import json
 import os
 import time
 from abc import ABC, abstractmethod
-from enum import Enum
 from typing import Any, Optional
 
 from nexus.logging import get_logger
 
 logger = get_logger("nexus.dialogue_history")
-
-
-class HistoryStrategy(str, Enum):
-    """历史保留策略。"""
-
-    FULL = "full"              # 全量保留（≤ max_turns 时默认）
-    SLIDING_WINDOW = "sliding"  # 滑动窗口（超过 max_turns 触发）
-    SUMMARIZE = "summarize"     # 摘要压缩（超过 summarize_threshold 触发）
 
 
 class HistoryStore(ABC):
@@ -273,20 +264,10 @@ async def get_history(
         return history
 
 
-def clear_history_cache(session_id: Optional[str] = None) -> None:
-    """清理历史缓存（主要用于测试或会话结束）。"""
-    if session_id:
-        _history_registry.pop(session_id, None)
-    else:
-        _history_registry.clear()
-
-
 __all__ = [
-    "HistoryStrategy",
     "HistoryStore",
     "InMemoryStore",
     "SQLiteStore",
     "ConversationHistory",
     "get_history",
-    "clear_history_cache",
 ]

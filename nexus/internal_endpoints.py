@@ -17,9 +17,9 @@ async def require_service_token(request: Request) -> None:
 
     supplied: str = request.headers.get("X-Service-Token", "")
     if not supplied:
-        auth: str = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            supplied = auth[7:].strip()
+        from nexus.auth import extract_bearer_token
+
+        supplied = extract_bearer_token(request.headers.get("Authorization")) or ""
     if not supplied:
         raise HTTPException(status_code=401, detail="Invalid service token")
 

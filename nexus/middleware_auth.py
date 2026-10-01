@@ -13,6 +13,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from nexus.logging import get_logger
 from nexus.middleware_base import TokenCache
+from nexus.utils.net import get_client_ip
 
 DEFAULT_WHITELIST_PATHS: Tuple[str, ...] = (
     "/health", "/api/health", "/",
@@ -208,10 +209,9 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
 
     @staticmethod
     def _bearer_token(request: Request) -> str:
-        auth: str = request.headers.get("Authorization", "")
-        if auth[:7].lower() == "bearer ":
-            return auth[7:].strip()
-        return ""
+        from nexus.auth import extract_bearer_token
+
+        return extract_bearer_token(request.headers.get("Authorization")) or ""
 
     def _extract_token(self, request: Request) -> str:
         header_token: str = request.headers.get("X-Service-Token", "")
@@ -233,7 +233,7 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
 
         service_token: str = self._get_service_token()
         if not service_token:
-            client_ip: str = request.client.host if request.client else "unknown"
+            client_ip: str = get_client_ip(request)
             self._logger.warning(
                 "SERVICE_TOKEN not set, denying non-public request: path=%s method=%s ip=%s",
                 path, request.method, client_ip,
@@ -254,7 +254,7 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
         if self._allow_user_tokens and bearer and await self._verifier.verify(bearer):
             return await call_next(request)
 
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = get_client_ip(request)
         self._logger.warning(
             "Service auth denied: path=%s method=%s ip=%s reason=%s",
             path, request.method, client_ip,
