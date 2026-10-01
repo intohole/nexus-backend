@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 
 import httpx
@@ -298,3 +299,31 @@ class LionSDK(BaseAsyncClient):
         if namespace:
             params["namespace"] = namespace
         return await self._request(path, params=params)
+
+_logger = logging.getLogger(__name__)
+
+
+async def fetch_llm_config(
+    key: str = "chat",
+    *,
+    base_url: str | None = None,
+    namespace: str | None = None,
+    prefer_gateway: bool = True,
+) -> dict[str, object] | None:
+    """拉取 Lion LLM 配置：错误信封与异常一律归一为 None，成功返回配置 dict。
+
+    业务仓「Lion 优先、本地 yaml 兜底」的标准入口；连接失败只记日志不抛，
+    调用方以 None 判断回退，避免把错误信封误当有效配置消费。
+    """
+    url = base_url or os.environ.get("LION_BASE_URL", "http://localhost:9527")
+    ns = namespace or os.environ.get("LION_NAMESPACE", "default")
+    try:
+        async with LionSDK(base_url=url, namespace=ns, fallback_namespace="default") as lion:
+            result = await lion.get_ready_config(key, prefer_gateway=prefer_gateway)
+    except Exception as exc:
+        _logger.warning("Lion config unavailable for key=%s: %s", key, exc)
+        return None
+    if not isinstance(result, dict) or result.get("success") is False:
+        _logger.warning("Lion config fetch failed for key=%s: %s", key, result.get("detail") if isinstance(result, dict) else result)
+        return None
+    return result

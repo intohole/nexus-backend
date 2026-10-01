@@ -1,3 +1,3 @@
-from .client import LionSDK
+from .client import LionSDK, fetch_llm_config
 
-__all__ = ["LionSDK"]
+__all__ = ["LionSDK", "fetch_llm_config"]
