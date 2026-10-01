@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from typing import Optional
 
@@ -100,6 +101,7 @@ class LionIntegration:
                 base_url=lion_cfg.base_url,
                 namespace=lion_cfg.namespace,
                 fallback_namespace="default",
+                service_token=os.getenv("LION_SERVICE_TOKEN") or None,
             ) as lion:
                 result = await lion.get_ready_config(key, prefer_gateway=prefer_gateway)
         except ImportError as exc:
@@ -144,6 +146,7 @@ class LionIntegration:
                 base_url=lion_cfg.base_url,
                 namespace=lion_cfg.namespace,
                 fallback_namespace="default",
+                service_token=os.getenv("LION_SERVICE_TOKEN") or None,
             ) as lion:
                 return await lion.get_infra_config(key)
         except ImportError:
@@ -177,6 +180,7 @@ class LionIntegration:
                 base_url=lion_cfg.base_url,
                 namespace=lion_cfg.namespace,
                 fallback_namespace="default",
+                service_token=os.getenv("LION_SERVICE_TOKEN") or None,
             ) as lion:
                 return await lion.get_business_config(key)
         except ImportError:
