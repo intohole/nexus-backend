@@ -145,7 +145,7 @@ def require_permission(permission_code: str) -> Callable:
             credentials, permission_code
         )
         if not has:
-            raise HTTPException(status_code=403, detail=f"权限不足: {permission_code}")
+            raise HTTPException(status_code=403, detail="无权限执行该操作")
         return user
     return dependency
 
