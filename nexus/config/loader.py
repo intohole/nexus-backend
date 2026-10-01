@@ -11,11 +11,11 @@ from nexus.config.factory import ConfigFactory
 from nexus.config.models import NexusConfig
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
+def deep_merge(base: dict, override: dict) -> dict:
     result = base.copy()
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = _deep_merge(result[key], value)
+            result[key] = deep_merge(result[key], value)
         else:
             result[key] = value
     return result
@@ -52,7 +52,7 @@ def load_project_config(
                 continue
             if resolve_env:
                 data = _resolve_env_tree_mode(data, missing)
-            merged = _deep_merge(merged, data)
+            merged = deep_merge(merged, data)
         return merged
     if isinstance(config_path, (list, tuple)):
         raise ValueError("load_project_config: multi-file merge requires raw=True")

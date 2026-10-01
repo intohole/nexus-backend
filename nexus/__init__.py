@@ -1,5 +1,6 @@
 from nexus.config import (
     NexusConfig,
+    deep_merge,
     get_settings,
     load_project_config,
     yaml_get,
@@ -233,7 +234,7 @@ except Exception:  # source-tree import without installed metadata
 
 __all__ = [
     "register_voice_endpoints",
-    "NexusConfig", "get_settings", "load_project_config", "yaml_get",
+    "NexusConfig", "get_settings", "load_project_config", "deep_merge", "yaml_get",
     "yaml_secret", "yaml_int", "yaml_float", "yaml_bool", "NexusError",
     "DatabaseError", "NotFoundError",
     "RateLimitError", "ForbiddenError",
