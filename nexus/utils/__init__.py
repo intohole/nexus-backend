@@ -4,6 +4,7 @@ from nexus.utils.convert import clamp, paginate_from_skip, safe_bool, safe_float
 from nexus.utils.http import HttpClient  # noqa: F401
 from nexus.utils.math import batch_cosine_similarity, cosine_similarity  # noqa: F401
 from nexus.utils.net import HealthRegistry, get_client_ip, resolve_cors_origins  # noqa: F401
+from nexus.utils.retry import RetryExhausted, backoff_delay, is_retryable_error, with_retry  # noqa: F401
 from nexus.utils.time import TimeUtils  # noqa: F401
 
 __all__ = [
@@ -11,6 +12,10 @@ __all__ = [
     "MemoryCache",
     "SyncTTLCache",
     "HttpClient",
+    "with_retry",
+    "is_retryable_error",
+    "backoff_delay",
+    "RetryExhausted",
     "HealthRegistry",
     "clamp",
     "safe_float",

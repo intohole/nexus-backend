@@ -124,7 +124,9 @@ def setup_loguru(
     retention_days: int = 3,
     bridge_stdlib: bool = True,
     extra_bridge_loggers: tuple[str, ...] = (),
+    console_stream: object = None,
 ) -> None:
+    """console_stream 缺省 stdout；resumeAI 等需避开 uvicorn stdout 的仓传 sys.stderr。"""
     try:
         from loguru import logger
     except ImportError:
@@ -138,11 +140,13 @@ def setup_loguru(
     logger.remove()
 
     logger.add(
-        _os.sys.stdout,
+        console_stream if console_stream is not None else _os.sys.stdout,
         colorize=True,
         format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
         level=log_level,
         enqueue=True,
+        backtrace=True,
+        diagnose=False,
     )
 
     logger.add(
@@ -153,6 +157,8 @@ def setup_loguru(
         encoding="utf-8",
         level=log_level,
         enqueue=True,
+        backtrace=True,
+        diagnose=False,
         filter=lambda record: record["level"].no < 40,
     )
 
@@ -164,6 +170,8 @@ def setup_loguru(
         encoding="utf-8",
         level="ERROR",
         enqueue=True,
+        backtrace=True,
+        diagnose=False,
     )
 
     if bridge_stdlib:
