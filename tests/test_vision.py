@@ -25,7 +25,7 @@ def test_sniff_and_data_url():
 
 
 def test_normalize_images():
-    from nexus.vision import GATEWAY_VISION_PATH, VisionService
+    from nexus.vision import VisionService
 
     service = VisionService()
     assert service._normalize_images("https://a.com/1.png") == ["https://a.com/1.png"]
@@ -77,7 +77,7 @@ async def test_recognize_uses_gateway(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_recognize_json_parses(monkeypatch):
-    from nexus.vision import GATEWAY_VISION_PATH, VisionService
+    from nexus.vision import VisionService
 
     service = VisionService()
     service._base_url = "http://gateway"
@@ -96,7 +96,7 @@ async def test_recognize_json_parses(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_recognize_json_invalid_raises(monkeypatch):
-    from nexus.vision import GATEWAY_VISION_PATH, VisionService
+    from nexus.vision import VisionService
 
     service = VisionService()
     service._base_url = "http://gateway"
@@ -114,7 +114,7 @@ async def test_recognize_json_invalid_raises(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_review_backward_compat(monkeypatch):
-    from nexus.vision import GATEWAY_VISION_PATH, VisionService
+    from nexus.vision import VisionService
 
     service = VisionService()
     service._base_url = "http://gateway"

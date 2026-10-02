@@ -1,8 +1,6 @@
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from nexus.config import ConfigFactory, load_project_config
 
 

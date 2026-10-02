@@ -1,5 +1,3 @@
-import pytest
-
 from nexus.user_display import DEFAULT_DISPLAY_NAME, resolve_display_name
 
 

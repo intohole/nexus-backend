@@ -4,8 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import Request
-from starlette.datastructures import Headers
-
 from nexus.response import spa_index_response
 
 INDEX_HTML = "<html><head><title>t</title></head><body>hello</body></html>"

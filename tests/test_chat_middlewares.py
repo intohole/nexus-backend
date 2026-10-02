@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine
 
 from conftest import FakeHandler, MetaHandler, build_chat
 from nexus.chat import (
