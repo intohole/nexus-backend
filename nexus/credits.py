@@ -154,6 +154,10 @@ class CreditsService:
             return ConsumeResult(allowed=True, reason="credits_unavailable")
         if res.get("success") is False:
             message = str(res.get("message") or "")
+            if "额度已用完" in message:
+                return ConsumeResult(
+                    allowed=False, reason="overdraft_limit", raw=res
+                )
             if "余额不足" in message:
                 return ConsumeResult(
                     allowed=False, reason="insufficient_balance", raw=res
@@ -262,17 +266,23 @@ class CreditsService:
             logger.warning("LLM 网关计费失败(放行): %s", exc)
 
     async def gateway_preflight(self, kind: str) -> None:
-        """正式计费模式下 LLM 调用前预检，余额不足抛 CreditsInsufficientError（402）。
+        """计费模式下 LLM 调用前预检，余额不足/体验授信用尽抛 CreditsInsufficientError（402）。
 
-        仅当缓存的 charge_mode=formal 才发起预检请求——体验期/免费期零额外开销、零行为变化。
+        缓存的 charge_mode 为 trial 或 formal 时发起预检——trial 拦的是体验授信超限
+        （fair-use），formal 拦的是余额不足；off 与缓存冷启动零开销直通。
         """
-        if self._cached_charge_mode() != "formal":
+        mode = self._cached_charge_mode()
+        if mode not in ("trial", "formal"):
             return
         feature = self.gateway_feature(kind)
         if not feature:
             return
         result = await self.precheck(feature)
         if not result.allowed:
+            if result.reason == "overdraft_limit":
+                raise CreditsInsufficientError(
+                    "免费体验额度已用完，每日赠送积分到账后可继续使用"
+                )
             raise CreditsInsufficientError("积分余额不足，请充值后重试")
 
     def report_meter(

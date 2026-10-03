@@ -287,13 +287,46 @@ async def test_gateway_preflight_blocks_formal(service, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_gateway_preflight_skips_when_cache_not_formal(service, monkeypatch):
+async def test_gateway_preflight_skips_when_cache_empty_or_off(service, monkeypatch):
     sdk = FakeSdk()
     monkeypatch.setattr(service, "_sdk", lambda: sdk)
     await service.gateway_preflight("chat")
-    service._remember_charge_mode("trial")
+    service._remember_charge_mode("off")
     await service.gateway_preflight("chat")
     assert sdk.precheck_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_gateway_preflight_prechecks_in_trial(service, monkeypatch):
+    sdk = FakeSdk()
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    service._remember_charge_mode("trial")
+    with credits_user_scope(7):
+        await service.gateway_preflight("chat")
+    assert sdk.precheck_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_gateway_preflight_blocks_trial_overdraft_limit(service, monkeypatch):
+    sdk = FakeSdk(precheck_result={"success": True, "data": {
+        "allowed": False, "cost": 10, "balance": 0,
+        "charge_mode": "trial", "reason": "overdraft_limit",
+    }})
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    service._remember_charge_mode("trial")
+    with credits_user_scope(7), pytest.raises(CreditsInsufficientError) as exc_info:
+        await service.gateway_preflight("chat")
+    assert "免费体验额度已用完" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_consume_detects_overdraft_exhausted_message(service, monkeypatch):
+    sdk = FakeSdk({"success": False,
+                   "message": "免费体验额度已用完（体验授信 60/60），每日赠送积分到账后可继续使用"})
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    outcome = await service.consume("chat", user_id=1)
+    assert outcome.allowed is False
+    assert outcome.reason == "overdraft_limit"
 
 
 @pytest.mark.asyncio
