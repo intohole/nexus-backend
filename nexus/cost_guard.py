@@ -139,7 +139,7 @@ class CostGuard:
 
     async def call_with_guard(self, func: Callable[..., Awaitable[object]], estimated_tokens: int = 0,
                               model: str = "", operation: str = "", *args: object, **kwargs: object) -> object:
-        check = await self.check_budget(estimated_tokens=estimated_tokens, model=model)
+        check = await self.check_budget(estimated_tokens=estimated_tokens)
         if not check["allowed"]:
             raise CostBudgetExceededError(str(check["reason"]))
         result = await func(*args, **kwargs)
