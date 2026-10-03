@@ -191,6 +191,12 @@ from nexus.streaming import (
     sse_data_line,
     sse_response,
     sse_chat_stream_v2,
+    openai_sse_deltas,
+)
+from nexus.time_budget import (
+    GenerationBudget,
+    set_generation_budget,
+    current_budget,
 )
 from nexus.circuit_breaker import (
     CircuitBreaker,
@@ -277,7 +283,8 @@ __all__ = [
     "get_bootstrap", "is_ironman_available", "reload_ironman", "get_web_search_service",
     "SpiderSearchResult", "SpiderSearchResponse", "get_deep_research_service",
     "InMemoryStore", "SQLiteStore", "get_history", "sse_event_dict", "sse_data_line",
-    "sse_response", "sse_chat_stream_v2", "SSEManager",
+    "sse_response", "sse_chat_stream_v2", "SSEManager", "openai_sse_deltas",
+    "GenerationBudget", "set_generation_budget", "current_budget",
     "SSEConnectionError", "sse_event_generator", "NotificationChannel", "VALID_CHANNELS",
     "ChannelDispatcher", "CircuitBreaker", "CircuitBreakerConfig", "CircuitState",
     "CircuitMetrics", "CircuitBreakerOpenError", "get_circuit_breaker", "CostGuard",

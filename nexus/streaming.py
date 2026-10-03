@@ -51,6 +51,27 @@ THINK_OPEN = "<think>"
 THINK_CLOSE = "</think>"
 
 
+async def openai_sse_deltas(lines: AsyncIterator[str]) -> AsyncIterator[str]:
+    """解析 OpenAI 兼容 SSE 行流，产出 content 增量（客户端侧，与 emit 侧 sse_* 对偶）。
+
+    lines 为按行迭代的异步流（如 httpx resp.aiter_lines()）；提取 data: 帧
+    delta.content，[DONE] 哨兵终止，坏帧静默跳过。
+    """
+    async for line in lines:
+        if not line.startswith("data:"):
+            continue
+        raw = line[5:].strip()
+        if raw == "[DONE]":
+            break
+        try:
+            chunk = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        content = ((chunk.get("choices") or [{}])[0].get("delta") or {}).get("content")
+        if content:
+            yield content
+
+
 class ThinkStreamFilter:
     """流式 <think> 标签过滤器：增量喂入 content，输出剥离思维链后的文本。
 
