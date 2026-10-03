@@ -127,7 +127,7 @@ class LLMService:
         app_name: str,
         request_id: str,
         kind: str,
-    ) -> str:
+    ) -> tuple[str, object]:
         circuit = get_llm_circuit()
         async with llm_telemetry(kind, app_name, request_id) as (metrics, start):
             async def _do_with_circuit() -> object:
@@ -142,7 +142,22 @@ class LLMService:
                 "LLM %s completed [req_id=%s, app=%s, latency=%.2fs]",
                 kind, request_id, app_name, time.monotonic() - start,
             )
-            return result
+            return result, response
+
+    @staticmethod
+    def _usage_payload(result: str, response: object) -> dict[str, object]:
+        """从 ironman LLMResponse 提取调用方可见的用量账单（缓存命中时 response 为 None）。"""
+        usage = getattr(response, "usage", None)
+        return {
+            "content": result,
+            "model": getattr(response, "model", "") or "",
+            "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+            "cached_tokens": int(getattr(usage, "cached_tokens", 0) or 0),
+            "cost_usd": float(getattr(response, "cost_usd", 0.0) or 0.0),
+            "latency_ms": int(float(getattr(response, "latency_ms", 0.0) or 0.0)),
+            "provider": getattr(response, "provider", "") or "",
+            "cached": bool(getattr(response, "cached", False)) or response is None,
+        }
 
     async def chat(
         self,
@@ -160,7 +175,8 @@ class LLMService:
         model: Optional[str] = None,
         enable_thinking: bool = False,
         thinking_budget: int = 8192,
-    ) -> str:
+        _want_usage: bool = False,
+    ) -> str | dict[str, object]:
         opts, temp, eff_max, budget_mode = await self._prepare_call(
             temperature=temperature, max_tokens=max_tokens, task_type=task_type,
             output_mode=output_mode, json_mode=json_mode, namespace=namespace,
@@ -173,7 +189,7 @@ class LLMService:
             key: str = PromptCache.make_messages_key(system, messages, temp, eff_max)
             hit: Optional[str] = cache.get(key)
             if hit is not None:
-                return hit
+                return self._usage_payload(hit, None) if _want_usage else hit
         from ironman import chat as _chat
         request_id: str = get_request_id() or "-"
         app_name: str = resolve_app_name()
@@ -182,10 +198,20 @@ class LLMService:
         async def _do() -> object:
             return await _chat(messages=ironman_messages, llm=opts)
 
-        result = await self._execute(_do, timeout, max_retries, app_name, request_id, "chat")
+        result, response = await self._execute(_do, timeout, max_retries, app_name, request_id, "chat")
         await _charge("chat", app_name, request_id)
         if cache is not None and result:
             cache.set(key, result)
+        return self._usage_payload(result, response) if _want_usage else result
+
+    async def chat_with_usage(self, messages: list[dict[str, str]], **kwargs) -> dict[str, object]:
+        """chat 的带账单版：返回 {content, model, total_tokens, cached_tokens, cost_usd, latency_ms, provider, cached}。
+
+        计费/熔断/重试/缓存/json_mode 语义与 chat 完全一致；缓存命中时 usage 为 0 且 cached=True。
+        """
+        kwargs["_want_usage"] = True
+        result = await self.chat(messages=messages, **kwargs)
+        assert isinstance(result, dict)
         return result
 
     async def ask(self, prompt: str, system: Optional[str] = None, **kwargs) -> str:
