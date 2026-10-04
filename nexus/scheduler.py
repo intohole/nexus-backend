@@ -118,6 +118,10 @@ class NexusScheduler:
             if day_of_week is not None:
                 trigger_kwargs["day_of_week"] = day_of_week
             trigger = CronTrigger(**trigger_kwargs)
+        # 墙钟对齐的意义在部署重启后依然成立：默认给 6h misfire 容忍 + 合并补跑，
+        # 停机跨过触发点的 job 恢复后立即补跑一次，而不是默认 1s 容忍直接丢弃等下个周期。
+        kwargs.setdefault("misfire_grace_time", 6 * 3600)
+        kwargs.setdefault("coalesce", True)
         scheduler.add_job(
             func, trigger=trigger, id=job_id, replace_existing=True, **kwargs
         )
