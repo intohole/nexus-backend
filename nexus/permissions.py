@@ -104,9 +104,18 @@ class ApiKeyDependencies:
         sdk = await get_auth_deps().get_sdk()
         if sdk is None:
             return None
+        from nexus.service_client import get_service_token
+
+        service_token = await get_service_token()
+        if not service_token:
+            logger.warning("API key verify skipped: service token 未配置")
+            return None
         try:
+            # UC internal 端点鉴权只读 X-Service-Token（不放 Authorization，
+            # SDK 的用户/服务 Bearer 不会被 _require_service_token 接受）
             result = await sdk._request(
                 "POST", "/api/internal/api-key/verify",
+                headers={"X-Service-Token": service_token},
                 json={"api_key": api_key, "scope": scope},
             )
         except Exception as exc:
