@@ -8,6 +8,7 @@ VALID_CHANNELS: list[str] = [
     "in_app",
     "email",
     "webhook",
+    "notifycenter",
     "wecom",
     "wechat",
     "dingtalk",

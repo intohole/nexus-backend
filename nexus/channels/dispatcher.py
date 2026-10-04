@@ -35,6 +35,11 @@ class ChannelDispatcher:
         except Exception as exc:
             logger.warning("Email channel init failed: %s", exc)
         try:
+            from nexus.channels.notifycenter import NotifyCenterChannel
+            self._channels["notifycenter"] = NotifyCenterChannel()
+        except Exception as exc:
+            logger.warning("NotifyCenter channel init failed: %s", exc)
+        try:
             from nexus.channels.robot import (
                 BarkChannel,
                 DingTalkChannel,
