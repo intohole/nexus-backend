@@ -10,10 +10,11 @@ class BillingMixin:
         return {"X-Service-Token": token} if token else {}
 
     async def billing_consume(self, user_id: int, app_key: str, feature: str,
-                              ref_id: str, description: str = None) -> dict:
+                              ref_id: str, description: str = None,
+                              cost_factor: float = 1.0) -> dict:
         return await self._request("POST", "/api/billing/consume", json={
             "user_id": user_id, "app": app_key, "feature": feature,
-            "ref_id": ref_id, "description": description,
+            "ref_id": ref_id, "description": description, "cost_factor": cost_factor,
         }, headers=await self._service_headers())
 
     async def billing_quote(self, app_key: str, feature: str) -> dict:
@@ -51,9 +52,11 @@ class BillingMixin:
         return await self._request("POST", "/api/billing/meters",
                                    json={"items": items}, headers=await self._service_headers())
 
-    async def billing_precheck(self, user_id: int, app_key: str, feature: str) -> dict:
+    async def billing_precheck(self, user_id: int, app_key: str, feature: str,
+                               cost_factor: float = 1.0) -> dict:
         return await self._request(
             "GET",
-            f"/api/billing/precheck?app={app_key}&feature={feature}&user_id={user_id}",
+            f"/api/billing/precheck?app={app_key}&feature={feature}"
+            f"&user_id={user_id}&cost_factor={cost_factor}",
             headers=await self._service_headers(),
         )

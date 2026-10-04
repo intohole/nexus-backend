@@ -36,21 +36,21 @@ async def _meter(kind: str, app_name: str, request_id: str, response: object = N
                            latency_s=(time.monotonic() - start) if start else 0.0, calls=calls)
 
 
-async def _preflight(kind: str) -> None:
+async def _preflight(kind: str, model: str = "") -> None:
     """正式计费模式下调用前预检；CreditsInsufficientError(402) 放行，其余积分故障静默。"""
     try:
-        await get_credits_service().gateway_preflight(kind)
+        await get_credits_service().gateway_preflight(kind, model=model)
     except CreditsInsufficientError:
         raise
     except Exception:
         pass
 
 
-async def _charge(kind: str, app_name: str, request_id: str) -> None:
-    """调用成功后网关自动计费（fail-open，绝不影响响应）。"""
+async def _charge(kind: str, app_name: str, request_id: str, model: str = "") -> None:
+    """调用成功后网关自动计费（fail-open，绝不影响响应），按模型档位系数定价。"""
     try:
         await get_credits_service().auto_charge_llm(
-            kind=kind, app_name=app_name, request_id=request_id
+            kind=kind, app_name=app_name, request_id=request_id, model=model
         )
     except Exception:
         pass
@@ -201,7 +201,7 @@ class LLMService:
             return await _chat(messages=ironman_messages, llm=opts)
 
         result, response = await self._execute(_do, timeout, max_retries, app_name, request_id, "chat")
-        await _charge("chat", app_name, request_id)
+        await _charge("chat", app_name, request_id, model=str(getattr(response, "model", "") or ""))
         if cache is not None and result:
             cache.set(key, result)
         return self._usage_payload(result, response) if _want_usage else result
@@ -307,7 +307,7 @@ class LLMService:
         request_id: str = get_request_id() or "-"
         app_name: str = resolve_app_name()
         start: float = time.monotonic()
-        await _preflight("chat_stream")
+        await _preflight("chat_stream", model=str(getattr(opts, "model", "") or ""))
         produced: bool = False
         try:
             async for chunk in stream_chunks(_chat_stream, ironman_messages, opts):
@@ -316,7 +316,8 @@ class LLMService:
         finally:
             await _meter("chat_stream", app_name, request_id, start=start)
             if produced:
-                await _charge("chat_stream", app_name, request_id)
+                await _charge("chat_stream", app_name, request_id,
+                              model=str(getattr(opts, "model", "") or ""))
 
     async def stream_ask(self, prompt: str, system: Optional[str] = None, **kwargs) -> AsyncGenerator[str, None]:
         """单轮流式提问 = 单条 user 消息的 stream_chat。"""

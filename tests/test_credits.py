@@ -46,19 +46,19 @@ def service(monkeypatch):
     svc = CreditsService()
     monkeypatch.setattr(credits_module, "_credits_service", svc)
     yield svc
-    if svc._flush_task is not None:
-        svc._flush_task.cancel()
+    if svc._meters._flush_task is not None:
+        svc._meters._flush_task.cancel()
 
 
 def test_report_meter_requires_user_context(service):
     service.report_meter("chat", input_tokens=10)
-    assert not service._buffer
+    assert not service._meters._buffer
 
 
 def test_report_meter_buffers_with_explicit_user(service):
     service.report_meter("chat", user_id=1, input_tokens=10, output_tokens=5)
-    assert len(service._buffer) == 1
-    item = service._buffer[0]
+    assert len(service._meters._buffer) == 1
+    item = service._meters._buffer[0]
     assert item["user_id"] == 1
     assert item["kind"] == "chat"
     assert item["meter_key"]
@@ -67,7 +67,7 @@ def test_report_meter_buffers_with_explicit_user(service):
 def test_report_meter_uses_user_scope(service):
     with credits_user_scope(42):
         service.report_meter("embed", calls=2)
-    assert service._buffer[0]["user_id"] == 42
+    assert service._meters._buffer[0]["user_id"] == 42
 
 
 @pytest.mark.asyncio
@@ -78,7 +78,7 @@ async def test_flush_meters_posts_batches(service, monkeypatch):
         service.report_meter("chat", user_id=1, input_tokens=i)
     await service.flush_meters()
     assert len(sdk.reported) == 3
-    assert not service._buffer
+    assert not service._meters._buffer
 
 
 @pytest.mark.asyncio
@@ -87,7 +87,7 @@ async def test_flush_meters_requeues_on_failure(service, monkeypatch):
     monkeypatch.setattr(service, "_sdk", lambda: sdk)
     service.report_meter("chat", user_id=1, input_tokens=7)
     await service.flush_meters()
-    assert len(service._buffer) == 1
+    assert len(service._meters._buffer) == 1
     assert not sdk.reported
 
 
@@ -214,12 +214,14 @@ def test_gateway_feature_default_kinds():
 
 
 def test_gateway_feature_disabled_by_config(monkeypatch):
-    monkeypatch.setattr(credits_module, "yaml_bool", lambda *a, **k: False)
+    import nexus.credits_gateway as gateway_module
+    monkeypatch.setattr(gateway_module, "yaml_bool", lambda *a, **k: False)
     assert CreditsService.gateway_feature("chat") == ""
 
 
 def test_gateway_feature_respects_kinds_filter(monkeypatch):
-    monkeypatch.setattr(credits_module, "yaml_get", lambda *a, **k: "chat")
+    import nexus.credits_gateway as gateway_module
+    monkeypatch.setattr(gateway_module, "yaml_get", lambda *a, **k: "chat")
     assert CreditsService.gateway_feature("chat") == "chat"
     assert CreditsService.gateway_feature("extract") == ""
 
@@ -346,3 +348,84 @@ async def test_gateway_preflight_allows_formal_with_balance(service, monkeypatch
     with credits_user_scope(7):
         await service.gateway_preflight("chat")
     assert sdk.precheck_calls == 1
+
+
+def test_resolve_model_tier_defaults():
+    from nexus.credits_tiers import resolve_model_tier
+
+    assert resolve_model_tier("") == ("standard", 1.0)
+    assert resolve_model_tier("glm-4.5")[0] == "premium"
+    assert resolve_model_tier("GLM-4.5-Flash")[0] == "lite"
+    assert resolve_model_tier("unknown-model-x") == ("standard", 1.0)
+    tier, factor = resolve_model_tier("gpt-4o")
+    assert tier == "premium" and factor == 2.0
+    tier, factor = resolve_model_tier("qwen-turbo")
+    assert tier == "lite" and factor == 0.5
+
+
+def test_auto_charge_llm_applies_tier_factor(service, monkeypatch):
+    sdk = FakeSdk()
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    import nexus.credits_gateway as gateway_module
+    monkeypatch.setattr(gateway_module, "yaml_bool", lambda *a, **k: True)
+    monkeypatch.setattr(gateway_module, "yaml_get",
+                        lambda *a, **k: "chat,chat_stream,extract" if (a[1] if len(a) > 1 else k.get("key")) == "auto_charge_kinds" else "")
+    import asyncio
+    with credits_user_scope(7):
+        asyncio.run(service.auto_charge_llm(kind="chat", app_name="demoApp", request_id="req_t1", model="gpt-4o"))
+        asyncio.run(service.auto_charge_llm(kind="chat", app_name="demoApp", request_id="req_t2", model="glm-4.5-flash"))
+        asyncio.run(service.auto_charge_llm(kind="chat", app_name="demoApp", request_id="req_t3", model="mystery"))
+    assert len(sdk.consumed) == 3
+    assert sdk.consumed[0]["cost_factor"] == 2.0
+    assert "旗舰" in (sdk.consumed[0]["description"] or "")
+    assert sdk.consumed[1]["cost_factor"] == 0.5
+    assert sdk.consumed[2]["cost_factor"] == 1.0
+    assert sdk.consumed[0]["ref_id"] != sdk.consumed[1]["ref_id"]
+
+
+def test_precheck_caches_allowed_result(service, monkeypatch):
+    sdk = FakeSdk()
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    import asyncio
+    r1 = asyncio.run(service.precheck("chat", user_id=7))
+    r2 = asyncio.run(service.precheck("chat", user_id=7))
+    assert sdk.precheck_calls == 1
+    assert r2.allowed is True
+    r3 = asyncio.run(service.precheck("chat", user_id=8))
+    assert sdk.precheck_calls == 2
+    asyncio.run(service.precheck("extract", user_id=7))
+    assert sdk.precheck_calls == 3
+
+
+def test_precheck_does_not_cache_rejection(service, monkeypatch):
+    sdk = FakeSdk(precheck_result={
+        "success": True, "data": {"allowed": False, "cost": 30, "balance": 0,
+                                  "charge_mode": "formal", "reason": "insufficient_balance"}
+    })
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    import asyncio
+    r1 = asyncio.run(service.precheck("chat", user_id=7))
+    r2 = asyncio.run(service.precheck("chat", user_id=7))
+    assert sdk.precheck_calls == 2
+    assert r1.allowed is False and r2.allowed is False
+
+
+def test_consume_threads_cost_factor(service, monkeypatch):
+    sdk = FakeSdk()
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    import asyncio
+    asyncio.run(service.consume("chat", user_id=7, cost_factor=2.0))
+    assert sdk.consumed[0]["cost_factor"] == 2.0
+
+
+def test_gateway_preflight_uses_model_factor(service, monkeypatch):
+    sdk = FakeSdk()
+    monkeypatch.setattr(service, "_sdk", lambda: sdk)
+    import nexus.credits_gateway as gateway_module
+    monkeypatch.setattr(gateway_module, "yaml_bool", lambda *a, **k: True)
+    service._remember_charge_mode("trial")
+    import asyncio
+    with credits_user_scope(7):
+        asyncio.run(service.gateway_preflight("chat", model="gpt-4o"))
+    assert sdk.precheck_calls == 1
+    assert sdk.precheck_result["success"] is True
