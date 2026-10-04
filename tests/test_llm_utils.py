@@ -80,6 +80,18 @@ class TestParseLlmJson:
         result = parse_llm_json('```json\n{broken\n```')
         assert "raw_response" in result
 
+    def test_fallback_none_returns_none_on_failure(self):
+        assert parse_llm_json('完全不是 JSON', fallback=None) is None
+
+    def test_fallback_dict_returns_fallback_on_failure(self):
+        assert parse_llm_json('```json\n{broken\n```', fallback={"items": []}) == {"items": []}
+
+    def test_fallback_not_used_on_success(self):
+        assert parse_llm_json('{"a": 1}', fallback=None) == {"a": 1}
+
+    def test_fallback_preserves_repair_chain(self):
+        assert parse_llm_json('{"a": 1,}', fallback=[]) == {"a": 1}
+
 
 class TestParseLlmJsonLenient:
     def test_object(self):

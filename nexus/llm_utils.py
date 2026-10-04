@@ -11,6 +11,9 @@ logger = logging.getLogger("nexus.llm_utils")
 
 T = TypeVar("T")
 
+# parse_llm_json(fallback=) 的「未传」哨兵：与显式传 fallback=None（失败返回 None）区分
+_UNSET = object()
+
 
 # P1: 不可重试的 HTTP 状态码（4xx 客户端错误，除 429 限流）
 _NON_RETRYABLE_STATUS_CODES: tuple[str, ...] = ("400", "401", "403", "404", "422")
@@ -130,7 +133,13 @@ def find_balanced_json(content: str) -> Optional[str]:
     return None
 
 
-def parse_llm_json(raw: str) -> dict[str, object]:
+def parse_llm_json(raw: str, fallback: object = _UNSET) -> dict[str, object]:
+    """解析 LLM 输出为 JSON 对象，逐级降级修复。
+
+    失败时：未传 fallback 返回 {"raw_response": text} 哨兵（既有语义）；
+    显式传 fallback（含 None）则返回该值——业务侧「失败返回默认值/None」
+    的 shim 样板单源化入口。
+    """
     text = strip_code_fence(raw)
 
     try:
@@ -194,6 +203,8 @@ def parse_llm_json(raw: str) -> dict[str, object]:
                 pass
 
     logger.warning("JSON parse failed after all attempts: %s", text[:300])
+    if fallback is not _UNSET:
+        return fallback  # type: ignore[return-value]
     return {"raw_response": text}
 
 def parse_llm_json_lenient(raw: str) -> Optional[object]:
