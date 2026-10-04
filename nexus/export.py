@@ -4,6 +4,9 @@ from __future__ import annotations
 import csv
 import io
 from typing import Any
+from urllib.parse import quote
+
+from fastapi import Response
 
 from nexus.logging import get_logger
 
@@ -47,3 +50,28 @@ def dicts_to_excel(headers: list[tuple[str, str]], rows: list[dict[str, Any]]) -
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+def _content_disposition(filename: str, fallback: str = "download") -> str:
+    filename = filename.replace('"', "").replace("\n", "").replace("\r", "").strip() or fallback
+    encoded = quote(filename)
+    ascii_name = filename.encode("ascii", "ignore").decode("ascii")
+    if not any(c.isalnum() for c in ascii_name):
+        ascii_name = fallback
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}"
+
+
+def file_download_response(
+    content: bytes | str,
+    filename: str,
+    media_type: str = "application/octet-stream",
+) -> Response:
+    """构造带 RFC 5987 双帧 Content-Disposition 的文件下载响应。
+
+    filename 支持中文（filename* UTF-8 帧），ascii 兜底帧供旧客户端；
+    文件名中的引号/换行会被清洗，清洗后为空时用 fallback。
+    """
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": _content_disposition(filename)},
+    )

@@ -58,7 +58,7 @@ from nexus.middleware import (
     ServiceAuthMiddleware,
     setup_exception_handlers,
 )
-from nexus.rate_limit import RateLimitMiddleware, SlidingWindow, TokenBucket
+from nexus.rate_limit import KeyedRateLimiter, RateLimitMiddleware, SlidingWindow, TokenBucket
 from nexus.audit_middleware import AuditMiddleware
 from nexus.audit import log_audit
 from nexus.config import RateLimitConfig as RateLimitConfig
@@ -256,7 +256,7 @@ __all__ = [
     "mount_spa_static", "setup_cors", "RequestIdMiddleware", "NoCacheMiddleware",
     "LoggingMiddleware", "NotFoundCheckMiddleware", "StaticAssetsCacheMiddleware",
     "LoadingSplashMiddleware", "ErrorHandlerMiddleware", "ServiceAuthMiddleware",
-    "setup_exception_handlers", "RateLimitMiddleware", "SlidingWindow", "TokenBucket", "RateLimitConfig",
+    "setup_exception_handlers", "RateLimitMiddleware", "SlidingWindow", "TokenBucket", "KeyedRateLimiter", "RateLimitConfig",
     "AuditMiddleware", "log_audit", "AuthDependencies", "get_current_user_id_required",
     "get_current_user_id_optional", "get_current_user_full",
     "get_current_user_full_normalized", "get_user_string_id", "parse_user_id",

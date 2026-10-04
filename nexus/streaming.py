@@ -51,6 +51,47 @@ THINK_OPEN = "<think>"
 THINK_CLOSE = "</think>"
 
 
+def _openai_sse_payloads(raw: str):
+    """逐帧产出 OpenAI 兼容 SSE 文本中的已解析 JSON 载荷（全文回读变体的共用游标）。"""
+    for line in raw.splitlines():
+        if not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if data == "[DONE]":
+            continue
+        try:
+            yield json.loads(data)
+        except json.JSONDecodeError:
+            continue
+
+
+def openai_sse_content(raw: str) -> str:
+    """解析 OpenAI 兼容 SSE 全文，拼接全部 content 增量（openai_sse_deltas 的同步全文版）。
+
+    遍历所有 choices（n>1 时 output token 口径需涵盖全部）；用于拿到完整响应
+    后回读统计/落库的场景；坏帧静默跳过。
+    """
+    parts: list[str] = []
+    for chunk in _openai_sse_payloads(raw):
+        for choice in chunk.get("choices") or []:
+            content = (choice.get("delta") or {}).get("content")
+            if content:
+                parts.append(content)
+    return "".join(parts)
+
+
+def openai_sse_usage(raw: str) -> Optional[dict[str, Any]]:
+    """提取 OpenAI 兼容 SSE 的 usage 帧（stream_options.include_usage 的末帧）。
+
+    返回首个非空 usage dict，无则 None；坏帧静默跳过。
+    """
+    for chunk in _openai_sse_payloads(raw):
+        usage = chunk.get("usage")
+        if isinstance(usage, dict) and usage:
+            return usage
+    return None
+
+
 async def openai_sse_deltas(lines: AsyncIterator[str]) -> AsyncIterator[str]:
     """解析 OpenAI 兼容 SSE 行流，产出 content 增量（客户端侧，与 emit 侧 sse_* 对偶）。
 
@@ -321,4 +362,7 @@ __all__ = [
     "sse_response",
     "sse_chat_stream_v2",
     "ThinkStreamFilter",
+    "openai_sse_deltas",
+    "openai_sse_content",
+    "openai_sse_usage",
 ]
