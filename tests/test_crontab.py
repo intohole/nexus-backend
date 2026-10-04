@@ -103,6 +103,76 @@ def test_scheduler_scanner_error_isolated() -> None:
     assert "good" in scans
 
 
+def test_scheduler_fire_timeout_does_not_freeze_loop() -> None:
+    """挂死任务被 wait_for 打断且节拍推进——loop 不被单任务冻结，其他任务继续。"""
+    scheduler = CronScheduler(tick_seconds=1, fire_timeout=0.5)
+    done: list[str] = []
+
+    async def hanging() -> None:
+        await asyncio.sleep(30)
+
+    async def quick() -> None:
+        done.append("quick")
+
+    async def run() -> None:
+        scheduler.add_cron_job("hang", "* * * * * *", hanging)
+        scheduler.add_cron_job("quick", "* * * * * *", quick)
+        scheduler.start()
+        await asyncio.sleep(3)
+        await scheduler.stop()
+
+    asyncio.run(run())
+    assert "quick" in done
+    hang = scheduler._cron_jobs["hang"]
+    assert hang["next_run_at"] is not None and scheduler._running_jobs == set()
+
+
+def test_scheduler_no_reentrant_fire() -> None:
+    """上一轮未完成时同任务不重入：并发进入数不随 tick 叠加。"""
+    scheduler = CronScheduler(tick_seconds=1)
+    enters: list[int] = []
+
+    async def slow() -> None:
+        enters.append(1)
+        await asyncio.sleep(2)
+
+    async def run() -> None:
+        scheduler.add_cron_job("slow", "* * * * * *", slow)
+        scheduler.start()
+        await asyncio.sleep(3)
+        await scheduler.stop()
+
+    asyncio.run(run())
+    assert 0 < len(enters) <= 2
+
+
+def test_scheduler_ensure_alive_and_status() -> None:
+    scheduler = CronScheduler(tick_seconds=1)
+
+    async def job() -> None:
+        pass
+
+    async def run() -> None:
+        scheduler.add_cron_job("probe", "* * * * * *", job)
+        assert scheduler.ensure_alive() is True
+        await asyncio.sleep(0.2)
+        assert scheduler.ensure_alive() is False
+        st = scheduler.status()
+        assert st["alive"] is True
+        assert st["last_tick_at"] is not None
+        assert st["jobs"]["probe"]["expr"] == "* * * * * *"
+        assert st["jobs"]["probe"]["next_run_at"]
+        scheduler._task.cancel()
+        try:
+            await scheduler._task
+        except asyncio.CancelledError:
+            pass
+        assert scheduler.ensure_alive() is True
+        await scheduler.stop()
+
+    asyncio.run(run())
+
+
 def test_scheduler_cron_job_error_isolated() -> None:
     scheduler = CronScheduler(tick_seconds=1)
     fired: list[str] = []
