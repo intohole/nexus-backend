@@ -151,6 +151,8 @@ class LLMService:
         return {
             "content": result,
             "model": getattr(response, "model", "") or "",
+            "input_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+            "output_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
             "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
             "cached_tokens": int(getattr(usage, "cached_tokens", 0) or 0),
             "cost_usd": float(getattr(response, "cost_usd", 0.0) or 0.0),
