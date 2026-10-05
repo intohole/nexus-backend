@@ -181,11 +181,6 @@ from nexus.web_search import (
     SpiderSearchResponse,
 )
 from nexus.deep_research import get_deep_research_service
-from nexus.dialogue_history import (
-    InMemoryStore,
-    SQLiteStore,
-    get_history,
-)
 from nexus.streaming import (
     sse_event_dict,
     sse_data_line,
@@ -281,8 +276,7 @@ __all__ = [
     "ConsumeResult", "CreditsInsufficientError",
     "trim_context", "compact_history", "init_ironman", "ensure_ironman", "startup_ironman",
     "get_bootstrap", "is_ironman_available", "reload_ironman", "get_web_search_service",
-    "SpiderSearchResult", "SpiderSearchResponse", "get_deep_research_service",
-    "InMemoryStore", "SQLiteStore", "get_history", "sse_event_dict", "sse_data_line",
+    "SpiderSearchResult", "SpiderSearchResponse", "get_deep_research_service", "sse_event_dict", "sse_data_line",
     "sse_response", "sse_chat_stream_v2", "SSEManager", "openai_sse_deltas",
     "GenerationBudget", "set_generation_budget", "current_budget",
     "SSEConnectionError", "sse_event_generator", "NotificationChannel", "VALID_CHANNELS",
