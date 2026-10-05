@@ -30,8 +30,14 @@ class PromptCache:
         messages: list[dict[str, str]],
         temperature: float,
         max_tokens: Optional[int],
+        model: Optional[str] = None,
+        namespace: Optional[str] = None,
+        enable_thinking: bool = False,
     ) -> str:
-        raw: str = f"{system or ''}|{json.dumps(messages, sort_keys=True, ensure_ascii=False)}|{temperature}|{max_tokens or 0}"
+        raw: str = (
+            f"{system or ''}|{json.dumps(messages, sort_keys=True, ensure_ascii=False)}"
+            f"|{temperature}|{max_tokens or 0}|{model or ''}|{namespace or ''}|{int(enable_thinking)}"
+        )
         return hashlib.sha256(raw.encode()).hexdigest()
 
     def get(self, key: str) -> Optional[str]:

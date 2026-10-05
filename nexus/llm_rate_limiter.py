@@ -43,20 +43,23 @@ class LLMRateLimiter:
         self._semaphore.release()
 
     async def _wait_for_rate_limit(self, caller: str = "") -> None:
-        wait_time = 0.0
-        async with self._lock:
-            now = time.monotonic()
-            self._timestamps = [t for t in self._timestamps if now - t < self._period]
-            if len(self._timestamps) >= self._rate_limit:
-                oldest = self._timestamps[0]
-                wait_time = self._period - (now - oldest) + 0.1
-                if wait_time > 0:
-                    self._throttled_calls += 1
-            self._timestamps.append(time.monotonic())
-        if wait_time > 0:
+        while True:
+            wait_time = 0.0
+            async with self._lock:
+                now = time.monotonic()
+                self._timestamps = [t for t in self._timestamps if now - t < self._period]
+                if len(self._timestamps) >= self._rate_limit:
+                    oldest = self._timestamps[0]
+                    wait_time = self._period - (now - oldest) + 0.1
+                    if wait_time > 0:
+                        self._throttled_calls += 1
+            if wait_time <= 0:
+                break
             logger.info("LLM限流等待: %.1fs (%s次/%ss, caller=%s)",
-                        wait_time, len(self._timestamps), self._period, caller)
+                        wait_time, self._rate_limit, self._period, caller)
             await asyncio.sleep(wait_time)
+        async with self._lock:
+            self._timestamps.append(time.monotonic())
 
     def get_stats(self) -> dict:
         return {

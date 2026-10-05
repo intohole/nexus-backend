@@ -245,7 +245,7 @@ async def with_retry(
     non_retryable: tuple = (),
 ) -> T:
     last_error: Exception | None = None
-    for attempt in range(max_retries):
+    for attempt in range(max(1, max_retries)):
         try:
             async with asyncio.timeout(timeout):
                 return await coro_fn()
@@ -275,7 +275,9 @@ async def with_retry(
                 await asyncio.sleep(wait_time)
             else:
                 await asyncio.sleep(1.0 * (attempt + 1))
-    raise last_error  # type: ignore[misc]
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError(f"with_retry exhausted with no attempt made (max_retries={max_retries!r})")
 
 
 def strip_code_fence(raw: str) -> str:

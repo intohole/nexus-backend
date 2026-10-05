@@ -62,8 +62,18 @@ def create_standard_lifespan(
                     await hook(app)
                 except Exception as exc:
                     logger.warning("shutdown hook %s failed: %s", getattr(hook, "__name__", hook), exc)
+            try:
+                from nexus.credits import get_credits_service
+                await get_credits_service().flush_meters()
+            except Exception as exc:
+                logger.warning("credits meter flush on shutdown failed: %s", exc)
             if use_uc:
                 await close_uc_sdk()
+            try:
+                from nexus.service_client import get_service_client
+                await get_service_client().close()
+            except Exception as exc:
+                logger.warning("service client close on shutdown failed: %s", exc)
             await db_close()
 
     return lifespan

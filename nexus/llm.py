@@ -188,14 +188,19 @@ class LLMService:
         ironman_messages = convert_messages(messages, system)
         cache = get_prompt_cache() if temp <= 0.0 else None
         if cache is not None:
-            key: str = PromptCache.make_messages_key(system, messages, temp, eff_max)
+            key: str = PromptCache.make_messages_key(
+                system, messages, temp, eff_max,
+                model=str(getattr(opts, "model", "") or ""),
+                namespace=resolve_namespace(namespace),
+                enable_thinking=enable_thinking,
+            )
             hit: Optional[str] = cache.get(key)
             if hit is not None:
                 return self._usage_payload(hit, None) if _want_usage else hit
         from ironman import chat as _chat
         request_id: str = get_request_id() or "-"
         app_name: str = resolve_app_name()
-        await _preflight("chat")
+        await _preflight("chat", model=str(getattr(opts, "model", "") or ""))
 
         async def _do() -> object:
             return await _chat(messages=ironman_messages, llm=opts)

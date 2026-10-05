@@ -156,7 +156,12 @@ class CronScheduler:
     async def _tick(self) -> None:
         for scanner in list(self._scanners.values()):
             try:
-                await scanner()
+                await asyncio.wait_for(scanner(), timeout=self._fire_timeout)
+            except asyncio.TimeoutError:
+                logger.error(
+                    "crontab scanner %s timed out after %ss — tick continues",
+                    scanner, self._fire_timeout,
+                )
             except Exception as exc:
                 logger.error("crontab scanner failed: %s", exc)
         for job_id, job in list(self._cron_jobs.items()):
@@ -183,10 +188,10 @@ class CronScheduler:
                 "crontab job %s timed out after %ss — advancing schedule, this run skipped",
                 job_id, self._fire_timeout,
             )
-            job["next_run_at"] = next_run_at(str(job["expr"]), base=now_naive, tz=self._tz)
+            job["next_run_at"] = next_run_at(str(job["expr"]), base=datetime.now(self._tz).replace(tzinfo=None), tz=self._tz)
             return
         finally:
             self._running_jobs.discard(job_id)
-        job["next_run_at"] = next_run_at(str(job["expr"]), base=now_naive, tz=self._tz)
+        job["next_run_at"] = next_run_at(str(job["expr"]), base=datetime.now(self._tz).replace(tzinfo=None), tz=self._tz)
         logger.info("crontab job %s fired, next run at %s", job_id, job["next_run_at"])
 

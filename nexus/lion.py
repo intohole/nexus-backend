@@ -156,6 +156,17 @@ class LionIntegration:
             logger.error("Lion infra config fetch failed (key=%s): %s", key, str(exc))
             return {}
 
+    def get_business_config_sync(self, key: str) -> dict[str, object]:
+        """同步读业务配置：只读已缓存的值，不发起网络 IO（缓存未热返回空 dict）。
+
+        供同步上下文（如限流器初始化）消费 lion 配置；缓存填充仍由异步
+        get_business_config 负责。
+        """
+        cache_key = f"business::{key}"
+        if self._is_cache_valid(cache_key):
+            return self._cache[cache_key]
+        return {}
+
     async def get_business_config(self, key: str, use_cache: bool = True) -> dict[str, object]:
         cache_key = f"business::{key}"
         if use_cache and self._is_cache_valid(cache_key):

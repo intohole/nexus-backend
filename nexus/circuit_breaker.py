@@ -97,6 +97,11 @@ class CircuitBreaker:
                 result = func(*args, **kwargs)
             await self._on_success()
             return result
+        except asyncio.CancelledError:
+            task = asyncio.current_task()
+            if task is not None and task.cancelling() > 0:
+                await self._on_failure(TimeoutError(f"Circuit '{self._name}' call cancelled (likely timeout)"))
+            raise
         except self._config.excluded_exceptions:
             raise
         except Exception as e:

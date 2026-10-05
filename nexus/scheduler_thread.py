@@ -52,6 +52,17 @@ class NexusThreadScheduler:
         else:
             logger.warning(f"Thread job '{job_id}' missed its schedule")
 
+    @staticmethod
+    def _reject_coroutine(func: Union[CoroFunc, SyncFunc]) -> None:
+        # 线程调度器里 await 不了协程：静默空跑只留 RuntimeWarning，必须 fail-fast
+        import asyncio
+
+        if asyncio.iscoroutinefunction(func):
+            raise TypeError(
+                "NexusThreadScheduler 只接受同步函数（协程在后台线程无法 await，"
+                "会静默空跑）；异步任务请用 NexusScheduler/crontab"
+            )
+
     def add_interval_job(
         self,
         func: Union[CoroFunc, SyncFunc],
@@ -61,6 +72,7 @@ class NexusThreadScheduler:
         seconds: Optional[int] = None,
         **kwargs: object,
     ) -> str:
+        self._reject_coroutine(func)
         scheduler = self._ensure_scheduler()
         interval_seconds = seconds or 0
         interval_minutes = minutes or 0
@@ -91,6 +103,7 @@ class NexusThreadScheduler:
         timezone: Optional[str] = None,
         **kwargs: object,
     ) -> str:
+        self._reject_coroutine(func)
         scheduler = self._ensure_scheduler()
         if expr is not None:
             trigger = CronTrigger.from_crontab(expr, timezone=timezone or "Asia/Shanghai")

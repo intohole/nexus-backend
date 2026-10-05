@@ -19,7 +19,7 @@ from nexus.circuit_breaker import (
 )
 from nexus.cost_guard import CostBudgetExceededError, get_cost_guard
 from nexus.llm import get_llm_service
-from nexus.llm_utils import parse_llm_json
+from nexus.llm_utils import is_retryable_error, parse_llm_json
 from nexus.logging import get_logger
 
 logger = get_logger("nexus.resilient_llm")
@@ -95,6 +95,9 @@ async def resilient_ask(
             raise
         except Exception as e:
             last_error = e
+            if not is_retryable_error(e):
+                logger.error("LLM non-retryable error, giving up: %s", e)
+                break
             logger.warning("LLM call failed (attempt %s/%s): %s", attempt + 1, retry_count + 1, e)
             if attempt < retry_count:
                 delay = retry_delay * (2 ** attempt)
