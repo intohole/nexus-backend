@@ -1,14 +1,38 @@
 """仓储基类：无状态数据访问基类。"""
 from __future__ import annotations
 
-from typing import Generic, Optional, Type, TypeVar
+from typing import Any, Generic, Optional, Type, TypeVar
 
 from sqlalchemy import func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.selectable import Select
 
 from nexus.errors import NotFoundError
 
 ModelT = TypeVar("ModelT")
+
+
+async def paginate(
+    session: AsyncSession,
+    stmt: Select,
+    page: int = 1,
+    page_size: int = 20,
+    unique: bool = False,
+) -> tuple[list[Any], int]:
+    """通用分页：同一 stmt 二段执行 count + 页切片，返回 (items, total)。
+
+    page 从 1 起；stmt 可带 where/order_by，count 走 subquery 不受影响；
+    joined eager load（collection）场景传 unique=True 去重。
+    """
+    total: int | None = await session.scalar(
+        select(func.count()).select_from(stmt.subquery())
+    )
+    result = await session.execute(
+        stmt.offset((page - 1) * page_size).limit(page_size)
+    )
+    scalars = result.scalars()
+    items = list(scalars.unique().all()) if unique else list(scalars.all())
+    return items, int(total or 0)
 
 
 class StatelessRepository(Generic[ModelT]):

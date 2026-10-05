@@ -81,8 +81,9 @@ from nexus.uc_sdk_helper import (
     standard_ok,
     standard_err,
 )
-from nexus.repository import StatelessRepository
+from nexus.repository import StatelessRepository, paginate
 from nexus.storage import read_limited
+from nexus.uc_proxy import register_uc_proxy
 from nexus.lifespan import create_standard_lifespan
 from nexus.service import BaseService
 from nexus.api_decorators import handle_api_errors
@@ -260,7 +261,8 @@ __all__ = [
     "DOMAIN_KNOWLEDGE", "DOMAIN_CREATIVE", "DOMAIN_GROWTH", "DOMAIN_ASSET",
     "get_client_ip", "sanitize_platform_text", "resolve_env_tree", "init_uc_sdk",
     "init_uc_sdk_from_lion", "get_uc_sdk", "close_uc_sdk", "extract_bearer_token",
-    "standard_ok", "standard_err", "StatelessRepository", "read_limited",
+    "standard_ok", "standard_err", "StatelessRepository", "read_limited", "paginate",
+    "register_uc_proxy",
     "create_standard_lifespan", "BaseService", "handle_api_errors", "get_lion",
     "get_chat_config", "get_embed_config", "get_image_config", "get_infra_config",
     "get_business_config", "clear_lion_cache", "get_uc_base_url", "get_uc_config",
