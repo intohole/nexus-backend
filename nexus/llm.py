@@ -10,7 +10,7 @@ from nexus.logging import get_logger
 from nexus.circuit_breaker import get_llm_circuit
 from nexus.credits import CreditsInsufficientError, get_credits_service, report_llm_usage
 from nexus.llm_metrics import llm_telemetry
-from nexus.llm_utils import parse_llm_json, with_retry
+from nexus.llm_utils import parse_llm_json, with_llm_retry
 from nexus.llm_helpers import (
     apply_output_discipline,
     convert_messages,
@@ -132,7 +132,7 @@ class LLMService:
         async with llm_telemetry(kind, app_name, request_id) as (metrics, start):
             async def _do_with_circuit() -> object:
                 return await circuit.call(do)
-            response: object = await with_retry(
+            response: object = await with_llm_retry(
                 _do_with_circuit, timeout, effective_retries(max_retries)
             )
             result: str = extract_content(response, request_id)
@@ -272,7 +272,7 @@ class LLMService:
             async with llm_telemetry("extract", app_name, request_id) as (metrics, start):
                 async def _do_with_circuit() -> object:
                     return await circuit.call(_do)
-                result: object = await with_retry(
+                result: object = await with_llm_retry(
                     _do_with_circuit, timeout, effective_retries(max_retries)
                 )
                 metrics.record(app_name, "unknown", time.monotonic() - start, tokens=0, error=None)
@@ -349,7 +349,7 @@ class LLMService:
             return await _embed(text=texts)
 
         try:
-            result = await with_retry(_do, timeout, effective_retries(max_retries))
+            result = await with_llm_retry(_do, timeout, effective_retries(max_retries))
             await _meter("embed", app_name, request_id, calls=len(texts) or 1)
             await _charge("embed", app_name, request_id)
             return result

@@ -73,12 +73,19 @@ async def resilient_ask(
     last_error: Optional[Exception] = None
     for attempt in range(retry_count + 1):
         try:
+            async def _guarded() -> str:
+                return await _call_llm(
+                    prompt, system=system, temperature=temperature,
+                    max_tokens=max_tokens, timeout=timeout,
+                    namespace=namespace, task_type=task_type,
+                )
+
             if use_rate_limit:
                 from nexus.llm_rate_limiter import get_llm_rate_limiter
                 async with get_llm_rate_limiter().limited(caller=alias):
-                    result = await cb.call(_call_llm, prompt=prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout, namespace=namespace, task_type=task_type)
+                    result = await cb.call(_guarded, timeout=timeout)
             else:
-                result = await cb.call(_call_llm, prompt=prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout, namespace=namespace, task_type=task_type)
+                result = await cb.call(_guarded, timeout=timeout)
             await cost_guard.record_usage(
                 prompt_tokens=estimated_tokens // 2,
                 completion_tokens=estimated_tokens // 2,
@@ -113,10 +120,7 @@ async def resilient_ask(
 
 async def _call_llm(prompt: str, system: str, temperature: float, max_tokens: Optional[int], timeout: float, namespace: Optional[str] = None, task_type: Optional[str] = None) -> str:
     svc = get_llm_service()
-    return await asyncio.wait_for(
-        svc.ask(prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout, max_retries=0, namespace=namespace, task_type=task_type),
-        timeout=timeout + 5,
-    )
+    return await svc.ask(prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout, max_retries=0, namespace=namespace, task_type=task_type)
 
 
 async def resilient_extract(

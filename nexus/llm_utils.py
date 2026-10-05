@@ -238,7 +238,7 @@ def parse_llm_json_or(raw: str, default: T) -> T:
     return result if result is not None else default
 
 
-async def with_retry(
+async def with_llm_retry(
     coro_fn: Callable[[], Awaitable[T]],
     timeout: float = 60.0,
     max_retries: int = 3,
@@ -277,7 +277,7 @@ async def with_retry(
                 await asyncio.sleep(1.0 * (attempt + 1))
     if last_error is not None:
         raise last_error
-    raise RuntimeError(f"with_retry exhausted with no attempt made (max_retries={max_retries!r})")
+    raise RuntimeError(f"with_llm_retry exhausted with no attempt made (max_retries={max_retries!r})")
 
 
 def strip_code_fence(raw: str) -> str:

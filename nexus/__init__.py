@@ -134,7 +134,7 @@ from nexus.llm_utils import (
     parse_llm_json_lenient,
     parse_llm_json_or,
     find_balanced_json,
-    with_retry,
+    with_llm_retry,
     strip_code_fence,
     LLMTimeoutError,
 )
@@ -271,7 +271,7 @@ __all__ = [
     "get_retry_config", "get_timeout_config", "get_auth_config", "get_llm_quota_config",
     "get_moutain_client", "sign_jwt", "verify_jwt", "create_app", "setup_middleware",
     "setup_static_files", "register_internal_endpoints", "AppLifecycle", "parse_llm_json",
-    "parse_llm_json_lenient", "parse_llm_json_or", "find_balanced_json", "with_retry",
+    "parse_llm_json_lenient", "parse_llm_json_or", "find_balanced_json", "with_llm_retry",
     "strip_code_fence", "LLMTimeoutError", "get_llm_service", "LLMJsonClient",
     "get_image_service", "get_vision_service", "JSON_ONLY_HINT", "estimate_tokens",
     "get_credits_service", "charged", "credits_user_scope", "PrecheckResult",

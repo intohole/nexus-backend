@@ -28,7 +28,7 @@ class CircuitBreakerConfig:
     recovery_timeout: float = 30.0      # OPEN 后经过该秒数进入 HALF_OPEN 探测
     half_open_max_calls: int = 3        # HALF_OPEN 状态允许的最大探测调用数
     success_threshold: int = 2          # HALF_OPEN 连续成功该次数后恢复 CLOSED
-    excluded_exceptions: tuple = (TimeoutError,)  # 不计入失败的异常类型
+    excluded_exceptions: tuple = ()     # 不计入失败的异常类型（超时不算失败是盲区，默认不豁免）
 
 
 @dataclass
@@ -76,7 +76,20 @@ class CircuitBreaker:
     def metrics(self) -> CircuitMetrics:
         return self._metrics
 
-    async def call(self, func: Callable[..., Awaitable[object]], *args: object, **kwargs: object) -> object:
+    async def call(
+        self,
+        func: Callable[..., Awaitable[object]],
+        *args: object,
+        timeout: Optional[float] = None,
+        **kwargs: object,
+    ) -> object:
+        """执行 func 并纳入熔断记账。
+
+        timeout 内化到被看守函数：超时由熔断器自己施加（asyncio.timeout），
+        到点必然计一次失败——外部 wait_for/asyncio.timeout 包装的"取消型超时"
+        仍走 CancelledError 分支兜底计数，但外部主动取消（如客户端断连）无法
+        与之区分，属保守误计（宁可多熔不可漏熔）。
+        """
         async with self._lock:
             await self._update_state()
             if self._state == CircuitState.OPEN:
@@ -87,16 +100,27 @@ class CircuitBreaker:
                 if self._half_open_calls >= self._config.half_open_max_calls:
                     raise CircuitBreakerOpenError(f"Circuit '{self._name}' HALF_OPEN limit reached")
                 self._half_open_calls += 1
-        return await self._execute(func, *args, **kwargs)
+        return await self._execute(func, *args, timeout=timeout, **kwargs)
 
-    async def _execute(self, func: Callable[..., Awaitable[object]], *args: object, **kwargs: object) -> object:
+    async def _execute(
+        self,
+        func: Callable[..., Awaitable[object]],
+        *args: object,
+        timeout: Optional[float] = None,
+        **kwargs: object,
+    ) -> object:
         try:
-            if asyncio.iscoroutinefunction(func):
-                result = await func(*args, **kwargs)
+            if timeout:
+                async with asyncio.timeout(timeout):
+                    result = await func(*args, **kwargs)
             else:
-                result = func(*args, **kwargs)
+                result = await func(*args, **kwargs)
             await self._on_success()
             return result
+        except asyncio.TimeoutError:
+            # 内化超时到点：真实失败，必然计数（asyncio.timeout 已把取消转为本异常）
+            await self._on_failure(TimeoutError(f"Circuit '{self._name}' call timed out after {timeout}s"))
+            raise
         except asyncio.CancelledError:
             task = asyncio.current_task()
             if task is not None and task.cancelling() > 0:

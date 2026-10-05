@@ -8,7 +8,7 @@ import pytest
 from nexus.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitState
 from nexus.llm_cache import PromptCache
 from nexus.llm_rate_limiter import LLMRateLimiter
-from nexus.llm_utils import with_retry
+from nexus.llm_utils import with_llm_retry
 
 
 class TestWithRetryZeroAttempts:
@@ -20,7 +20,7 @@ class TestWithRetryZeroAttempts:
             calls.append(1)
             return "ok"
 
-        assert await with_retry(fn, timeout=2.0, max_retries=0) == "ok"
+        assert await with_llm_retry(fn, timeout=2.0, max_retries=0) == "ok"
         assert len(calls) == 1
 
     @pytest.mark.asyncio
@@ -29,7 +29,7 @@ class TestWithRetryZeroAttempts:
             raise ValueError("boom")
 
         with pytest.raises(ValueError, match="boom"):
-            await with_retry(fn, timeout=2.0, max_retries=0)
+            await with_llm_retry(fn, timeout=2.0, max_retries=0)
 
 
 class TestCircuitBreakerTimeout:
@@ -136,3 +136,52 @@ class TestThreadSchedulerRejectsCoroutine:
             sched.add_interval_job(job, job_id="x", seconds=10)
         with pytest.raises(TypeError, match="同步函数"):
             sched.add_cron_job(job, job_id="y", expr="0 9 * * *")
+
+
+class TestCircuitBreakerInternalizedTimeout:
+    """超时内化：call(timeout=) 由熔断器自施超时，到点必然计失败。"""
+
+    @pytest.mark.asyncio
+    async def test_internal_timeout_counts_failure_and_raises(self):
+        breaker = CircuitBreaker("ti1", CircuitBreakerConfig(failure_threshold=2, recovery_timeout=30.0))
+
+        async def hang() -> str:
+            await asyncio.sleep(30)
+            return "never"
+
+        for _ in range(2):
+            with pytest.raises(TimeoutError):
+                await breaker.call(hang, timeout=0.05)
+
+        assert breaker.state == CircuitState.OPEN
+        assert breaker.metrics.consecutive_failures == 2
+
+    @pytest.mark.asyncio
+    async def test_internal_timeout_success_not_counted(self):
+        breaker = CircuitBreaker("ti2", CircuitBreakerConfig(failure_threshold=2, recovery_timeout=30.0))
+
+        async def quick() -> str:
+            return "ok"
+
+        assert await breaker.call(quick, timeout=5.0) == "ok"
+        assert breaker.metrics.total_failures == 0
+        assert breaker.metrics.consecutive_successes == 1
+
+    @pytest.mark.asyncio
+    async def test_internal_timeout_feeds_llm_retry(self):
+        """内化超时与 with_llm_retry 组合：TimeoutError 按重试语义流转。"""
+        from nexus.llm_utils import with_llm_retry
+
+        breaker = CircuitBreaker("ti3", CircuitBreakerConfig(failure_threshold=99, recovery_timeout=30.0))
+        attempts: list[int] = []
+
+        async def slow_then_fast() -> str:
+            attempts.append(1)
+            if len(attempts) == 1:
+                await asyncio.sleep(30)
+            return "recovered"
+
+        out = await with_llm_retry(lambda: breaker.call(slow_then_fast, timeout=0.05), timeout=5.0, max_retries=2)
+        assert out == "recovered"
+        assert len(attempts) == 2
+        assert breaker.metrics.total_failures == 1

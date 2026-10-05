@@ -13,7 +13,7 @@ from nexus.llm_utils import (
     parse_llm_json_lenient,
     parse_llm_json_or,
     strip_code_fence,
-    with_retry,
+    with_llm_retry,
 )
 
 
@@ -154,7 +154,7 @@ class TestWithRetry:
         async def coro_fn():
             return 42
 
-        assert await with_retry(coro_fn, max_retries=1) == 42
+        assert await with_llm_retry(coro_fn, max_retries=1) == 42
 
     @pytest.mark.asyncio
     async def test_non_retryable_raises_immediately(self, monkeypatch):
@@ -176,7 +176,7 @@ class TestWithRetry:
             raise BusinessError("no retry")
 
         with pytest.raises(BusinessError):
-            await with_retry(coro_fn, max_retries=3, non_retryable=(BusinessError,))
+            await with_llm_retry(coro_fn, max_retries=3, non_retryable=(BusinessError,))
         assert calls == 1
         assert sleeps == []
 
@@ -195,5 +195,5 @@ class TestWithRetry:
                 raise ConnectionError("transient")
             return "ok"
 
-        assert await with_retry(coro_fn, max_retries=3) == "ok"
+        assert await with_llm_retry(coro_fn, max_retries=3) == "ok"
         assert calls == 3
