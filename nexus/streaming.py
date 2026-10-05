@@ -240,6 +240,10 @@ async def with_disconnect_check(
 
 _STREAM_SENTINEL = object()
 
+# 有界队列默认容量：慢客户端时上游读取在此暂停（TCP 背压回传 LLM provider），
+# 内存占用有上限；0 表示无界（旧语义，不推荐）。
+DEFAULT_SSE_QUEUE_SIZE = 256
+
 
 async def _sse_generator_v2(
     chat_fn: AsyncIterator[Union[str, dict[str, Any]]],
@@ -247,18 +251,20 @@ async def _sse_generator_v2(
     on_complete: Optional[Callable[[str], Awaitable[None]]] = None,
     on_event: Optional[Callable[[str, dict[str, Any]], Awaitable[None]]] = None,
     heartbeat_interval: float = 0.0,
+    queue_size: int = DEFAULT_SSE_QUEUE_SIZE,
 ) -> AsyncIterator[str]:
-    """SSE 生成器：断连检测 + 事件回调 + 心跳 + done 去重。
+    """SSE 生成器：断连检测 + 事件回调 + 心跳 + done 去重 + 有界队列背压。
 
     chat_fn 可 yield str（当作 delta）或 dict（必须含 type 字段）。
     heartbeat_interval > 0 时，超过该秒数无新事件则下发 {"type":"heartbeat"} 保活；
     业务流自身已发过 done 时不重复补发 done。
+    queue_size > 0 时队列有界：消费慢于生产时 _pump 阻塞在 put 上，向上游施加背压。
     """
     accumulated: list[str] = []
     try:
         ait = with_disconnect_check(request, chat_fn).__aiter__()
         done_sent = False
-        queue: asyncio.Queue = asyncio.Queue()
+        queue: asyncio.Queue = asyncio.Queue(maxsize=max(0, queue_size))
 
         async def _pump() -> None:
             try:
@@ -267,7 +273,12 @@ async def _sse_generator_v2(
             except Exception as exc:
                 await queue.put(exc)
             finally:
-                await queue.put(_STREAM_SENTINEL)
+                # 被取消（消费者已终止）时跳过哨兵投递：满队列上的阻塞 put
+                # 无人唤醒会让 pump_task 永久挂起，连带挂死生成器关闭路径。
+                task = asyncio.current_task()
+                cancelling = getattr(task, "cancelling", int)() if task else 0
+                if cancelling == 0:
+                    await queue.put(_STREAM_SENTINEL)
 
         pump_task = asyncio.create_task(_pump())
         try:
@@ -331,6 +342,7 @@ def sse_chat_stream_v2(
     on_complete: Optional[Callable[[str], Awaitable[None]]] = None,
     on_event: Optional[Callable[[str, dict[str, Any]], Awaitable[None]]] = None,
     heartbeat_interval: float = 0.0,
+    queue_size: int = DEFAULT_SSE_QUEUE_SIZE,
 ):
     """增强版 sse_chat_stream：支持断连检测 + 多事件类型 + 事件回调。
 
@@ -347,15 +359,20 @@ def sse_chat_stream_v2(
         return sse_chat_stream_v2(my_stream(msg), request=request)
 
     heartbeat_interval: 超过该秒数无新事件时下发 heartbeat 保活（0 关闭）。
+    queue_size: 事件队列容量上限（默认 256）——消费慢于生产时向上游施加背压，
+        防止慢客户端把整条 LLM 流缓冲进内存；0 恢复无界旧语义。
     """
     return sse_response(
-        _sse_generator_v2(chat_fn, request, on_complete, on_event, heartbeat_interval)
+        _sse_generator_v2(
+            chat_fn, request, on_complete, on_event, heartbeat_interval, queue_size
+        )
     )
 
 
 __all__ = [
     "SSE_HEADERS",
     "SSE_DONE",
+    "DEFAULT_SSE_QUEUE_SIZE",
     "sse_event_dict",
     "sse_data_line",
     "sse_raw_frame",

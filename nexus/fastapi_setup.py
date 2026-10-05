@@ -101,6 +101,15 @@ def create_app(
     if lifespan is None:
         lifespan = AppLifecycle(cfg)
 
+        @asynccontextmanager
+        async def _close_lion_pool() -> AsyncGenerator[None, None]:
+            from nexus.lion import get_lion
+
+            await get_lion().aclose()
+            yield
+
+        lifespan.add_shutdown_hook(_close_lion_pool)
+
     @asynccontextmanager
     async def app_lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         async with lifespan:

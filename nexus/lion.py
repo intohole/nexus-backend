@@ -4,10 +4,13 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from nexus.config import NexusConfig, get_settings
 from nexus.logging import get_logger
+
+if TYPE_CHECKING:
+    from nexus.lion_sdk import LionSDK
 
 logger = get_logger("nexus.lion")
 
@@ -63,6 +66,27 @@ class LionIntegration:
         self._cache: dict[str, dict[str, object]] = {}
         self._cache_ts: dict[str, float] = {}
         self._lock: "_ReentrantAsyncLock" = _ReentrantAsyncLock()
+        self._lion_sdk: Optional["LionSDK"] = None
+
+    def _get_lion_sdk(self) -> "LionSDK":
+        """惰性创建共享 LionSDK：连接池跨 fetch 复用，避免每次拉配置重建 TCP 连接。"""
+        if self._lion_sdk is None:
+            from nexus.lion_sdk import LionSDK
+
+            lion_cfg = self._config.lion
+            self._lion_sdk = LionSDK(
+                base_url=lion_cfg.base_url,
+                namespace=lion_cfg.namespace,
+                fallback_namespace="default",
+                service_token=os.getenv("LION_SERVICE_TOKEN") or None,
+            )
+        return self._lion_sdk
+
+    async def aclose(self) -> None:
+        """关闭共享连接池（应用 shutdown 时调用）；下次 fetch 自动重建。"""
+        if self._lion_sdk is not None:
+            await self._lion_sdk.close()
+            self._lion_sdk = None
 
     async def get_config(
         self,
@@ -95,15 +119,9 @@ class LionIntegration:
     ) -> dict[str, object]:
         lion_cfg = self._config.lion
         try:
-            from nexus.lion_sdk import LionSDK
-
-            async with LionSDK(
-                base_url=lion_cfg.base_url,
-                namespace=lion_cfg.namespace,
-                fallback_namespace="default",
-                service_token=os.getenv("LION_SERVICE_TOKEN") or None,
-            ) as lion:
-                result = await lion.get_ready_config(key, prefer_gateway=prefer_gateway)
+            result = await self._get_lion_sdk().get_ready_config(
+                key, prefer_gateway=prefer_gateway
+            )
         except ImportError as exc:
             raise LionConfigError(
                 f"lion_sdk 未安装，无法从 Lion 读取配置（key={key}），拒绝静默降级"
@@ -139,16 +157,7 @@ class LionIntegration:
 
     async def _fetch_infra_config(self, key: str) -> dict[str, object]:
         try:
-            from nexus.lion_sdk import LionSDK
-
-            lion_cfg = self._config.lion
-            async with LionSDK(
-                base_url=lion_cfg.base_url,
-                namespace=lion_cfg.namespace,
-                fallback_namespace="default",
-                service_token=os.getenv("LION_SERVICE_TOKEN") or None,
-            ) as lion:
-                return await lion.get_infra_config(key)
+            return await self._get_lion_sdk().get_infra_config(key)
         except ImportError:
             logger.warning("lion_sdk not installed, Lion integration disabled")
             return {}
@@ -184,16 +193,7 @@ class LionIntegration:
 
     async def _fetch_business_config(self, key: str) -> dict[str, object]:
         try:
-            from nexus.lion_sdk import LionSDK
-
-            lion_cfg = self._config.lion
-            async with LionSDK(
-                base_url=lion_cfg.base_url,
-                namespace=lion_cfg.namespace,
-                fallback_namespace="default",
-                service_token=os.getenv("LION_SERVICE_TOKEN") or None,
-            ) as lion:
-                return await lion.get_business_config(key)
+            return await self._get_lion_sdk().get_business_config(key)
         except ImportError:
             logger.warning("lion_sdk not installed, Lion integration disabled")
             return {}
