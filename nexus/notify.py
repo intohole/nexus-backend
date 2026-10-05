@@ -71,17 +71,26 @@ class NotifyClient:
                 headers=await self._headers(),
             )
             resp.raise_for_status()
-            return resp.json()
+            body: dict[str, object] = resp.json()
         except httpx.HTTPStatusError as exc:
             logger.error(
                 "Notify send failed: status=%s body=%s",
                 exc.response.status_code,
                 exc.response.text[:200],
             )
-            return {}
+            return {
+                "status": "failed",
+                "id": 0,
+                "reason": f"http_{exc.response.status_code}",
+            }
         except Exception as exc:
             logger.error("Notify send error: %s", str(exc))
-            return {}
+            return {"status": "failed", "id": 0, "reason": "network"}
+        if not isinstance(body, dict):
+            return {"status": "sent", "id": 0, "reason": "malformed_body"}
+        if "status" not in body:
+            body["status"] = "suppressed" if body.get("suppressed") else "sent"
+        return body
 
     async def send_many(
         self,

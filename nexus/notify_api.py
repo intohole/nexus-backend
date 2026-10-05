@@ -1,4 +1,11 @@
-"""通知便捷函数层：模块级 send_* 一行直达（委托 NotifyClient 单例）。"""
+"""通知便捷函数层：模块级 send_* 一行直达（委托 NotifyClient 单例）。
+
+send_notification 返回统一终态契约（1.57.0 起）：
+- {"status": "sent", "id": N, ...}       落库且渠道已派发
+- {"status": "suppressed", "id": 0, "reason": "app_muted|daily_limit|...", ...}
+- {"status": "failed", "id": 0, "reason": "http_4xx|network"}
+向后兼容：id/suppressed/deduped/channels_sent 字段保持原语义。
+"""
 from __future__ import annotations
 
 from typing import Optional
