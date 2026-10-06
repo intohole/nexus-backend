@@ -5,12 +5,20 @@ send_notification 返回统一终态契约（1.57.0 起）：
 - {"status": "suppressed", "id": 0, "reason": "app_muted|daily_limit|...", ...}
 - {"status": "failed", "id": 0, "reason": "http_4xx|network"}
 向后兼容：id/suppressed/deduped/channels_sent 字段保持原语义。
+
+try_send（1.59.0 起）：send 的安全壳——NotifyClient.send 已内吞网络/HTTP 异常
+返回 failed dict，业务侧的 try/except 包装是死铠甲；本壳只兜 get_notify_client
+初始化等边缘异常，统一告警后返回 None。调用方「只关心送达没有」用
+`resp is not None and resp.get("status") == "sent"` 判定。
 """
 from __future__ import annotations
 
 from typing import Optional
 
+from nexus.logging import get_logger
 from nexus.notify import NotifyClient, get_notify_client
+
+logger = get_logger("nexus.notify_api")
 
 async def send_notification(
     user_id: str,
@@ -22,6 +30,26 @@ async def send_notification(
     return await client.send(
         user_id=user_id, title=title, content=content, **kwargs
     )
+
+
+async def try_send(
+    user_id: str,
+    title: str,
+    content: str = "",
+    **kwargs: object,
+) -> Optional[dict[str, object]]:
+    from nexus.notify import get_notify_client  # 调用时解析：monkeypatch nexus.notify.get_notify_client 的测试桩保持有效
+
+    try:
+        return await get_notify_client().send(
+            user_id=user_id, title=title, content=content, **kwargs
+        )
+    except Exception as exc:
+        logger.warning(
+            "notify try_send failed: user=%s title=%s err=%s",
+            user_id, str(title)[:40], exc,
+        )
+        return None
 
 
 async def send_email(

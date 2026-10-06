@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Awaitable, Callable, Optional
+from typing import Optional
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -28,29 +28,7 @@ class AuthDependencies:
         self._sdk: Optional[object] = None
         self._lock: asyncio.Lock = asyncio.Lock()
         self._ready: bool = False
-        self._public_paths: set[str] = set()
-        self._public_prefixes: list[str] = []
-        self._local_user_sync: Optional[Callable[[dict[str, object]], Awaitable[None]]] = None
         self._token_cache: TokenCache = TokenCache(maxsize=_TOKEN_CACHE_MAXSIZE, ttl=_TOKEN_CACHE_TTL)
-
-    def add_public_path(self, path: str) -> None:
-        self._public_paths.add(path)
-
-    def add_public_prefix(self, prefix: str) -> None:
-        self._public_prefixes.append(prefix)
-
-    def set_local_user_sync(
-        self, func: Callable[[dict[str, object]], Awaitable[None]]
-    ) -> None:
-        self._local_user_sync = func
-
-    def is_public(self, path: str) -> bool:
-        if path in self._public_paths:
-            return True
-        for prefix in self._public_prefixes:
-            if path.startswith(prefix):
-                return True
-        return False
 
     def set_sdk(self, sdk: object) -> None:
         """注入外部创建的 UC SDK，跳过 AuthDependencies 内部的懒创建。
@@ -107,11 +85,6 @@ class AuthDependencies:
         cached: Optional[dict[str, object]] = self._token_cache.get(token)
         if cached is not None:
             self._apply_request_context(cached)
-            if self._local_user_sync:
-                try:
-                    await self._local_user_sync(cached)
-                except Exception as exc:
-                    logger.warning("Local user sync failed: %s", str(exc))
             return cached
 
         sdk: Optional[object] = await self.get_sdk()
@@ -141,12 +114,6 @@ class AuthDependencies:
             set_request_context(user_id=str(user_id_raw))
         if org_id_raw is not None:
             set_request_context(org_id=str(org_id_raw))
-
-    def invalidate_token_cache(self, token: Optional[str] = None) -> None:
-        if token is None:
-            self._token_cache.clear()
-        else:
-            self._token_cache.pop(token)
 
     async def get_user_id_required(
         self,

@@ -13,19 +13,6 @@ class BaseService:
 
     def __init__(self, session: AsyncSession) -> None:
         self.session: AsyncSession = session
-        self._repos: dict[str, object] = {}
-
-    def register_repo(self, name: str, repo: object) -> None:
-        self._repos[name] = repo
-
-    def get_repo(self, name: str) -> object:
-        if name not in self._repos:
-            raise KeyError(f"repo '{name}' not registered")
-        return self._repos[name]
-
-    @property
-    def repos(self) -> dict[str, object]:
-        return self._repos
 
     async def commit(self) -> None:
         await self.session.commit()

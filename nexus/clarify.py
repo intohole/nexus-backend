@@ -49,10 +49,6 @@ class ClarifyQuestion(BaseModel):
             data["placeholder"] = self.placeholder
         return data
 
-    def option_values(self) -> List[str]:
-        return [opt.value for opt in self.options]
-
-
 def is_skip(text: Optional[str]) -> bool:
     if not text:
         return False
@@ -96,11 +92,3 @@ def _merge_candidates(
     ]
 
 
-def _normalize(value: object) -> Optional[str]:
-    if isinstance(value, list):
-        text = "；".join(str(v).strip() for v in value if str(v).strip())
-    else:
-        text = str(value or "").strip()
-    if not text or is_skip(text):
-        return None
-    return text

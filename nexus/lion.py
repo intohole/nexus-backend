@@ -214,11 +214,6 @@ class LionIntegration:
         self._cache.clear()
         self._cache_ts.clear()
 
-    def clear_cache_key(self, key: str) -> None:
-        self._cache.pop(key, None)
-        self._cache_ts.pop(key, None)
-
-
 def get_lion() -> LionIntegration:
     global _lion_instance
     if _lion_instance is None:

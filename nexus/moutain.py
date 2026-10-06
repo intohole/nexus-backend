@@ -235,10 +235,6 @@ class MoutainClient:
         """获取热点新闻列表."""
         return await self._get("/api/topic/hot_news", {"page": page, "per_page": per_page})
 
-    async def deep_search(self, query: str, max_results: int = 10) -> Optional[Dict[str, Any]]:
-        """深度搜索，聚合多源信息返回结构化结果."""
-        return await self._post("/api/deepsearch", {"query": query, "max_results": max_results})
-
     async def close(self) -> None:
         """关闭底层HTTP客户端."""
         if self._client:

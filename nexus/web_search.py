@@ -129,13 +129,3 @@ class SpiderSearchResponse:
         self.results = results or []
         self.error = error
 
-    def format_for_llm(self) -> str:
-        """格式化为 LLM 可读的上下文文本。"""
-        lines: list[str] = []
-        for i, r in enumerate(self.results, 1):
-            lines.append(f"[{i}] {r.title}")
-            if r.content:
-                lines.append(f"   {r.content[:300]}")
-            if r.link:
-                lines.append(f"   来源: {r.link}")
-        return "\n".join(lines)

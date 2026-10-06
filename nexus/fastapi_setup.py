@@ -56,11 +56,6 @@ class AppLifecycle:
     ) -> None:
         self._shutdown_hooks.append(hook)
 
-    def add_health_check(
-        self, name: str, check_func: Callable[[], object]
-    ) -> None:
-        self._health_registry.register(name, check_func)
-
     async def __aenter__(self) -> "AppLifecycle":
         logger = get_logger("nexus.lifecycle")
         logger.info("Application starting up...")

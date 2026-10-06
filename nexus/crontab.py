@@ -101,9 +101,6 @@ class CronScheduler:
     def register_scanner(self, name: str, handler: ScanHandler) -> None:
         self._scanners[name] = handler
 
-    def unregister_scanner(self, name: str) -> bool:
-        return self._scanners.pop(name, None) is not None
-
     def list_jobs(self) -> dict[str, str]:
         return {jid: "cron" for jid in self._cron_jobs} | {name: "scan" for name in self._scanners}
 

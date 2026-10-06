@@ -38,17 +38,6 @@ class ApprovalStateMachine:
             return None
         return target
 
-    def suggest_next(self, current: ApprovalStatus) -> list[str]:
-        actions = []
-        if current in (ApprovalStatus.DRAFT, ApprovalStatus.APPROVED, ApprovalStatus.REJECTED):
-            actions.append("submit")
-        if current == ApprovalStatus.PENDING:
-            actions.extend(["approve", "reject"])
-        if current in (ApprovalStatus.APPROVED, ApprovalStatus.REJECTED):
-            actions.append("revise")
-        return actions
-
-
 _state_machine: ApprovalStateMachine | None = None
 
 

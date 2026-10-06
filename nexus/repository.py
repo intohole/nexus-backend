@@ -57,12 +57,6 @@ class StatelessRepository(Generic[ModelT]):
         stmt = select(self._model).where(self._model.id == id)  # type: ignore[attr-defined]
         return await self._scalar_one_or_none(session, stmt)
 
-    async def get_or_404(self, session: AsyncSession, id: int | str) -> ModelT:
-        obj: Optional[ModelT] = await self.get_by_id(session, id)
-        if obj is None:
-            raise NotFoundError(f"{self._model.__name__} with id={id} not found")  # type: ignore[attr-defined]
-        return obj
-
     async def create(
         self,
         session: AsyncSession,

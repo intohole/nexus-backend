@@ -62,3 +62,37 @@ def test_send_network_error_returns_failed() -> None:
     result = asyncio.run(client.send(user_id="2", title="t"))
     assert result["status"] == "failed"
     assert result["reason"] == "network"
+
+
+class _FakeSendClient:
+    def __init__(self, result: object | Exception) -> None:
+        self._result = result
+
+    async def send(self, **kwargs: object) -> object:
+        if isinstance(self._result, Exception):
+            raise self._result
+        return self._result
+
+
+def test_try_send_passes_through_terminal_dict(monkeypatch: pytest.MonkeyPatch) -> None:
+    import nexus.notify as notify_mod
+    import nexus.notify_api as api_mod
+
+    monkeypatch.setattr(notify_mod, "_notify_client", _FakeSendClient({"status": "sent", "id": 9}))
+    resp = asyncio.run(api_mod.try_send(user_id="2", title="t", app_id="x"))
+    assert resp == {"status": "sent", "id": 9}
+
+
+def test_try_send_swallows_edge_exception_as_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    import nexus.notify as notify_mod
+    import nexus.notify_api as api_mod
+
+    monkeypatch.setattr(notify_mod, "_notify_client", _FakeSendClient(RuntimeError("init boom")))
+    resp = asyncio.run(api_mod.try_send(user_id="2", title="t"))
+    assert resp is None
+
+
+def test_try_send_exported_from_notify_package() -> None:
+    from nexus.notify import try_send
+
+    assert callable(try_send)

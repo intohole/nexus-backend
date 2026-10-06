@@ -231,11 +231,11 @@ def get_notify_client(base_url: str = "") -> NotifyClient:
         _notify_client = NotifyClient(base_url=base_url)
     return _notify_client
 
-from nexus.notify_api import send_admin_email, send_email, send_notification, send_sms, send_webhook_robot  # noqa: E402
+from nexus.notify_api import send_admin_email, send_email, send_notification, send_sms, send_webhook_robot, try_send  # noqa: E402
 from nexus.notify_proxy import register_notify_proxy  # noqa: E402
 
 __all__ = [
     "NotifyClient", "async_init_notify_client", "get_notify_client",
-    "send_notification", "send_email", "send_admin_email", "send_sms", "send_webhook_robot",
+    "send_notification", "try_send", "send_email", "send_admin_email", "send_sms", "send_webhook_robot",
     "register_notify_proxy",
 ]

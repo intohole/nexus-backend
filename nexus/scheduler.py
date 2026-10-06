@@ -16,7 +16,6 @@ try:
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.interval import IntervalTrigger
     from apscheduler.triggers.cron import CronTrigger
-    from apscheduler.triggers.date import DateTrigger
     from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
 
     _HAS_APSCHEDULER = True
@@ -26,7 +25,6 @@ except ImportError:
     BackgroundScheduler = None
     IntervalTrigger = None
     CronTrigger = None
-    DateTrigger = None
 
 CoroFunc = Callable[..., Awaitable[object]]
 SyncFunc = Callable[..., object]
@@ -127,22 +125,6 @@ class NexusScheduler:
         )
         self._jobs[job_id] = "cron"
         logger.info(f"Registered cron job '{job_id}': {expr or trigger}")
-        return job_id
-
-    def add_date_job(
-        self,
-        func: Union[CoroFunc, SyncFunc],
-        job_id: str,
-        run_date: str,
-        **kwargs: object,
-    ) -> str:
-        scheduler = self._ensure_scheduler()
-        trigger = DateTrigger(run_date=run_date)
-        scheduler.add_job(
-            func, trigger=trigger, id=job_id, replace_existing=True, **kwargs
-        )
-        self._jobs[job_id] = "date"
-        logger.info(f"Registered date job '{job_id}': run at {run_date}")
         return job_id
 
     def remove_job(self, job_id: str) -> bool:
