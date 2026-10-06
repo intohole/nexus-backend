@@ -9,6 +9,7 @@ import nexus.permissions as perms
 from nexus.auth_anon import (
     ANON_ID_RE,
     get_current_user_or_anon,
+    get_current_user_or_anon_lax,
     get_current_user_or_anon_optional,
 )
 from nexus.permissions import require_admin, require_admin_id
@@ -61,12 +62,8 @@ async def test_anon_fallback_strict(monkeypatch):
 @pytest.mark.asyncio
 async def test_guest_fallback_lax(monkeypatch):
     _patch(monkeypatch)
-    assert await get_current_user_or_anon(
-        None, None, guest_fallback=True, validate_anon=False,
-    ) == ("guest", None)
-    assert await get_current_user_or_anon(
-        None, "任意!格式", guest_fallback=True, validate_anon=False,
-    ) == ("任意!格式", None)
+    assert await get_current_user_or_anon_lax(None, None) == ("guest", None)
+    assert await get_current_user_or_anon_lax(None, "任意!格式") == ("任意!格式", None)
 
 
 @pytest.mark.asyncio

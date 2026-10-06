@@ -76,6 +76,7 @@ from nexus.auth import (
 from nexus.auth_anon import (
     ANON_ID_RE,
     get_current_user_or_anon,
+    get_current_user_or_anon_lax,
     get_current_user_or_anon_optional,
 )
 from nexus.permissions import require_admin, require_admin_id
@@ -270,7 +271,8 @@ __all__ = [
     "init_uc_sdk_from_lion", "get_uc_sdk", "close_uc_sdk", "extract_bearer_token",
     "standard_ok", "standard_err", "StatelessRepository", "read_limited", "paginate",
     "register_uc_proxy",
-    "ANON_ID_RE", "get_current_user_or_anon", "get_current_user_or_anon_optional",
+    "ANON_ID_RE", "get_current_user_or_anon", "get_current_user_or_anon_lax",
+    "get_current_user_or_anon_optional",
     "require_admin", "require_admin_id",
     "create_standard_lifespan", "BaseService", "handle_api_errors", "get_lion",
     "get_chat_config", "get_embed_config", "get_image_config", "get_infra_config",
