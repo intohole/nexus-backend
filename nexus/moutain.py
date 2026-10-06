@@ -20,13 +20,17 @@ class MoutainClient:
     提供异步任务提交(带回调)与直接同步调用两种模式。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, base_url: str = "") -> None:
         self._client: Optional[httpx.AsyncClient] = None
         self._configured_base_url: str = ""
+        self._base_url_override: str = (base_url or "").rstrip("/")
 
     async def _ensure_client(self) -> httpx.AsyncClient:
-        cfg = await get_moutain_config()
-        base_url = (cfg.get("base_url") or "").rstrip("/")
+        if self._base_url_override:
+            base_url = self._base_url_override
+        else:
+            cfg = await get_moutain_config()
+            base_url = (cfg.get("base_url") or "").rstrip("/")
         if (
             self._client is not None
             and not self._client.is_closed

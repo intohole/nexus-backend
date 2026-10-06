@@ -94,7 +94,7 @@ class UserCenterSDK(BaseAsyncClient, AuthMixin, UserMixin, AppMixin, VipMixin, I
         client = await self._get_client()
         headers = kwargs.pop("headers", {})
         use_token = token or self._access_token
-        if not use_token and self._service_token:
+        if not use_token:
             use_token = await self._ensure_service_token()
         if use_token:
             headers["Authorization"] = f"Bearer {use_token}"
