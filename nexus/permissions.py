@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from cachetools import TTLCache
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from nexus.auth import extract_bearer_token, get_auth_deps
@@ -184,6 +184,45 @@ def require_api_key(scope: Optional[str] = None) -> Callable:
     return dependency
 
 
+async def _validate_admin_token(
+    authorization: Optional[str], role: str, detail: str,
+) -> dict[str, object]:
+    token = extract_bearer_token(authorization or "")
+    if not token:
+        raise HTTPException(status_code=401, detail="未授权或登录已过期")
+    result: Optional[dict[str, object]] = await get_auth_deps().validate_token(token)
+    if not result or not result.get("user_id"):
+        raise HTTPException(status_code=401, detail="未授权或登录已过期")
+    if str(result.get("role") or "") != role:
+        raise HTTPException(status_code=403, detail=detail)
+    return result
+
+
+def require_admin(role: str = "admin", *, detail: str = "需要管理员权限") -> Callable:
+    """返回 FastAPI 依赖，校验当前用户角色后返回原始 UC 用户 dict。
+
+    用法: async def ep(user = Depends(require_admin())): ...
+    """
+    async def dependency(
+        authorization: Optional[str] = Header(None),
+    ) -> dict[str, object]:
+        return await _validate_admin_token(authorization, role, detail)
+    return dependency
+
+
+def require_admin_id(role: str = "admin", *, detail: str = "需要管理员权限") -> Callable:
+    """返回 FastAPI 依赖，校验当前用户角色后返回 user_id 字符串。
+
+    用法: async def ep(admin_id = Depends(require_admin_id())): ...
+    """
+    async def dependency(
+        authorization: Optional[str] = Header(None),
+    ) -> str:
+        result = await _validate_admin_token(authorization, role, detail)
+        return str(result.get("user_id") or "")
+    return dependency
+
+
 __all__ = [
     "PermissionDependencies",
     "get_permission_deps",
@@ -192,4 +231,6 @@ __all__ = [
     "require_permission",
     "get_current_org_id_optional",
     "require_api_key",
+    "require_admin",
+    "require_admin_id",
 ]
