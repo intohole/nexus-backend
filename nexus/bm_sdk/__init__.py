@@ -1,3 +1,3 @@
-from .client import BeeMemorySDK
+from .client import BeeMemorySDK, get_bm_sdk
 
-__all__ = ["BeeMemorySDK"]
+__all__ = ["BeeMemorySDK", "get_bm_sdk"]

@@ -238,6 +238,21 @@ def parse_llm_json_or(raw: str, default: T) -> T:
     return result if result is not None else default
 
 
+def parse_json_column(value: object, default: T) -> T:
+    """DB JSON 列/消息参数的读取面：dict/list 透传，str 容错解析，其余返回 default。
+
+    与 parse_llm_json 的差异：非字符串输入不进修复链——数据库 JSON 列、
+    跨服务消息参数「通常已是合法 JSON」，只需透传 + 兜底，不需要围栏剥离。
+    收敛各业务 safe_jsonloads/_safe_json 手写 try/except 样板。
+    """
+    if isinstance(value, (dict, list)):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return default
+    result = parse_llm_json_lenient(value)
+    return result if result is not None else default
+
+
 async def with_llm_retry(
     coro_fn: Callable[[], Awaitable[T]],
     timeout: float = 60.0,

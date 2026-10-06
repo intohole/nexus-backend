@@ -4,6 +4,7 @@ import logging
 import httpx
 from typing import Dict, List, Optional
 
+from nexus.infra import get_beememory_base_url
 from nexus.sdk_base import BaseAsyncClient
 from nexus.service_client import get_service_token
 
@@ -22,11 +23,18 @@ class BeeMemorySDK(BaseAsyncClient):
         app_name: str = "default",
         timeout: float = 10.0,
     ):
-        if not base_url:
-            base_url = os.environ.get("BEEMEMORY_BASE_URL", "${BEE_MEMORY_BASE_URL}")
         super().__init__(base_url, timeout=timeout)
         self.service_token: Optional[str] = service_token
         self.app_name: str = app_name
+
+    async def _resolve_base_url(self) -> str:
+        if self.base_url:
+            return self.base_url
+        url = await get_beememory_base_url()
+        if not url:
+            url = os.environ.get("BEEMEMORY_BASE_URL", "") or "http://localhost:8700"
+        self.base_url = url.rstrip("/")
+        return self.base_url
 
     async def _request(
         self,
@@ -40,6 +48,7 @@ class BeeMemorySDK(BaseAsyncClient):
         if params and "user_id" in params:
             params["user_id"] = str(params["user_id"])
 
+        await self._resolve_base_url()
         client = await self._get_client()
         headers: Dict[str, str] = {}
         token: str = self.service_token or await get_service_token()
@@ -155,6 +164,7 @@ class BeeMemorySDK(BaseAsyncClient):
 
     async def health_check(self) -> bool:
         try:
+            await self._resolve_base_url()
             client = await self._get_client()
             response = await client.get("/api/health", timeout=3.0)
             if response.status_code == 200:
@@ -234,3 +244,17 @@ class BeeMemorySDK(BaseAsyncClient):
             params={"app_name": app_name or self.app_name},
             data={"topic_ids": topic_ids},
         )
+
+
+_bm_sdk: Optional[BeeMemorySDK] = None
+
+
+def get_bm_sdk(app_name: str = "default", timeout: float = 10.0) -> BeeMemorySDK:
+    """获取全局共享的 BeeMemorySDK 实例（base_url 惰性解析：显式 > Lion infra > env）.
+
+    app_name 为实例默认值，各方法调用时仍可用 app_name 参数按调用方覆盖。
+    """
+    global _bm_sdk
+    if _bm_sdk is None:
+        _bm_sdk = BeeMemorySDK(app_name=app_name, timeout=timeout)
+    return _bm_sdk

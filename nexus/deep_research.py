@@ -29,11 +29,12 @@ class DeepResearchService:
         summary_max_tokens: int = 2000,
     ) -> dict[str, Any]:
         if not query or not query.strip():
-            return {"topic": query, "success": False, "error": "查询不能为空", "findings": [], "final_report": ""}
+            return {"topic": query, "success": False, "error": "查询不能为空", "findings": [], "sources": [], "final_report": ""}
 
         llm = get_llm_service()
         search = get_web_search_service()
         all_findings: list[dict[str, Any]] = []
+        all_sources: list[dict[str, str]] = []
 
         for loop in range(max_loops):
             try:
@@ -41,8 +42,14 @@ class DeepResearchService:
                 if not results:
                     logger.info("Deep research loop %d: no results, stopping", loop + 1)
                     break
+                seen_links = {s["link"] for s in all_sources}
+                for r in results[:5]:
+                    link = str(r.get("url") or r.get("link") or "")
+                    if r.get("title") and link and link not in seen_links:
+                        seen_links.add(link)
+                        all_sources.append({"title": str(r["title"]), "link": link})
                 search_text = "\n".join(
-                    f"- {r.get('title', '')}: {str(r.get('content', ''))[:150]}"
+                    f"- {r.get('title', '')}: {str(r.get('content', ''))[:150]} (来源: {r.get('url') or r.get('link') or '无'})"
                     for r in results[:5]
                     if r.get("title")
                 )
@@ -77,6 +84,7 @@ class DeepResearchService:
                 "success": False,
                 "error": str(e),
                 "findings": all_findings,
+                "sources": all_sources,
                 "final_report": f"深度研究摘要生成失败: {e}",
             }
 
@@ -85,6 +93,7 @@ class DeepResearchService:
             "success": True,
             "error": "",
             "findings": all_findings,
+            "sources": all_sources,
             "final_report": final_report,
         }
 

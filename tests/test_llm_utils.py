@@ -12,6 +12,7 @@ from nexus.llm_utils import (
     parse_llm_json,
     parse_llm_json_lenient,
     parse_llm_json_or,
+    parse_json_column,
     strip_code_fence,
     with_llm_retry,
 )
@@ -123,6 +124,33 @@ class TestParseLlmJsonOr:
     def test_json_null_returns_default(self):
         sentinel = {"fallback": True}
         assert parse_llm_json_or('null', sentinel) is sentinel
+
+
+class TestParseJsonColumn:
+    def test_dict_passthrough(self):
+        value = {"a": 1}
+        assert parse_json_column(value, None) is value
+
+    def test_list_passthrough(self):
+        value = [1, 2]
+        assert parse_json_column(value, {}) is value
+
+    def test_valid_json_string(self):
+        assert parse_json_column('{"x": 2}', {}) == {"x": 2}
+
+    def test_repairable_json_string(self):
+        assert parse_json_column('```json\n{"x": 2}\n```', {}) == {"x": 2}
+
+    def test_empty_and_garbage_return_default(self):
+        sentinel = {"d": 1}
+        assert parse_json_column("", sentinel) is sentinel
+        assert parse_json_column("   ", sentinel) is sentinel
+        assert parse_json_column("不是JSON", sentinel) is sentinel
+
+    def test_non_str_non_container_returns_default(self):
+        sentinel = []
+        assert parse_json_column(None, sentinel) is sentinel
+        assert parse_json_column(42, sentinel) is sentinel
 
 
 class TestIsRetryableError:
