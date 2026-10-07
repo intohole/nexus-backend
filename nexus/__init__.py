@@ -27,6 +27,8 @@ from nexus.response import (
     paginate_response,
     spa_index_response,
 )
+from nexus.doc_extract import DocExtractError, extract_document_text
+
 from nexus.utils import (
     TimeUtils,
     MemoryCache,
@@ -257,6 +259,7 @@ __all__ = [
     "init_db", "close_db", "setup_logging", "setup_loguru", "get_logger",
     "success_response", "error_response", "paginate_response", "spa_index_response",
     "TimeUtils", "MemoryCache", "SyncTTLCache", "MoutainClient", "HttpClient", "cosine_similarity",
+    "extract_document_text", "DocExtractError",
     "batch_cosine_similarity", "clamp", "loads_or", "safe_float", "safe_bool", "resolve_cors_origins",
     "paginate_from_skip", "register_service_auth", "register_health_detail",
     "mount_spa_static", "setup_cors", "RequestIdMiddleware", "NoCacheMiddleware",
