@@ -25,6 +25,7 @@ from nexus.response import (
     success_response,
     error_response,
     paginate_response,
+    paginated_payload,
     spa_index_response,
 )
 from nexus.doc_extract import DocExtractError, extract_document_text
@@ -91,7 +92,7 @@ from nexus.uc_sdk_helper import (
     standard_ok,
     standard_err,
 )
-from nexus.repository import StatelessRepository, paginate
+from nexus.repository import StatelessRepository, paginate, paginate_skip
 from nexus.storage import read_limited
 from nexus.uc_proxy import register_uc_proxy
 from nexus.lifespan import create_standard_lifespan
@@ -257,7 +258,7 @@ __all__ = [
     "RateLimitError", "ForbiddenError",
     "ContentFilterError", "get_user_id", "DatabaseManager", "get_db", "db_manager", "Base",
     "init_db", "close_db", "setup_logging", "setup_loguru", "get_logger",
-    "success_response", "error_response", "paginate_response", "spa_index_response",
+    "success_response", "error_response", "paginate_response", "paginated_payload", "spa_index_response",
     "TimeUtils", "MemoryCache", "SyncTTLCache", "MoutainClient", "HttpClient", "cosine_similarity",
     "extract_document_text", "DocExtractError",
     "validate_upload", "read_upload_with_limit", "split_ext",
@@ -275,7 +276,7 @@ __all__ = [
     "DOMAIN_KNOWLEDGE", "DOMAIN_CREATIVE", "DOMAIN_GROWTH", "DOMAIN_ASSET",
     "get_client_ip", "sanitize_platform_text", "resolve_env_tree", "init_uc_sdk",
     "init_uc_sdk_from_lion", "get_uc_sdk", "close_uc_sdk", "extract_bearer_token",
-    "standard_ok", "standard_err", "StatelessRepository", "read_limited", "paginate",
+    "standard_ok", "standard_err", "StatelessRepository", "read_limited", "paginate", "paginate_skip",
     "register_uc_proxy",
     "ANON_ID_RE", "get_current_user_or_anon", "get_current_user_or_anon_lax",
     "get_current_user_or_anon_optional",

@@ -12,6 +12,7 @@ from typing import Any, Callable, Optional
 from nexus.automation.base import AutomationContext, Action, Condition, Trigger
 from nexus.automation.registry import StrategyRegistry
 from nexus.logging import get_logger
+from nexus.utils.time import TimeUtils
 
 logger = get_logger("nexus.automation")
 
@@ -62,7 +63,7 @@ class AutomationEngine:
         ctx_factory: ContextFactory,
         now: Optional[datetime] = None,
     ) -> RunOutcome:
-        now = now or datetime.now()
+        now = now or TimeUtils.now_naive()
         trigger = self.triggers.get(getattr(rule, "trigger_type", None))
         if trigger is None:
             return RunOutcome(rule.id, "no_trigger", False, f"触发器未注册: {getattr(rule, 'trigger_type', '')}", now + timedelta(minutes=self.retry_minutes))
@@ -108,7 +109,7 @@ class AutomationEngine:
         ctx_factory: ContextFactory,
         now: Optional[datetime] = None,
     ) -> list[RunOutcome]:
-        now = now or datetime.now()
+        now = now or TimeUtils.now_naive()
         outcomes: list[RunOutcome] = []
         for rule in rules:
             next_run = getattr(rule, "next_run_at", None)

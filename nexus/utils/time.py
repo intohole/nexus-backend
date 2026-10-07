@@ -50,9 +50,39 @@ class TimeUtils:
 
     @classmethod
     def ensure_naive(cls, dt: datetime) -> datetime:
+        """只剥 tzinfo 不做时区换算——调用方必须自证 naive 基准正确。"""
         if dt.tzinfo is not None:
             return dt.replace(tzinfo=None)
         return dt
+
+    @classmethod
+    def ensure_naive_utc(cls, dt: datetime) -> datetime:
+        """aware 先折算 UTC 再剥 tz；naive 原样。utcnow() 旧惯例的安全替换。"""
+        if dt.tzinfo is None:
+            return dt
+        return dt.astimezone(cls.UTC_TZ).replace(tzinfo=None)
+
+    @classmethod
+    def ensure_naive_cn(cls, dt: datetime) -> datetime:
+        """aware 先折算中国墙钟再剥 tz；naive 原样。CN 墙钟 naive 列的统一入口。"""
+        if dt.tzinfo is None:
+            return dt
+        return dt.astimezone(cls.CHINA_TZ).replace(tzinfo=None)
+
+    @classmethod
+    def assume_utc(cls, dt: datetime) -> datetime:
+        """naive 打 UTC 标（幂等：aware 原样）。"""
+        return dt.replace(tzinfo=cls.UTC_TZ) if dt.tzinfo is None else dt
+
+    @classmethod
+    def assume_cn(cls, dt: datetime) -> datetime:
+        """naive 打中国时区标（幂等：aware 原样）。"""
+        return dt.replace(tzinfo=cls.CHINA_TZ) if dt.tzinfo is None else dt
+
+    @classmethod
+    def fmt_cn(cls, dt: datetime, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
+        """展示格式化：naive 视为已是 CN 墙钟不换算（与 format 的 naive=UTC 假定区分）。"""
+        return cls.ensure_naive_cn(dt).strftime(fmt)
 
     @classmethod
     def parse(cls, dt_str: str, fmt: str = "%Y-%m-%d %H:%M:%S") -> datetime:

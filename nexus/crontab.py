@@ -10,11 +10,11 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, tzinfo
 from typing import Awaitable, Callable, Optional
-from zoneinfo import ZoneInfo
 
 from nexus.logging import get_logger
+from nexus.utils.time import TimeUtils
 
 try:
     from croniter import croniter
@@ -25,7 +25,7 @@ except ImportError:
 
 logger = get_logger("nexus.crontab")
 
-CHINA_TZ = ZoneInfo("Asia/Shanghai")
+CHINA_TZ = TimeUtils.CHINA_TZ
 
 CoroFunc = Callable[[], Awaitable[object]]
 ScanHandler = CoroFunc
@@ -35,7 +35,7 @@ def next_run_at(
     expr: str,
     base: Optional[datetime] = None,
     *,
-    tz: ZoneInfo = CHINA_TZ,
+    tz: tzinfo = CHINA_TZ,
 ) -> Optional[datetime]:
     """计算标准 crontab 表达式的下一次运行时间。
 
@@ -71,7 +71,7 @@ class CronScheduler:
         self,
         tick_seconds: int = 30,
         *,
-        tz: ZoneInfo = CHINA_TZ,
+        tz: tzinfo = CHINA_TZ,
         fire_timeout: float = 300.0,
     ) -> None:
         self._tick_seconds = tick_seconds

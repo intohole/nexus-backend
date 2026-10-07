@@ -12,6 +12,22 @@ from nexus.errors import NotFoundError
 ModelT = TypeVar("ModelT")
 
 
+async def _run_paginate(
+    session: AsyncSession,
+    stmt: Select,
+    offset: int,
+    limit: int,
+    unique: bool,
+) -> tuple[list[Any], int]:
+    total: int | None = await session.scalar(
+        select(func.count()).select_from(stmt.subquery())
+    )
+    result = await session.execute(stmt.offset(offset).limit(limit))
+    scalars = result.scalars()
+    items = list(scalars.unique().all()) if unique else list(scalars.all())
+    return items, int(total or 0)
+
+
 async def paginate(
     session: AsyncSession,
     stmt: Select,
@@ -24,15 +40,22 @@ async def paginate(
     page 从 1 起；stmt 可带 where/order_by，count 走 subquery 不受影响；
     joined eager load（collection）场景传 unique=True 去重。
     """
-    total: int | None = await session.scalar(
-        select(func.count()).select_from(stmt.subquery())
-    )
-    result = await session.execute(
-        stmt.offset((page - 1) * page_size).limit(page_size)
-    )
-    scalars = result.scalars()
-    items = list(scalars.unique().all()) if unique else list(scalars.all())
-    return items, int(total or 0)
+    return await _run_paginate(session, stmt, (page - 1) * page_size, page_size, unique)
+
+
+async def paginate_skip(
+    session: AsyncSession,
+    stmt: Select,
+    skip: int = 0,
+    limit: int = 20,
+    unique: bool = False,
+) -> tuple[list[Any], int]:
+    """skip/limit 分页：与 paginate 同一二段执行，偏移量语义（0 起）。
+
+    工作区 skip 方言仓（adSmart/promptGenius/promptManager/oneNote 等）的
+    单一替换面；flat 信封用 nexus.response.paginated_payload 拼装。
+    """
+    return await _run_paginate(session, stmt, skip, limit, unique)
 
 
 class StatelessRepository(Generic[ModelT]):

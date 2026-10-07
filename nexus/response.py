@@ -70,6 +70,25 @@ def paginate_response(
     return result
 
 
+def paginated_payload(
+    items: list[object],
+    total: int,
+    skip: int = 0,
+    limit: int = 20,
+) -> dict[str, object]:
+    """flat 分页信封 {items,total,skip,limit,has_more}，与 paginate_from_skip 同形。
+
+    DB 侧入口配 nexus.repository.paginate_skip 使用；code 包裹型用 paginate_response。
+    """
+    return {
+        "items": items,
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "has_more": skip + limit < total,
+    }
+
+
 def spa_index_response(request: Request, index_path: str) -> HTMLResponse:
     """读取 SPA index.html 并注入 window.PATH_PREFIX（反代子路径部署场景）。
 
