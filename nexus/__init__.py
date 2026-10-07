@@ -260,6 +260,7 @@ __all__ = [
     "success_response", "error_response", "paginate_response", "spa_index_response",
     "TimeUtils", "MemoryCache", "SyncTTLCache", "MoutainClient", "HttpClient", "cosine_similarity",
     "extract_document_text", "DocExtractError",
+    "validate_upload", "read_upload_with_limit", "split_ext",
     "batch_cosine_similarity", "clamp", "loads_or", "safe_float", "safe_bool", "resolve_cors_origins",
     "paginate_from_skip", "register_service_auth", "register_health_detail",
     "mount_spa_static", "setup_cors", "RequestIdMiddleware", "NoCacheMiddleware",

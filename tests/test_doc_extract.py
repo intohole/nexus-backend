@@ -1,6 +1,7 @@
 """doc_extract 原语回归：文本/CSV/DOCX/XLSX 真文件 + PDF 降级链与错误契约。"""
 from __future__ import annotations
 
+import importlib.util
 import io
 
 import pytest
@@ -72,7 +73,10 @@ class TestBinaryFormats:
             extract_document_text("bad.docx", b"not a docx")
 
     def test_pdf_degrade_chain_no_deps_raises(self):
-        # 本机无 pdfplumber/PyPDF2 副本时走 pypdf；用损坏字节验证报错契约
+        # 前提：本机无任何 pdf 库才走「全部失败抛错」分支；装了库的机器跳过
+        for mod in ("pdfplumber", "pypdf", "PyPDF2"):
+            if importlib.util.find_spec(mod) is not None:
+                pytest.skip(f"{mod} installed, no-deps premise broken")
         with pytest.raises(DocExtractError):
             extract_document_text("bad.pdf", b"%PDF-broken")
 

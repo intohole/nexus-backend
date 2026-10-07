@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from nexus.config import NexusConfig, get_settings
-from nexus.context import get_request_id
+from nexus.context import get_request_id, get_user_id
 
 _NEXUS_HANDLER_ATTR: str = "_nexus_handler"
 
@@ -117,6 +117,12 @@ class _StdlibToLoguruHandler(logging.Handler):
             pass
 
 
+def _context_patcher(record: object) -> None:
+    """把请求上下文注入每条 loguru 记录（含 stdlib 桥接记录）。"""
+    record["extra"]["req_id"] = get_request_id() or "-"
+    record["extra"]["uid"] = get_user_id() or "-"
+
+
 def setup_loguru(
     app_name: str = "app",
     log_level: str = "INFO",
@@ -126,7 +132,11 @@ def setup_loguru(
     extra_bridge_loggers: tuple[str, ...] = (),
     console_stream: object = None,
 ) -> None:
-    """console_stream 缺省 stdout；resumeAI 等需避开 uvicorn stdout 的仓传 sys.stderr。"""
+    """console_stream 缺省 stdout；resumeAI 等需避开 uvicorn stdout 的仓传 sys.stderr。
+
+    每条日志（含 stdlib 桥接）自带 [req_id=…]/[uid=…]，来自 nexus.context
+    的请求上下文——宿主中间件 set_request_context 后即可全程关联。
+    """
     try:
         from loguru import logger
     except ImportError:
@@ -138,15 +148,21 @@ def setup_loguru(
 
     _Path(log_dir).mkdir(parents=True, exist_ok=True)
     logger.remove()
+    logger.configure(patcher=_context_patcher)
 
     logger.add(
         console_stream if console_stream is not None else _os.sys.stdout,
         colorize=True,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level> <dim>[req_id={extra[req_id]} uid={extra[uid]}]</dim>",
         level=log_level,
         enqueue=True,
         backtrace=True,
         diagnose=False,
+    )
+
+    _path_format = (
+        "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line}"
+        " - {message} [req_id={extra[req_id]} uid={extra[uid]}]"
     )
 
     logger.add(
@@ -160,6 +176,7 @@ def setup_loguru(
         backtrace=True,
         diagnose=False,
         filter=lambda record: record["level"].no < 40,
+        format=_path_format,
     )
 
     logger.add(
@@ -172,6 +189,7 @@ def setup_loguru(
         enqueue=True,
         backtrace=True,
         diagnose=False,
+        format=_path_format,
     )
 
     if bridge_stdlib:
