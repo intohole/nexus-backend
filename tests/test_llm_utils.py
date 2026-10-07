@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
@@ -45,11 +46,17 @@ class TestFindBalancedJson:
     def test_no_json_returns_none(self):
         assert find_balanced_json('没有任何 JSON') is None
 
-    def test_braces_inside_string_known_limitation(self):
-        """已知边界：括号计数不感知字符串字面量，字符串内 }
-        会提前闭合候选；parse_llm_json 的 regex 兜底会接住此类输入。"""
+    def test_braces_inside_string_now_matched(self):
+        """字符串感知（r54 吸收 ironman 算法）：字符串内的 } 不再提前闭合候选。"""
         text = '{"s": "包含 } 的字符串"}'
-        assert find_balanced_json(text) is None
+        assert find_balanced_json(text) == '{"s": "包含 } 的字符串"}'
+
+    def test_escaped_quote_inside_string(self):
+        text = '说明 {"s": "他说：\\"好}\\"", "n": 1} 结束'
+        assert json.loads(find_balanced_json(text)) == {"s": "他说：\"好}\"", "n": 1}
+
+    def test_stray_closing_brace_ignored(self):
+        assert find_balanced_json('} {"a": 1}') == '{"a": 1}'
 
 
 class TestParseLlmJson:

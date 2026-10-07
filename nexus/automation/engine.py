@@ -18,6 +18,19 @@ logger = get_logger("nexus.automation")
 ContextFactory = Callable[[Any, datetime], AutomationContext]
 
 
+def _same_tzawareness(dt: datetime, reference: datetime) -> datetime:
+    """naive/aware 混用防御：与参照侧对齐 tzinfo 再比较，避免 TypeError。
+
+    宿主仓 next_run_at 落库格式不受引擎约束（gezhi 存 naive），引擎默认
+    now 为 naive——aware 宿主注入 aware 规则行时按参照侧重置 tzinfo 对齐。
+    """
+    if dt.tzinfo is None and reference.tzinfo is not None:
+        return dt.replace(tzinfo=reference.tzinfo)
+    if dt.tzinfo is not None and reference.tzinfo is None:
+        return dt.replace(tzinfo=None)
+    return dt
+
+
 @dataclass
 class RunOutcome:
     rule_id: int
@@ -99,7 +112,7 @@ class AutomationEngine:
         outcomes: list[RunOutcome] = []
         for rule in rules:
             next_run = getattr(rule, "next_run_at", None)
-            if next_run is None or next_run > now:
+            if next_run is None or _same_tzawareness(next_run, now) > now:
                 continue
             outcomes.append(await self.run_rule(rule, ctx_factory, now))
         return outcomes
