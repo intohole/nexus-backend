@@ -45,7 +45,6 @@ async def resilient_ask(
     estimated_tokens: int = 500,
     retry_count: int = 2,
     retry_delay: float = 1.0,
-    use_rate_limit: bool = False,
     on_fallback: Optional[Callable[[str], None]] = None,
     namespace: Optional[str] = None,
     task_type: Optional[str] = None,
@@ -54,7 +53,6 @@ async def resilient_ask(
 
     alias 用于熔断器隔离与成本归集（同一 alias 共享熔断状态）。
     fallback 非 None 时，任何失败都返回 fallback 而不是抛异常。
-    use_rate_limit=True 时额外启用 LLMRateLimiter 全局限流（高并发场景）。
     system 为可选的系统提示词，max_tokens 限制输出长度，透传底层 LLMService.ask。
     重试唯一样板：retry_count+1 次调用，内层 LLMService 已禁用重试（max_retries=0），不再叠加放大。
     """
@@ -80,12 +78,7 @@ async def resilient_ask(
                     namespace=namespace, task_type=task_type,
                 )
 
-            if use_rate_limit:
-                from nexus.llm_rate_limiter import get_llm_rate_limiter
-                async with get_llm_rate_limiter().limited(caller=alias):
-                    result = await cb.call(_guarded, timeout=timeout)
-            else:
-                result = await cb.call(_guarded, timeout=timeout)
+            result = await cb.call(_guarded, timeout=timeout)
             await cost_guard.record_usage(
                 prompt_tokens=estimated_tokens // 2,
                 completion_tokens=estimated_tokens // 2,
@@ -135,7 +128,6 @@ async def resilient_extract(
     estimated_tokens: int = 500,
     retry_count: int = 2,
     retry_delay: float = 1.0,
-    use_rate_limit: bool = False,
     namespace: Optional[str] = None,
     task_type: Optional[str] = None,
 ) -> dict[str, object]:
@@ -155,7 +147,6 @@ async def resilient_extract(
         estimated_tokens=estimated_tokens,
         retry_count=retry_count,
         retry_delay=retry_delay,
-        use_rate_limit=use_rate_limit,
         namespace=namespace,
         task_type=task_type,
     )

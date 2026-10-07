@@ -109,44 +109,13 @@ def _extract_retry_after(exc: Exception) -> float | None:
 
 
 def find_balanced_json(content: str) -> Optional[str]:
-    """从文本中提取第一个平衡的JSON对象（括号匹配法）。
+    """从文本中提取第一个平衡的JSON对象（括号匹配法，非法候选自动跳过）。
 
-    比regex \\{[\\s\\S]*\\} 更健壮：正确处理嵌套JSON，
-    遇到非法JSON自动跳过继续寻找下一个候选。
-    字符串感知：跳过双引号字符串内部的括号与转义（`{"a": "}"}` 不再误配）。
+    单一实现在 ironman.validation.structured（与 ironman extract_json 共用一份算法），
+    函数内惰性导入：nexus 已模块级依赖 ironman，此向保持依赖方向不变且不成环。
     """
-    depth = 0
-    start = -1
-    in_string = False
-    escape = False
-    for i, c in enumerate(content):
-        if escape:
-            escape = False
-            continue
-        if c == '\\' and in_string:
-            escape = True
-            continue
-        if c == '"':
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if c == '{':
-            if depth == 0:
-                start = i
-            depth += 1
-        elif c == '}':
-            if depth == 0:
-                continue
-            depth -= 1
-            if depth == 0 and start >= 0:
-                candidate = content[start:i + 1]
-                try:
-                    json.loads(candidate)
-                    return candidate
-                except json.JSONDecodeError:
-                    start = -1
-    return None
+    from ironman.validation.structured import find_balanced_json as _find_balanced_impl
+    return _find_balanced_impl(content)
 
 
 def parse_llm_json(raw: str, fallback: object = _UNSET) -> dict[str, object]:

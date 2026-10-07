@@ -44,15 +44,6 @@ TASK_BUDGETS: dict[str, TaskBudget] = {
     "ppt": TaskBudget(max_tokens=3000, temperature=0.4, output_mode=OutputMode.JSON),
 }
 
-DEFAULT_TASK_BUDGET = TaskBudget(max_tokens=1500, output_mode=OutputMode.DEFAULT)
-
-
-def resolve_budget(task_type: Optional[str]) -> TaskBudget:
-    if not task_type:
-        return DEFAULT_TASK_BUDGET
-    return TASK_BUDGETS.get(task_type, DEFAULT_TASK_BUDGET)
-
-
 def resolve_effective_budget(
     task_type: Optional[str],
     max_tokens: Optional[int],
@@ -76,7 +67,5 @@ __all__ = [
     "TaskBudget",
     "PROSE_HINT",
     "TASK_BUDGETS",
-    "DEFAULT_TASK_BUDGET",
-    "resolve_budget",
     "resolve_effective_budget",
 ]
