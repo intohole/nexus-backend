@@ -192,6 +192,16 @@ def parse_llm_json(raw: str, fallback: object = _UNSET) -> dict[str, object]:
         return fallback  # type: ignore[return-value]
     return {"raw_response": text}
 
+def is_llm_json_error(result: object) -> bool:
+    """判断 parse_llm_json 未传 fallback 时的返回值是否为解析失败哨兵。
+
+    哨兵 {"raw_response": text} 是个合法 dict——消费方直接 .get("field")
+    会静默拿到空值（verseCraft r9 生产实锤：结构化记忆管线整条空军、
+    追踪/图谱 0 落库，零异常零告警）。关键结构化消费方必须在取字段前
+    用本函数单源检测，而不是各自手写 `"raw_response" in result`。
+    """
+    return isinstance(result, dict) and set(result.keys()) == {"raw_response"}
+
 def parse_llm_json_lenient(raw: str) -> Optional[object]:
     """LLM 输出的宽容解析：支持顶层对象或数组，逐级降级提取，全部失败返回 None。
 

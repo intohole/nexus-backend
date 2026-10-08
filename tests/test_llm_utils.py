@@ -232,3 +232,23 @@ class TestWithRetry:
 
         assert await with_llm_retry(coro_fn, max_retries=3) == "ok"
         assert calls == 3
+
+
+class TestIsLlmJsonError:
+    def test_sentinel_detected(self):
+        assert parse_llm_json("完全不是JSON的独白输出") is not None
+        sentinel = parse_llm_json("We need answer only JSON. no json here")
+        from nexus.llm_utils import is_llm_json_error
+        assert is_llm_json_error(sentinel) is True
+
+    def test_normal_dict_not_error(self):
+        from nexus.llm_utils import is_llm_json_error
+        assert is_llm_json_error({"plot": "a"}) is False
+        assert is_llm_json_error({"raw_response": "x", "plot": "a"}) is False
+        assert is_llm_json_error("string") is False
+        assert is_llm_json_error(None) is False
+
+    def test_explicit_fallback_not_sentinel(self):
+        from nexus.llm_utils import is_llm_json_error
+        assert is_llm_json_error(parse_llm_json("bad", fallback=None)) is False
+        assert is_llm_json_error(parse_llm_json("bad", fallback={"d": 1})) is False
