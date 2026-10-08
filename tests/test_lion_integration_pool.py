@@ -28,3 +28,63 @@ async def test_aclose_on_never_used_instance_is_noop():
     integ = LionIntegration()
     await integ.aclose()
     assert integ._lion_sdk is None
+
+
+@pytest.mark.asyncio
+async def test_business_config_serves_last_good_on_fetch_failure(monkeypatch):
+    integ = LionIntegration()
+
+    class _Sdk:
+        def __init__(self):
+            self.results: list[dict] = []
+
+        async def get_business_config(self, key: str) -> dict:
+            return self.results.pop(0)
+
+    sdk = _Sdk()
+    monkeypatch.setattr(integ, "_get_lion_sdk", lambda: sdk)
+
+    sdk.results = [{"app_key": "k1", "app_secret": "s1"}]
+    cfg = await integ.get_business_config("uc_auth", use_cache=False)
+    assert cfg["app_key"] == "k1"
+
+    sdk.results = [{"success": False, "detail": "Cannot connect"}]
+    cfg = await integ.get_business_config("uc_auth", use_cache=False)
+    assert cfg["app_key"] == "k1"
+    assert cfg.get("success") is not False
+
+
+@pytest.mark.asyncio
+async def test_business_config_returns_error_when_never_succeeded(monkeypatch):
+    integ = LionIntegration()
+
+    class _Sdk:
+        async def get_business_config(self, key: str) -> dict:
+            return {"success": False, "detail": "Cannot connect"}
+
+    monkeypatch.setattr(integ, "_get_lion_sdk", lambda: _Sdk())
+    cfg = await integ.get_business_config("uc_auth", use_cache=False)
+    assert cfg.get("success") is False
+
+
+@pytest.mark.asyncio
+async def test_infra_config_serves_last_good_on_fetch_failure(monkeypatch):
+    integ = LionIntegration()
+
+    class _Sdk:
+        def __init__(self):
+            self.results: list[dict] = []
+
+        async def get_infra_config(self, key: str) -> dict:
+            return self.results.pop(0)
+
+    sdk = _Sdk()
+    monkeypatch.setattr(integ, "_get_lion_sdk", lambda: sdk)
+
+    sdk.results = [{"base_url": "http://uc:8901"}]
+    cfg = await integ.get_infra_config("usercenter", use_cache=False)
+    assert cfg["base_url"] == "http://uc:8901"
+
+    sdk.results = [{"success": False, "detail": "timeout"}]
+    cfg = await integ.get_infra_config("usercenter", use_cache=False)
+    assert cfg["base_url"] == "http://uc:8901"

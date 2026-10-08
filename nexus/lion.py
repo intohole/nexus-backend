@@ -65,6 +65,7 @@ class LionIntegration:
         self._config: NexusConfig = config or get_settings()
         self._cache: dict[str, dict[str, object]] = {}
         self._cache_ts: dict[str, float] = {}
+        self._last_good: dict[str, dict[str, object]] = {}
         self._lock: "_ReentrantAsyncLock" = _ReentrantAsyncLock()
         self._lion_sdk: Optional["LionSDK"] = None
 
@@ -153,17 +154,27 @@ class LionIntegration:
             if config and config.get("success") is not False:
                 self._cache[key] = config
                 self._cache_ts[key] = time.monotonic()
+                self._last_good[key] = config
+            elif key in self._last_good:
+                logger.warning("Lion infra config serving last-good (key=%s)", key)
+                return self._last_good[key]
             return config
 
     async def _fetch_infra_config(self, key: str) -> dict[str, object]:
         try:
-            return await self._get_lion_sdk().get_infra_config(key)
+            config = await self._get_lion_sdk().get_infra_config(key)
         except ImportError:
             logger.warning("lion_sdk not installed, Lion integration disabled")
             return {}
         except Exception as exc:
             logger.error("Lion infra config fetch failed (key=%s): %s", key, str(exc))
             return {}
+        if config.get("success") is False:
+            logger.warning(
+                "Lion infra config fetch failed (key=%s): %s",
+                key, config.get("detail", "unknown"),
+            )
+        return config
 
     def get_business_config_sync(self, key: str) -> dict[str, object]:
         """同步读业务配置：只读已缓存的值，不发起网络 IO（缓存未热返回空 dict）。
@@ -174,7 +185,7 @@ class LionIntegration:
         cache_key = f"business::{key}"
         if self._is_cache_valid(cache_key):
             return self._cache[cache_key]
-        return {}
+        return self._last_good.get(cache_key, {})
 
     async def get_business_config(self, key: str, use_cache: bool = True) -> dict[str, object]:
         cache_key = f"business::{key}"
@@ -189,17 +200,27 @@ class LionIntegration:
             if config and config.get("success") is not False:
                 self._cache[cache_key] = config
                 self._cache_ts[cache_key] = time.monotonic()
+                self._last_good[cache_key] = config
+            elif cache_key in self._last_good:
+                logger.warning("Lion business config serving last-good (key=%s)", key)
+                return self._last_good[cache_key]
             return config
 
     async def _fetch_business_config(self, key: str) -> dict[str, object]:
         try:
-            return await self._get_lion_sdk().get_business_config(key)
+            config = await self._get_lion_sdk().get_business_config(key)
         except ImportError:
             logger.warning("lion_sdk not installed, Lion integration disabled")
             return {}
         except Exception as exc:
             logger.error("Lion business config fetch failed (key=%s): %s", key, str(exc))
             return {}
+        if config.get("success") is False:
+            logger.warning(
+                "Lion business config fetch failed (key=%s): %s",
+                key, config.get("detail", "unknown"),
+            )
+        return config
 
     async def get_chat_config(self, prefer_gateway: bool = True) -> dict[str, object]:
         return await self.get_config("chat", prefer_gateway=prefer_gateway)
