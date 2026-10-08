@@ -34,6 +34,24 @@ def test_send_without_user_id_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
     assert called == []
 
 
+@pytest.mark.parametrize("bad_user", ["default", "DEFAULT", " none ", "unknown", "0"])
+def test_send_placeholder_user_rejected(monkeypatch: pytest.MonkeyPatch, bad_user: str) -> None:
+    called: list[dict] = []
+
+    class FakeClient:
+        async def send(self, **kwargs: object) -> dict:
+            called.append(dict(kwargs))
+            return {"ok": True}
+
+    import nexus.notify as notify_mod
+    monkeypatch.setattr(notify_mod, "get_notify_client", lambda *a, **k: FakeClient())
+    ok = asyncio.run(
+        NotifyCenterChannel().send({"user_id": bad_user, "title": "t", "content": "c"})
+    )
+    assert ok is False
+    assert called == []
+
+
 def test_send_passes_fields_and_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     called: list[dict] = []
 

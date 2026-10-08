@@ -5,18 +5,25 @@ from loguru import logger
 
 from nexus.channels.base import NotificationChannel
 
+_INVALID_USER_IDS = frozenset({"", "default", "none", "null", "unknown", "0"})
+
 
 class NotifyCenterChannel(NotificationChannel):
     """notification dict 必须带 user_id（通知中心按用户投递）；
-    app_id/link/type/priority 可选，priority 为 1-3 的通知中心级别。"""
+    app_id/link/type/priority 可选，priority 为 1-3 的通知中心级别。
+    无主占位 user（default/空/unknown 等）直接拒发——这类投递永远无人可见，
+    只会在通知中心积累死行（goldenFish 曾向 default 连发 6 条停摆通知）。"""
 
     def __init__(self) -> None:
         super().__init__("notifycenter")
 
     async def send(self, notification: dict[str, object]) -> bool:
-        user_id = str(notification.get("user_id") or "")
-        if not user_id:
-            logger.warning("NotifyCenter notification missing user_id, skipped")
+        user_id = str(notification.get("user_id") or "").strip()
+        if user_id.lower() in _INVALID_USER_IDS:
+            logger.warning(
+                "NotifyCenter notification for placeholder user_id=%r, skipped (app=%s title=%s)",
+                user_id, notification.get("app_id", ""), str(notification.get("title", ""))[:50],
+            )
             return False
         from nexus.notify import get_notify_client
 
