@@ -22,7 +22,7 @@ from nexus.middleware import (
     ErrorHandlerMiddleware,
     LoadingSplashMiddleware,
     LoggingMiddleware,
-    NoCacheMiddleware,
+    StaticAssetsCacheMiddleware,
     NotFoundCheckMiddleware,
     RequestIdMiddleware,
     setup_cors,
@@ -123,7 +123,7 @@ def create_app(
     if enable_rate_limit:
         app.add_middleware(RateLimitMiddleware, config=cfg)
     app.add_middleware(ErrorHandlerMiddleware)
-    app.add_middleware(NoCacheMiddleware, path_prefix="/static")
+    app.add_middleware(StaticAssetsCacheMiddleware, path_prefix="/static")
     if enable_loading_splash:
         app.add_middleware(LoadingSplashMiddleware, app_name=cfg.app_name)
 
@@ -175,7 +175,7 @@ def setup_middleware(
     if enable_error_handler:
         app.add_middleware(ErrorHandlerMiddleware)
     if enable_no_cache:
-        app.add_middleware(NoCacheMiddleware, path_prefix=no_cache_prefix)
+        app.add_middleware(StaticAssetsCacheMiddleware, path_prefix=no_cache_prefix)
     if enable_security_headers:
         app.add_middleware(SecurityHeadersMiddleware)
     if enable_not_found_check:

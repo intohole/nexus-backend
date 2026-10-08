@@ -142,10 +142,6 @@ class VisionService(_GatewayServiceBase):
         """本地图片字节识别的语义化入口（等价 recognize + 自动 data URL 转换）。"""
         return await self.recognize(prompt, blobs, system=system, temperature=temperature)
 
-    async def review(self, system: str, prompt: str, image_url: str, temperature: float = 0.2) -> str:
-        """旧接口（单图审查），保留兼容；新代码请用 recognize/recognize_json。"""
-        return await self._chat_vision(system, prompt, [image_url], temperature)
-
 
 def get_vision_service() -> VisionService:
     return VisionService()

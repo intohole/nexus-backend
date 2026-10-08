@@ -53,7 +53,6 @@ from nexus.boot import (
 from nexus.middleware import (
     setup_cors,
     RequestIdMiddleware,
-    NoCacheMiddleware,
     LoggingMiddleware,
     NotFoundCheckMiddleware,
     StaticAssetsCacheMiddleware,
@@ -265,7 +264,7 @@ __all__ = [
     "validate_upload", "read_upload_with_limit", "split_ext",
     "batch_cosine_similarity", "clamp", "loads_or", "safe_float", "safe_bool", "resolve_cors_origins",
     "paginate_from_skip", "register_service_auth", "register_health_detail",
-    "mount_spa_static", "setup_cors", "RequestIdMiddleware", "NoCacheMiddleware",
+    "mount_spa_static", "setup_cors", "RequestIdMiddleware",
     "LoggingMiddleware", "NotFoundCheckMiddleware", "StaticAssetsCacheMiddleware",
     "LoadingSplashMiddleware", "ErrorHandlerMiddleware", "ServiceAuthMiddleware",
     "setup_exception_handlers", "RateLimitMiddleware", "SlidingWindow", "TokenBucket", "KeyedRateLimiter", "RateLimitConfig",

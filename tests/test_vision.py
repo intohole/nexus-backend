@@ -113,7 +113,7 @@ async def test_recognize_json_invalid_raises(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_review_backward_compat(monkeypatch):
+async def test_recognize_single_str_image(monkeypatch):
     from nexus.vision import VisionService
 
     service = VisionService()
@@ -129,5 +129,5 @@ async def test_review_backward_compat(monkeypatch):
         return "通过"
 
     monkeypatch.setattr(service, "_chat_vision", fake_chat)
-    assert await service.review("审查", "是否合规", "https://a.com/1.png") == "通过"
+    assert await service.recognize("是否合规", "https://a.com/1.png", system="审查") == "通过"
     assert captured["urls"] == ["https://a.com/1.png"]

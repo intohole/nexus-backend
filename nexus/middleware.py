@@ -1,7 +1,6 @@
 """中间件统一出口：日志/请求 ID/安全头/缓存/认证/启动页等聚合导出。"""
 from nexus.middleware_base import (
     LoggingMiddleware,
-    NoCacheMiddleware,
     NotFoundCheckMiddleware,
     RequestIdMiddleware,
     StaticAssetsCacheMiddleware,
@@ -21,7 +20,6 @@ from nexus.middleware_exception import (
 __all__ = [
     "setup_cors",
     "RequestIdMiddleware",
-    "NoCacheMiddleware",
     "LoggingMiddleware",
     "NotFoundCheckMiddleware",
     "StaticAssetsCacheMiddleware",

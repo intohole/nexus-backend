@@ -147,13 +147,6 @@ class StaticAssetsCacheMiddleware(BaseHTTPMiddleware):
         return response
 
 
-class NoCacheMiddleware(StaticAssetsCacheMiddleware):
-    """兼容旧名：统一走分级缓存策略，不再强制 no-store。"""
-
-    def __init__(self, app, path_prefix: str = "/static") -> None:
-        super().__init__(app, path_prefix=path_prefix)
-
-
 class LoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self,
