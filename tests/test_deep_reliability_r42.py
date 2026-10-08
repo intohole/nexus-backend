@@ -185,3 +185,58 @@ class TestCircuitBreakerInternalizedTimeout:
         assert out == "recovered"
         assert len(attempts) == 2
         assert breaker.metrics.total_failures == 1
+
+
+class TestLimiterConfigHotUpdate:
+    """r68: llm_quota 通道通电——TTL 重读 + lion 缓存异步预热（r59④ 遗留）。"""
+
+    def _patch_resolve(self, monkeypatch, values):
+        import nexus.llm_rate_limiter as m
+
+        monkeypatch.setattr(m, "_resolve_config", lambda: values)
+
+    def test_ttl_expired_applies_new_rate_same_instance(self, monkeypatch):
+        self._patch_resolve(monkeypatch, (20, 3.0, 5))
+        limiter = LLMRateLimiter(rate_limit=10, period=5.0, max_concurrent=5)
+        limiter._config_ts = 0.0
+        limiter.maybe_refresh_config()
+        assert limiter._rate_limit == 20
+        assert limiter._period == 3.0
+        assert limiter._max_concurrent == 5
+
+    def test_within_ttl_skips_reread(self, monkeypatch):
+        import time as _t
+
+        self._patch_resolve(monkeypatch, (99, 1.0, 5))
+        limiter = LLMRateLimiter(rate_limit=10, period=5.0, max_concurrent=5)
+        limiter._config_ts = _t.monotonic()
+        limiter.maybe_refresh_config()
+        assert limiter._rate_limit == 10
+
+    def test_lion_cache_warm_feeds_next_refresh(self):
+        from nexus.lion import get_lion
+
+        lion = get_lion()
+        lion._cache["business::llm_quota"] = {"rate_limit": 7}
+        lion._cache_ts["business::llm_quota"] = __import__("time").monotonic()
+        limiter = LLMRateLimiter(rate_limit=10, period=5.0, max_concurrent=5)
+        limiter._config_ts = 0.0
+        limiter.maybe_refresh_config()
+        assert limiter._rate_limit == 7
+
+    @pytest.mark.asyncio
+    async def test_warm_scheduled_in_loop_and_lion_miss_is_silent(self, monkeypatch):
+        self._patch_resolve(monkeypatch, (10, 5.0, 5))
+        limiter = LLMRateLimiter(rate_limit=10, period=5.0, max_concurrent=5)
+        limiter._config_ts = 0.0
+        limiter.maybe_refresh_config()
+        assert limiter._warm_task is not None
+        await limiter._warm_task
+        assert limiter._warm_task.exception() is None
+
+    def test_no_running_loop_skips_warm_without_error(self, monkeypatch):
+        self._patch_resolve(monkeypatch, (10, 5.0, 5))
+        limiter = LLMRateLimiter(rate_limit=10, period=5.0, max_concurrent=5)
+        limiter._config_ts = 0.0
+        limiter.maybe_refresh_config()
+        assert limiter._warm_task is None

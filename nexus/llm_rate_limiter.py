@@ -26,6 +26,8 @@ class LLMRateLimiter:
         self._lock = asyncio.Lock()
         self._total_calls = 0
         self._throttled_calls = 0
+        self._config_ts: float = 0.0
+        self._warm_task: Optional[asyncio.Task] = None
 
     @asynccontextmanager
     async def limited(self, caller: str = "") -> AsyncGenerator[None, None]:
@@ -69,9 +71,44 @@ class LLMRateLimiter:
             "max_concurrent": self._max_concurrent,
         }
 
+    def maybe_refresh_config(self) -> None:
+        """TTL 到期重读配置（lion 侧只读缓存零 IO）； lion 配额缓存由异步预热任务打通。"""
+        if time.monotonic() - self._config_ts < _CONFIG_REFRESH_TTL:
+            return
+        self._config_ts = time.monotonic()
+        rate, period, concurrent = _resolve_config()
+        if rate != self._rate_limit or period != self._period:
+            logger.info("LLM限流配置热更新: %s次/%ss -> %s次/%ss",
+                        self._rate_limit, self._period, rate, period)
+            self._rate_limit, self._period = rate, period
+        if concurrent != self._max_concurrent:
+            logger.warning("LLM限流 max_concurrent 变更 %s->%s 需重启生效（信号量结构参数）",
+                           self._max_concurrent, concurrent)
+        self._schedule_business_warm()
+
+    def _schedule_business_warm(self) -> None:
+        """异步预热 llm_quota：get_business_config_sync 只读缓存，无预热则 lion 配置恒空。"""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        if self._warm_task is not None and not self._warm_task.done():
+            return
+        self._warm_task = loop.create_task(self._warm_business_config())
+
+    async def _warm_business_config(self) -> None:
+        try:
+            from nexus.lion import get_lion
+            lion = get_lion()
+            if hasattr(lion, "get_business_config"):
+                await lion.get_business_config("llm_quota")
+        except Exception:
+            logger.debug("llm_quota 预热跳过（lion 未配置或不可达）")
+
 
 _rate_limiter: Optional[LLMRateLimiter] = None
 _rate_limiter_lock = threading.Lock()
+_CONFIG_REFRESH_TTL: float = 60.0
 
 
 def _resolve_config() -> tuple[int, float, int]:
@@ -99,5 +136,8 @@ def get_llm_rate_limiter() -> LLMRateLimiter:
             if _rate_limiter is None:
                 rate, period, concurrent = _resolve_config()
                 _rate_limiter = LLMRateLimiter(rate, period, concurrent)
+                _rate_limiter._config_ts = time.monotonic()
                 logger.info("LLM限流器初始化: %s次/%ss, 最大并发=%s", rate, period, concurrent)
+    else:
+        _rate_limiter.maybe_refresh_config()
     return _rate_limiter
