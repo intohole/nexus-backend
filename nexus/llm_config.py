@@ -23,13 +23,22 @@ async def configure_ironman(yaml_path: Optional[str] = None) -> None:
             return
 
         import ironman
+        from ironman.config import ConfigFactory
+
+        from nexus.ironman_config import IronmanConfigError
 
         path = yaml_path or os.environ.get("IRONMAN_CONFIG", "")
         if path and os.path.exists(path):
             await ironman.configure(config_path=path)
             logger.info("Ironman configured from %s", path)
+        elif ConfigFactory.is_externally_configured():
+            logger.info("Ironman externally configured, skipping yaml load")
         else:
-            logger.warning("Ironman config not found, assuming externally configured")
+            raise IronmanConfigError(
+                "ironman 在本进程未配置：无 IRONMAN_CONFIG、无凭证环境变量、无程序化配置。"
+                "请在启动时调用 startup_ironman/init_ironman，或设置 IRONMAN_CONFIG；"
+                "默认 zhipu 空凭证只会产生静默 401，已禁止。"
+            )
         _ironman_configured = True
 
 
