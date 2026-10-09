@@ -36,8 +36,8 @@ class NotifyCenterChannel(NotificationChannel):
             app_id=str(notification.get("app_id", "") or "system"),
             link=str(notification.get("link", "")),
         )
-        if not result:
-            logger.warning("NotifyCenter send failed for user=%s", user_id)
+        if not isinstance(result, dict) or result.get("status") != "sent":
+            logger.warning("NotifyCenter send failed for user=%s result=%s", user_id, result)
             return False
         return True
 
