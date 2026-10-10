@@ -17,7 +17,7 @@ def _resolve_uc_base() -> str:
     from nexus.uc_sdk_helper import get_uc_sdk
 
     return (
-        os.getenv("UC_BASE_URL")
+        os.getenv("UC__BASE_URL")
         or getattr(get_uc_sdk(), "base_url", "")
         or ""
     ).rstrip("/")

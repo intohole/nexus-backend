@@ -26,7 +26,7 @@ class DatacenterClient:
         timeout: float = 10.0,
     ) -> None:
         self._base_url: str = base_url or os.environ.get(
-            "UC_BASE_URL", "http://localhost:8901"
+            "UC__BASE_URL", "http://localhost:8901"
         )
         self._timeout: float = timeout
         self._http: HttpClient = HttpClient(

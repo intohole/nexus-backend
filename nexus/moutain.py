@@ -46,7 +46,7 @@ class MoutainClient:
         token: str = await get_service_token()
         if token:
             headers["X-Service-Token"] = token
-        source_app = get_init_app_name() or os.environ.get("LION_NAMESPACE", "") or ""
+        source_app = get_init_app_name() or os.environ.get("LION__NAMESPACE", "") or ""
         if source_app:
             headers["X-App-Name"] = source_app
         return headers

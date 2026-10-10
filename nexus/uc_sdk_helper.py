@@ -38,10 +38,10 @@ def init_uc_sdk(
     global _sdk
     from nexus.uc_sdk import UserCenterSDK
 
-    base_url = base_url or os.getenv("UC_BASE_URL", "http://${UC_BASE_URL}")
-    app_key = app_key or os.getenv("UC_APP_KEY", "")
-    app_secret = app_secret or os.getenv("UC_APP_SECRET", "")
-    jwt_secret = jwt_secret or os.getenv("UC_JWT_SECRET", "")
+    base_url = base_url or os.getenv("UC__BASE_URL", "http://${UC__BASE_URL}")
+    app_key = app_key or os.getenv("UC__APP_KEY", "")
+    app_secret = app_secret or os.getenv("UC__APP_SECRET", "")
+    jwt_secret = jwt_secret or os.getenv("UC__JWT_SECRET", "")
 
     _sdk = UserCenterSDK(
         base_url=base_url,
@@ -71,7 +71,7 @@ async def init_uc_sdk_from_lion() -> object:
 
     auth = await get_uc_auth()
     base_url = await get_uc_base_url()
-    jwt_secret = os.getenv("UC_JWT_SECRET", "")
+    jwt_secret = os.getenv("UC__JWT_SECRET", "")
     sdk = init_uc_sdk(
         base_url=base_url,
         app_key=auth["app_key"],

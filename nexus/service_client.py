@@ -35,7 +35,7 @@ class ServiceClient:
 
     @staticmethod
     def _uc_base_url() -> str:
-        return os.getenv("UC_BASE_URL", "").rstrip("/") or DEFAULT_UC_BASE_URL
+        return os.getenv("UC__BASE_URL", "").rstrip("/") or DEFAULT_UC_BASE_URL
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:

@@ -15,7 +15,7 @@ logger = get_logger("nexus.audit")
 
 
 def _base_url() -> str:
-    return os.getenv("UC_BASE_URL", DEFAULT_UC_BASE_URL).rstrip("/")
+    return os.getenv("UC__BASE_URL", DEFAULT_UC_BASE_URL).rstrip("/")
 
 
 async def log_audit(

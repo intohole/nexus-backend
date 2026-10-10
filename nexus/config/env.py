@@ -1,22 +1,9 @@
-"""配置环境变量解析：${VAR:-default} 替换引擎与旧版扁平环境键迁移。"""
+"""配置环境变量解析：${VAR:-default} 替换引擎。"""
 from __future__ import annotations
 
 import os
 import re
 from typing import Callable
-
-# 旧版扁平键（UC_BASE_URL/LION_NAMESPACE）到嵌套键（UC__BASE_URL/LION__NAMESPACE）
-# 的一次性迁移，须在 pydantic_settings 读取环境前执行（NexusConfig 实例化时读取）。
-for _suffix in ("BASE_URL", "APP_KEY", "APP_SECRET", "JWT_SECRET"):
-    _old_key, _new_key = f"UC_{_suffix}", f"UC__{_suffix}"
-    if _old_key in os.environ and _new_key not in os.environ:
-        os.environ[_new_key] = os.environ[_old_key]
-
-for _suffix in ("BASE_URL", "NAMESPACE"):
-    _old_key, _new_key = f"LION_{_suffix}", f"LION__{_suffix}"
-    if _old_key in os.environ and _new_key not in os.environ:
-        os.environ[_new_key] = os.environ[_old_key]
-
 
 _ENV_SUB = re.compile(r"\$\{(\w+)(?::-([^}]*))?\}")
 _ENV_FULL = re.compile(r"^\$\{(\w+)(?::-([^}]*))?\}$")

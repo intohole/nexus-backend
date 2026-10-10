@@ -315,8 +315,8 @@ async def fetch_llm_config(
     业务仓「Lion 优先、本地 yaml 兜底」的标准入口；连接失败只记日志不抛，
     调用方以 None 判断回退，避免把错误信封误当有效配置消费。
     """
-    url = base_url or os.environ.get("LION_BASE_URL", "http://localhost:9527")
-    ns = namespace or os.environ.get("LION_NAMESPACE", "default")
+    url = base_url or os.environ.get("LION__BASE_URL", "http://localhost:9527")
+    ns = namespace or os.environ.get("LION__NAMESPACE", "default")
     try:
         async with LionSDK(base_url=url, namespace=ns, fallback_namespace="default") as lion:
             result = await lion.get_ready_config(key, prefer_gateway=prefer_gateway)

@@ -39,7 +39,7 @@ _USER_TOKEN_CACHE_MAXSIZE: int = 2000
 
 
 class UserTokenVerifier:
-    """JWT 验签：RS256(UC JWKS) 优先，HS256(UC_JWT_SECRET) 兜底，验签通过结果短期缓存。
+    """JWT 验签：RS256(UC JWKS) 优先，HS256(UC__JWT_SECRET) 兜底，验签通过结果短期缓存。
 
     - verify: 用户 JWT 验签（allow_user_tokens 场景）；
     - verify_service: 服务 JWT 验签（role=service 或 sub=app_*），供服务间认证使用。
@@ -185,7 +185,7 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
         self._logger = get_logger("nexus.service_auth")
         if self._allow_user_tokens and not self._verifier.configured:
             self._logger.warning(
-                "allow_user_tokens=True 但未配置 UC_BASE_URL/UC_JWT_SECRET，用户令牌将全部拒绝",
+                "allow_user_tokens=True 但未配置 UC__BASE_URL/UC__JWT_SECRET，用户令牌将全部拒绝",
             )
 
     def _get_service_token(self) -> str:

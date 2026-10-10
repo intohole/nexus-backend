@@ -79,8 +79,8 @@ def test_env_fallback(monkeypatch):
 
     from nexus.lion_sdk import client as client_mod
     monkeypatch.setattr(client_mod, "LionSDK", _Factory)
-    monkeypatch.setenv("LION_BASE_URL", "http://lion-test:9527")
-    monkeypatch.setenv("LION_NAMESPACE", "testns")
+    monkeypatch.setenv("LION__BASE_URL", "http://lion-test:9527")
+    monkeypatch.setenv("LION__NAMESPACE", "testns")
     asyncio.run(fetch_llm_config("chat"))
     assert captured["base_url"] == "http://lion-test:9527"
     assert captured["namespace"] == "testns"

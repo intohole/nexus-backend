@@ -75,7 +75,7 @@ def test_register_uc_proxy_proxies_and_503(monkeypatch):
 
     async def run():
         async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
-            monkeypatch.delenv("UC_BASE_URL", raising=False)
+            monkeypatch.delenv("UC__BASE_URL", raising=False)
             import nexus.uc_proxy as m
 
             monkeypatch.setattr(m, "_resolve_uc_base", lambda: "")

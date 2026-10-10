@@ -33,14 +33,14 @@ async def _get_infra(key: str) -> dict[str, object]:
 
 
 async def get_uc_base_url() -> str:
-    return await _infra_url("usercenter", "UC_BASE_URL", "")
+    return await _infra_url("usercenter", "UC__BASE_URL", "")
 
 
 async def get_uc_config() -> dict[str, str]:
     config = await _get_infra("usercenter")
-    base_url = await _infra_url("usercenter", "UC_BASE_URL", "")
-    app_key = str(config.get("app_key") or "") or os.getenv("UC_APP_KEY", "")
-    app_secret = str(config.get("app_secret") or "") or os.getenv("UC_APP_SECRET", "")
+    base_url = await _infra_url("usercenter", "UC__BASE_URL", "")
+    app_key = str(config.get("app_key") or "") or os.getenv("UC__APP_KEY", "")
+    app_secret = str(config.get("app_secret") or "") or os.getenv("UC__APP_SECRET", "")
     return {"base_url": base_url, "app_key": app_key, "app_secret": app_secret}
 
 

@@ -29,7 +29,7 @@ class WebSearchService:
     async def _ensure_tool(self) -> object:
         cfg = await get_spider_config()
         base_url = cfg.get("base_url", "http://${NOTIFY_BASE_URL}")
-        source_app = get_init_app_name() or os.environ.get("LION_NAMESPACE", "") or ""
+        source_app = get_init_app_name() or os.environ.get("LION__NAMESPACE", "") or ""
         if self._tool is not None and self._configured_base_url == base_url and self._configured_source == source_app:
             return self._tool
         from ironman.tools.websearch_tool import WebSearchTool

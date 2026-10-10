@@ -25,7 +25,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
         self._enabled: bool = audit_cfg.enabled
         self._exclude_paths: list[str] = audit_cfg.exclude_paths
         self._app_code: Optional[str] = None
-        for source in (audit_cfg.app_code, cfg.uc.app_key, os.getenv("LION_NAMESPACE")):
+        for source in (audit_cfg.app_code, cfg.uc.app_key, os.getenv("LION__NAMESPACE")):
             if source:
                 self._app_code = str(source)
                 break
