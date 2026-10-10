@@ -142,10 +142,19 @@ class UserCenterSDK(BaseAsyncClient, AuthMixin, UserMixin, AppMixin, VipMixin, I
         if response.status_code >= 400:
             try:
                 error_data = response.json()
-                detail = error_data.get("detail", error_data.get("message", f"请求失败({response.status_code})"))
+                raw_detail = error_data.get("detail", error_data.get("message", f"请求失败({response.status_code})"))
             except Exception:
-                detail = f"请求失败({response.status_code})"
-            return {"success": False, "message": detail, "detail": detail}
+                error_data = {}
+                raw_detail = f"请求失败({response.status_code})"
+            if isinstance(raw_detail, dict):
+                # UC 4xx 结构化响应体（如 402 积分引导）：message 为人类文案，原 dict 经 error_data 透传
+                message = str(raw_detail.get("message") or raw_detail)
+            else:
+                message = str(raw_detail)
+            result = {"success": False, "message": message, "detail": message}
+            if isinstance(raw_detail, dict):
+                result["error_data"] = raw_detail
+            return result
 
         return response.json()
 
