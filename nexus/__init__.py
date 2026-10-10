@@ -20,6 +20,14 @@ from nexus.errors import (
 )
 from nexus.context import get_user_id
 from nexus.database import DatabaseManager, get_db, db_manager, Base, init_db, close_db
+from nexus.sqlite_migrate import (
+    ensure_column,
+    ensure_columns,
+    ensure_model_columns,
+    ensure_column_sync,
+    ensure_columns_sync,
+    ensure_model_columns_sync,
+)
 from nexus.logging import setup_logging, setup_loguru, get_logger
 from nexus.response import (
     success_response,
@@ -258,6 +266,8 @@ __all__ = [
     "RateLimitError", "ForbiddenError",
     "ContentFilterError", "get_user_id", "DatabaseManager", "get_db", "db_manager", "Base",
     "init_db", "close_db", "setup_logging", "setup_loguru", "get_logger",
+    "ensure_column", "ensure_columns", "ensure_model_columns",
+    "ensure_column_sync", "ensure_columns_sync", "ensure_model_columns_sync",
     "success_response", "error_response", "paginate_response", "paginated_payload", "spa_index_response",
     "TimeUtils", "MemoryCache", "SyncTTLCache", "MoutainClient", "HttpClient", "cosine_similarity",
     "extract_document_text", "DocExtractError",
