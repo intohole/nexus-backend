@@ -58,7 +58,7 @@ def test_send_passes_fields_and_defaults(monkeypatch: pytest.MonkeyPatch) -> Non
     class FakeClient:
         async def send(self, **kwargs: object) -> dict:
             called.append(dict(kwargs))
-            return {"id": 1}
+            return {"id": 1, "status": "sent"}
 
     import nexus.notify as notify_mod
     monkeypatch.setattr(notify_mod, "get_notify_client", lambda *a, **k: FakeClient())
