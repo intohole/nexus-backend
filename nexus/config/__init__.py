@@ -1,4 +1,4 @@
-"""统一配置包：模型（models）/环境变量解析（env）/工厂（factory）/装载（loader）。"""
+"""统一配置包：模型（models）/环境变量解析（env）/工厂（factory）/装载（loader）/Settings 基类。"""
 from nexus.config.env import resolve_env_string, resolve_env_tree
 from nexus.config.factory import ConfigFactory, get_settings
 from nexus.config.loader import (
@@ -10,6 +10,7 @@ from nexus.config.loader import (
     yaml_int,
     yaml_secret,
 )
+from nexus.config.yaml_settings import YamlSectionSettings
 from nexus.config.models import (
     AuditConfig,
     CORSConfig,
@@ -26,6 +27,6 @@ __all__ = [
     "DatabaseConfig", "CORSConfig", "UCConfig", "LionConfig", "LoggingConfig",
     "RateLimitConfig", "AuditConfig", "StaticFilesConfig", "NexusConfig",
     "resolve_env_string", "resolve_env_tree", "deep_merge", "ConfigFactory", "get_settings",
-    "load_project_config",
+    "load_project_config", "YamlSectionSettings",
     "yaml_get", "yaml_secret", "yaml_int", "yaml_float", "yaml_bool",
 ]
