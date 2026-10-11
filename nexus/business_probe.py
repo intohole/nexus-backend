@@ -167,12 +167,16 @@ def _active_scheduler_check(scheduler: ActiveSchedulerLike) -> dict[str, object]
         return _fail(started, exc)
 
 
-def _dispatch_scheduler_check(
-    scheduler: Union[SchedulerLike, ActiveSchedulerLike],
-) -> dict[str, object]:
+def probe_scheduler(scheduler: Union[SchedulerLike, ActiveSchedulerLike]) -> dict[str, object]:
     if hasattr(scheduler, "ensure_alive"):
         return _standard_scheduler_check(scheduler)  # type: ignore[arg-type]
     return _active_scheduler_check(scheduler)  # type: ignore[arg-type]
+
+
+def _dispatch_scheduler_check(
+    scheduler: Union[SchedulerLike, ActiveSchedulerLike],
+) -> dict[str, object]:
+    return probe_scheduler(scheduler)
 
 
 def _standard_scheduler_check(scheduler: SchedulerLike) -> dict[str, object]:
