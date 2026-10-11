@@ -55,7 +55,7 @@ from nexus.utils import (
 )
 from nexus.boot import (
     register_service_auth,
-    register_health_detail,
+    register_health_endpoints,
     mount_spa_static,
 )
 from nexus.middleware import (
@@ -273,7 +273,7 @@ __all__ = [
     "extract_document_text", "DocExtractError",
     "validate_upload", "read_upload_with_limit", "split_ext",
     "batch_cosine_similarity", "clamp", "loads_or", "safe_float", "safe_bool", "resolve_cors_origins",
-    "paginate_from_skip", "register_service_auth", "register_health_detail",
+    "paginate_from_skip", "register_service_auth", "register_health_endpoints",
     "mount_spa_static", "setup_cors", "RequestIdMiddleware",
     "LoggingMiddleware", "NotFoundCheckMiddleware", "StaticAssetsCacheMiddleware",
     "LoadingSplashMiddleware", "ErrorHandlerMiddleware", "ServiceAuthMiddleware",

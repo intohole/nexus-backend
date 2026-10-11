@@ -21,7 +21,6 @@ DEFAULT_SERVICE_AUTH_WHITELIST: tuple[str, ...] = (
 
 HealthCheck = Callable[[], Awaitable[str]]
 
-
 def register_service_auth(
     app: FastAPI,
     *,
@@ -37,18 +36,25 @@ def register_service_auth(
     )
 
 
-def register_health_detail(
+def register_health_endpoints(
     app: FastAPI,
     *,
     app_name: str,
-    app_version: str,
-    checks: dict[str, HealthCheck],
+    app_version: Optional[str] = None,
+    checks: Optional[dict[str, HealthCheck]] = None,
 ) -> None:
+    @app.get("/health")
+    async def health() -> dict[str, object]:
+        body: dict[str, object] = {"status": "ok", "app": app_name}
+        if app_version is not None:
+            body["version"] = app_version
+        return body
+
     @app.get("/health/detailed")
     async def health_detailed() -> dict[str, object]:
         results: dict[str, str] = {}
         overall: bool = True
-        for name, check in checks.items():
+        for name, check in (checks or {}).items():
             try:
                 status: str = await check()
                 results[name] = status
@@ -57,12 +63,14 @@ def register_health_detail(
             except Exception:
                 results[name] = "error"
                 overall = False
-        return {
+        body: dict[str, object] = {
             "status": "ok" if overall else "degraded",
             "app": app_name,
-            "version": app_version,
             "checks": results,
         }
+        if app_version is not None:
+            body["version"] = app_version
+        return body
 
 
 def mount_spa_static(
