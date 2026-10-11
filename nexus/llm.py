@@ -8,7 +8,12 @@ from typing import AsyncGenerator, Optional
 from nexus.context import get_request_id
 from nexus.logging import get_logger
 from nexus.circuit_breaker import get_llm_circuit
-from nexus.credits import CreditsInsufficientError, get_credits_service, report_llm_usage
+from nexus.credits import (
+    CreditsInsufficientError,
+    credits_gateway_handled,
+    get_credits_service,
+    report_llm_usage,
+)
 from nexus.llm_metrics import llm_telemetry
 from nexus.llm_utils import parse_llm_json, with_llm_retry, is_llm_json_error
 from nexus.llm_helpers import (
@@ -203,7 +208,8 @@ class LLMService:
         await _preflight("chat", model=str(getattr(opts, "model", "") or ""))
 
         async def _do() -> object:
-            return await _chat(messages=ironman_messages, llm=opts)
+            with credits_gateway_handled():
+                return await _chat(messages=ironman_messages, llm=opts)
 
         result, response = await self._execute(_do, timeout, max_retries, app_name, request_id, "chat")
         await _charge("chat", app_name, request_id, model=str(getattr(response, "model", "") or ""))
@@ -275,11 +281,12 @@ class LLMService:
         await _preflight("extract")
 
         async def _do() -> object:
-            return await _extract(
-                prompt=prompt,
-                schema=schema,
-                llm=LLMOptions(),
-            )
+            with credits_gateway_handled():
+                return await _extract(
+                    prompt=prompt,
+                    schema=schema,
+                    llm=LLMOptions(),
+                )
 
         try:
             async with llm_telemetry("extract", app_name, request_id) as (metrics, start):
@@ -328,9 +335,10 @@ class LLMService:
         await _preflight("chat_stream", model=str(getattr(opts, "model", "") or ""))
         produced: bool = False
         try:
-            async for chunk in stream_chunks(_chat_stream, ironman_messages, opts):
-                produced = True
-                yield chunk
+            with credits_gateway_handled():
+                async for chunk in stream_chunks(_chat_stream, ironman_messages, opts):
+                    produced = True
+                    yield chunk
         finally:
             await _meter("chat_stream", app_name, request_id, start=start)
             if produced:
@@ -359,7 +367,8 @@ class LLMService:
         await _preflight("embed")
 
         async def _do() -> list[list[float]]:
-            return await _embed(text=texts)
+            with credits_gateway_handled():
+                return await _embed(text=texts)
 
         try:
             result = await with_llm_retry(_do, timeout, effective_retries(max_retries))

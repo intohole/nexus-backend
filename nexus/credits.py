@@ -38,10 +38,27 @@ logger = get_logger("nexus.credits")
 _user_scope_var: contextvars.ContextVar[str] = contextvars.ContextVar(
     "nexus_credits_user", default=""
 )
+_gateway_handled_var: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "nexus_credits_gateway_handled", default=False
+)
 
 CHARGE_MODE_CACHE_TTL = 300.0
 PRECHECK_CACHE_TTL = 60.0
 PRECHECK_CACHE_MAX = 1000
+
+
+@contextlib.contextmanager
+def credits_gateway_handled() -> Iterator[None]:
+    """标记本次 LLM 调用由 LLMService 出口计量+计费，ironman 插桩层据此跳过防双计。"""
+    token = _gateway_handled_var.set(True)
+    try:
+        yield
+    finally:
+        _gateway_handled_var.reset(token)
+
+
+def gateway_handled() -> bool:
+    return _gateway_handled_var.get()
 
 
 class CreditsInsufficientError(NexusError):

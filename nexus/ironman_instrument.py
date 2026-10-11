@@ -173,5 +173,126 @@ def _instrument_ironman(app_name: str) -> None:
         _ironman_mod.extract = _wrapped_extract
     if original_chat_stream is not None:
         _ironman_mod.chat_stream = _wrapped_stream
+    _instrument_facade_credits(app_name)
     _instrumented = True
-    logger.info("ironman instrumented (chat + embed + ask + extract + chat_stream wrapped with metrics/circuit/req_id)")
+    logger.info("ironman instrumented (chat + embed + ask + extract + chat_stream wrapped with metrics/circuit/req_id; facade _execute/_stream_engine wrapped with credits metering/charging)")
+
+
+def _detect_vision_request(request: object) -> bool:
+    """请求含图（模型名带 vision 或消息含图片分片）→ kind=vision。"""
+    model = str(getattr(request, "model", "") or "").lower()
+    if "vision" in model:
+        return True
+    try:
+        for msg in (getattr(request, "messages", None) or []):
+            content = getattr(msg, "content", None)
+            if isinstance(content, list):
+                for part in content:
+                    ptype = str(getattr(part, "type", "") or "")
+                    if ptype in ("image_url", "image") or hasattr(part, "image_url"):
+                        return True
+    except Exception:
+        pass
+    return False
+
+
+def _instrument_facade_credits(app_name: str) -> None:
+    """ironman facade 层计量+计费：绕过 LLMService 的调用在此统一归账。
+
+    - _execute 是全部非流式调用的唯一执行点（模块 chat/ask/extract、_execute_vision、
+      AgentBuilder、技能引擎均汇聚于此）；_facade_core/_facade/_facade_vision 三个
+      命名空间的同名引用都换绑，覆盖函数内 from-import 的绑定。
+    - _stream_engine 是全部流式调用引擎（chat_stream/stream_vision 共用，第三参即 kind）。
+    - LLMService 出口已计费的调用经 credits_gateway_handled() 标记跳过，防双计。
+    - 全程 fail-open：计量/计费/预检失败绝不影响调用本身。
+    """
+    import ironman._facade as facade_pkg
+    import ironman._facade_core as facade_core
+    import ironman._facade_stream as facade_stream
+    import ironman._facade_vision as facade_vision
+
+    original_execute = facade_core._execute
+    original_stream_engine = facade_stream._stream_engine
+
+    async def _safe_preflight(kind: str, model: str) -> None:
+        try:
+            from nexus.credits import CreditsInsufficientError, get_credits_service
+
+            await get_credits_service().gateway_preflight(kind, model=model)
+        except Exception as exc:
+            from nexus.credits import CreditsInsufficientError
+
+            if isinstance(exc, CreditsInsufficientError):
+                raise
+            logger.debug("facade 计费预检失败(放行): %s", exc)
+
+    async def _meter_charge(
+        kind: str, request_id: str, model: str, response: object, latency_s: float
+    ) -> None:
+        try:
+            from nexus.credits import get_credits_service, report_llm_usage
+
+            await report_llm_usage(
+                app_name=app_name, kind=kind, request_id=request_id,
+                response=response, latency_s=latency_s,
+            )
+            service = get_credits_service()
+            if service.gateway_feature(kind):
+                await service.auto_charge_llm(
+                    kind=kind, app_name=app_name, request_id=request_id, model=model
+                )
+        except Exception as exc:
+            logger.debug("facade 计量计费失败(忽略): %s", exc)
+
+    async def _credits_execute(request: object, provider_name: object = None) -> object:
+        from nexus.credits import gateway_handled
+
+        if gateway_handled():
+            return await original_execute(request, provider_name)  # type: ignore[misc]
+        from nexus.context import get_request_id
+
+        kind = "vision" if _detect_vision_request(request) else "chat"
+        model = str(getattr(request, "model", "") or "")
+        await _safe_preflight(kind, model)
+        start = time.monotonic()
+        result = await original_execute(request, provider_name)  # type: ignore[misc]
+        await _meter_charge(
+            kind, get_request_id() or "-", str(getattr(result, "model", "") or model),
+            result, time.monotonic() - start,
+        )
+        return result
+
+    def _credits_stream_engine(request: object, llm_opts: object, kind: str = "chat_stream",
+                               *args: object, **kwargs: object) -> object:
+        async def _gen() -> object:
+            from nexus.credits import gateway_handled
+            from nexus.context import get_request_id
+
+            if gateway_handled():
+                async for chunk in original_stream_engine(request, llm_opts, kind, *args, **kwargs):  # type: ignore[misc]
+                    yield chunk
+                return
+            feature_kind = "vision" if kind == "stream_vision" else "chat"
+            model = str(getattr(request, "model", "") or "")
+            await _safe_preflight(feature_kind, model)
+            start = time.monotonic()
+            produced = False
+            try:
+                async for chunk in original_stream_engine(request, llm_opts, kind, *args, **kwargs):  # type: ignore[misc]
+                    if getattr(chunk, "content", ""):
+                        produced = True
+                    yield chunk
+            finally:
+                if produced:
+                    await _meter_charge(
+                        feature_kind, get_request_id() or "-", model, None,
+                        time.monotonic() - start,
+                    )
+
+        return _gen()
+
+    facade_core._execute = _credits_execute  # type: ignore[assignment]
+    facade_pkg._execute = _credits_execute  # type: ignore[assignment]
+    facade_vision._execute = _credits_execute  # type: ignore[assignment]
+    facade_stream._stream_engine = _credits_stream_engine  # type: ignore[assignment]
+    logger.info("ironman facade credits instrumented (_execute ×3 + _stream_engine wrapped with metering/charging)")

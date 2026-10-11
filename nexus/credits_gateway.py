@@ -11,20 +11,23 @@ from nexus.logging import get_logger
 
 logger = get_logger("nexus.credits")
 
-# LLM 网关自动计费：kind → 计费 feature 映射（embed 是基础设施型调用，默认不计费）
+# LLM 网关自动计费：kind → 计费 feature 映射（embed 是基础设施型调用，默认不计费；
+# vision 由 ironman 插桩层按请求特征判定后以 kind="vision" 进入）
 GATEWAY_KIND_FEATURE: dict[str, str] = {
     "chat": "chat",
     "chat_stream": "chat",
     "extract": "extract",
     "embed": "embed",
+    "vision": "vision",
 }
 GATEWAY_KIND_DESC: dict[str, str] = {
     "chat": "AI 对话",
     "chat_stream": "AI 对话",
     "extract": "AI 抽取",
     "embed": "AI 向量",
+    "vision": "AI 视觉",
 }
-DEFAULT_AUTO_CHARGE_KINDS = "chat,chat_stream,extract"
+DEFAULT_AUTO_CHARGE_KINDS = "chat,chat_stream,extract,vision"
 
 
 class GatewayBillingMixin:
@@ -63,6 +66,7 @@ class GatewayBillingMixin:
 
         缓存的 charge_mode 为 trial 或 formal 时发起预检——trial 拦的是体验授信超限
         （fair-use），formal 拦的是余额不足；off 与缓存冷启动零开销直通。
+        异常携带结构化 details（balance/cost/charge_mode/wallet_url）供应用侧引导卡消费。
         """
         mode = self._cached_charge_mode()
         if mode not in ("trial", "formal"):
@@ -73,15 +77,31 @@ class GatewayBillingMixin:
         _, factor = resolve_model_tier(model)
         result = await self.precheck(feature, cost_factor=factor)
         if not result.allowed:
-            if result.reason == "overdraft_limit":
-                from nexus.credits import CreditsInsufficientError
-
-                raise CreditsInsufficientError(
-                    "免费体验额度已用完，每日赠送积分到账后可继续使用"
-                )
             from nexus.credits import CreditsInsufficientError
 
-            raise CreditsInsufficientError("积分余额不足，请充值后重试")
+            if result.reason == "overdraft_limit":
+                raise CreditsInsufficientError(
+                    "免费体验额度已用完，每日赠送积分到账后可继续使用",
+                    code="OVERDRAFT_LIMIT",
+                    details={
+                        "code": "overdraft_limit",
+                        "balance": result.balance,
+                        "cost": result.cost,
+                        "charge_mode": result.charge_mode or mode,
+                        "wallet_url": "/user-center.html#wallet",
+                    },
+                )
+            raise CreditsInsufficientError(
+                "积分余额不足，请充值后重试",
+                code="INSUFFICIENT_CREDITS",
+                details={
+                    "code": "insufficient_balance",
+                    "balance": result.balance,
+                    "cost": result.cost,
+                    "charge_mode": result.charge_mode or mode,
+                    "wallet_url": "/user-center.html#wallet",
+                },
+            )
 
     @classmethod
     def gateway_feature(cls, kind: str) -> str:
