@@ -10,7 +10,7 @@ from nexus.logging import get_logger
 from nexus.circuit_breaker import get_llm_circuit
 from nexus.credits import CreditsInsufficientError, get_credits_service, report_llm_usage
 from nexus.llm_metrics import llm_telemetry
-from nexus.llm_utils import parse_llm_json, with_llm_retry
+from nexus.llm_utils import parse_llm_json, with_llm_retry, is_llm_json_error
 from nexus.llm_helpers import (
     apply_output_discipline,
     convert_messages,
@@ -237,12 +237,16 @@ class LLMService:
         self,
         messages: list[dict[str, str]],
         system: Optional[str] = None,
+        raise_on_error: bool = False,
         **kwargs,
     ) -> dict[str, object]:
         kwargs.setdefault("temperature", 0.2)
         kwargs.setdefault("max_tokens", 1500)
         raw = await self.chat(messages=messages, system=system, json_mode=True, **kwargs)
-        return parse_llm_json(raw)
+        parsed = parse_llm_json(raw)
+        if raise_on_error and is_llm_json_error(parsed):
+            raise ValueError(f"chat_json: LLM output is not valid JSON (len={len(raw)})")
+        return parsed
 
     async def extract(
         self,
