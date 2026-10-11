@@ -14,6 +14,7 @@ from nexus.logging import get_logger
 logger = get_logger(__name__)
 
 MAX_AUDIO_BYTES = 15 * 1024 * 1024
+_TRANSCRIBE_UNAVAILABLE = "语音识别服务暂不可用，请稍后再试"
 
 
 async def _transcribe_upload(file: UploadFile) -> dict[str, object]:
@@ -28,11 +29,12 @@ async def _transcribe_upload(file: UploadFile) -> dict[str, object]:
         result = await asr_transcribe(audio_data=audio_data, format="wav", enable_punc=True, timeout=60.0)
     except Exception as e:
         logger.error(f"voice transcribe failed: {type(e).__name__}: {e}")
-        return {"success": False, "detail": "语音识别服务暂不可用"}
+        return {"success": False, "detail": _TRANSCRIBE_UNAVAILABLE}
     if not isinstance(result, dict):
-        return {"success": False, "detail": "语音识别服务暂不可用"}
+        return {"success": False, "detail": _TRANSCRIBE_UNAVAILABLE}
     if result.get("success") is False:
-        return {"success": False, "detail": str(result.get("detail") or "语音识别失败")}
+        logger.warning(f"voice transcribe upstream failure: {result.get('detail')}")
+        return {"success": False, "detail": _TRANSCRIBE_UNAVAILABLE}
     text = str(result.get("text") or "").strip()
     if not text:
         return {"success": False, "detail": "没有听清内容，请再试一次"}
@@ -44,9 +46,13 @@ def register_voice_endpoints(app: FastAPI, prefix: str = "/api/v1") -> None:
 
     依赖 python-multipart，缺失时跳过注册并告警，不阻断应用启动。
     """
-    try:
-        __import__("multipart")
-    except ImportError:
+    for name in ("multipart", "python_multipart"):
+        try:
+            __import__(name)
+            break
+        except ImportError:
+            continue
+    else:
         logger.warning("python-multipart 未安装，voice/transcribe 未注册（pip install python-multipart）")
         return
 
