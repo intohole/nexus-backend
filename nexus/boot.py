@@ -73,6 +73,9 @@ def register_health_endpoints(
         return body
 
 
+register_health_detail = register_health_endpoints
+
+
 def mount_spa_static(
     app: FastAPI,
     directory: str,
