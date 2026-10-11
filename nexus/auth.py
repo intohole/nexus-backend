@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Optional
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from nexus.config import NexusConfig, get_settings
@@ -20,6 +21,8 @@ _security: HTTPBearer = HTTPBearer(auto_error=False)
 _uc_sdk_ready: bool = False
 _TOKEN_CACHE_TTL: int = 60
 _TOKEN_CACHE_MAXSIZE: int = 500
+DELEGATION_HEADER: str = "X-On-Behalf-Of"
+_DELEGATED_ID_RE: re.Pattern = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 class AuthDependencies:
@@ -110,9 +113,46 @@ class AuthDependencies:
         if org_id_raw is not None:
             set_request_context(org_id=str(org_id_raw))
 
+    @staticmethod
+    def _is_service_principal(result: dict[str, object]) -> bool:
+        uid: str = str(result.get("user_id") or "")
+        role: str = str(result.get("role") or "")
+        return uid.startswith("app_") or role == "service"
+
+    async def _resolve_delegation(
+        self,
+        request: Optional[Request],
+        result: dict[str, object],
+        *,
+        required: bool,
+    ) -> Optional[str]:
+        """服务身份委托解析：服务 JWT + X-On-Behalf-Of = 平台代表用户调用。
+
+        fail-closed：委托头只在验签通过的服务身份下被消费；无委托头时
+        required 端点 403（服务凭证不得当作用户身份透传业务端点），
+        optional 端点按匿名处理（None）。
+        """
+        if not self._is_service_principal(result):
+            return None
+        header: str = ""
+        if request is not None:
+            header = (request.headers.get(DELEGATION_HEADER) or "").strip()
+        if not header:
+            if required:
+                raise HTTPException(
+                    status_code=403,
+                    detail="service principal requires X-On-Behalf-Of on user endpoints",
+                )
+            return None
+        if not _DELEGATED_ID_RE.fullmatch(header):
+            raise HTTPException(status_code=403, detail="invalid X-On-Behalf-Of")
+        set_request_context(user_id=header)
+        return header
+
     async def get_user_id_required(
         self,
         credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
+        request: Optional[Request] = None,
     ) -> str:
         if credentials is None:
             raise HTTPException(status_code=401, detail="Not authenticated")
@@ -124,6 +164,11 @@ class AuthDependencies:
         )
         if result is None:
             raise HTTPException(status_code=401, detail="Invalid or expired token")
+        delegated: Optional[str] = await self._resolve_delegation(
+            request, result, required=True
+        )
+        if delegated is not None:
+            return delegated
         user_id_raw: object = result.get("user_id")
         if not user_id_raw:
             raise HTTPException(status_code=401, detail="Invalid token payload")
@@ -132,6 +177,7 @@ class AuthDependencies:
     async def get_user_id_optional(
         self,
         credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
+        request: Optional[Request] = None,
     ) -> Optional[str]:
         if credentials is None:
             return None
@@ -140,6 +186,8 @@ class AuthDependencies:
         )
         if result is None:
             return None
+        if self._is_service_principal(result):
+            return await self._resolve_delegation(request, result, required=False)
         user_id_raw: object = result.get("user_id")
         return str(user_id_raw) if user_id_raw is not None else None
 
@@ -195,17 +243,19 @@ def extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
 
 
 async def get_current_user_id_required(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
 ) -> str:
     deps: AuthDependencies = get_auth_deps()
-    return await deps.get_user_id_required(credentials)
+    return await deps.get_user_id_required(credentials, request)
 
 
 async def get_current_user_id_optional(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
 ) -> Optional[str]:
     deps: AuthDependencies = get_auth_deps()
-    return await deps.get_user_id_optional(credentials)
+    return await deps.get_user_id_optional(credentials, request)
 
 
 async def get_current_user_full(

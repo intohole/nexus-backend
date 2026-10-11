@@ -116,6 +116,19 @@ class ServiceClient:
         token = await self.get_token()
         return {"Authorization": f"Bearer {token}"} if token else {}
 
+    async def delegation_headers(self, user_id: str) -> dict[str, str]:
+        """服务委托头：服务 JWT + X-On-Behalf-Of，代表指定用户调用上游用户端点。
+
+        上游 nexus.auth 对服务身份 fail-closed：无委托头的服务凭证在用户端点 403。
+        """
+        token = await self.get_token()
+        if not token or not user_id:
+            return {}
+        return {
+            "Authorization": f"Bearer {token}",
+            "X-On-Behalf-Of": str(user_id),
+        }
+
     def get_cached_token(self) -> str:
         if self._token and time.time() < self._expires_at - _REFRESH_MARGIN:
             return self._token
