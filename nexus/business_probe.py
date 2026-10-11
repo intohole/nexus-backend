@@ -235,6 +235,20 @@ def _store(key: str, value: dict[str, object]) -> dict[str, object]:
     return value
 
 
+async def _llm_with_lazy_init(lazy: Optional[Callable[[], Awaitable[None]]]) -> dict[str, object]:
+    if lazy is not None:
+        try:
+            await lazy()
+        except Exception as exc:
+            return {
+                "status": "fail",
+                "latency_ms": None,
+                "detail": f"lazy init failed: {type(exc).__name__}: {exc}"[:160],
+                "evidence": {"reason": "lazy_init_error"},
+            }
+    return await _standard_llm_check()
+
+
 def build_probe_runner(
     *,
     app_name: str,
@@ -263,9 +277,10 @@ def build_probe_runner(
             checks["llm"] = llm_cached
             cache_hits += 1
         elif isinstance(llm, bool):
-            if llm and llm_lazy_init is not None:
-                await llm_lazy_init()
-            checks["llm"] = _store(_prefix + "llm", await _standard_llm_check() if llm else _skip("no_llm_consumer"))
+            checks["llm"] = _store(
+                _prefix + "llm",
+                await _llm_with_lazy_init(llm_lazy_init) if llm else _skip("no_llm_consumer"),
+            )
         else:
             checks["llm"] = _store(_prefix + "llm", await llm())
 

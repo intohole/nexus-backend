@@ -229,3 +229,14 @@ def test_probe_llm_lazy_init_hook(monkeypatch: pytest.MonkeyPatch) -> None:
     data = _get(_app(llm=True, llm_lazy_init=lazy, notify=False))
     assert data["cached"] is True
     assert calls == ["init"]
+
+
+def test_probe_llm_lazy_init_error_is_fail_not_5xx() -> None:
+    async def broken_lazy() -> None:
+        raise RuntimeError("lion down")
+
+    data = _get(_app(llm=True, llm_lazy_init=broken_lazy, notify=False))
+    llm = data["checks"]["llm"]
+    assert llm["status"] == "fail"
+    assert llm["evidence"]["reason"] == "lazy_init_error"
+    assert "lion down" in llm["detail"]
