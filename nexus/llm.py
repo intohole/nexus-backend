@@ -227,17 +227,26 @@ class LLMService:
             messages=[{"role": "user", "content": prompt}], system=system, **kwargs
         )
 
-    async def ask_json(self, prompt: str, system: Optional[str] = None, **kwargs) -> dict[str, object]:
+    async def ask_json(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        raise_on_error: bool = True,
+        **kwargs,
+    ) -> dict[str, object]:
         kwargs.setdefault("temperature", 0.2)
         kwargs.setdefault("max_tokens", 1500)
         raw = await self.ask(prompt=prompt, system=system, json_mode=True, **kwargs)
-        return parse_llm_json(raw)
+        parsed = parse_llm_json(raw)
+        if raise_on_error and is_llm_json_error(parsed):
+            raise ValueError(f"ask_json: LLM output is not valid JSON (len={len(raw)})")
+        return parsed
 
     async def chat_json(
         self,
         messages: list[dict[str, str]],
         system: Optional[str] = None,
-        raise_on_error: bool = False,
+        raise_on_error: bool = True,
         **kwargs,
     ) -> dict[str, object]:
         kwargs.setdefault("temperature", 0.2)
