@@ -58,6 +58,10 @@ from nexus.boot import (
     register_health_endpoints,
     mount_spa_static,
 )
+from nexus.business_probe import (
+    register_probe_endpoints,
+    build_probe_runner,
+)
 from nexus.middleware import (
     setup_cors,
     RequestIdMiddleware,
@@ -274,6 +278,7 @@ __all__ = [
     "validate_upload", "read_upload_with_limit", "split_ext",
     "batch_cosine_similarity", "clamp", "loads_or", "safe_float", "safe_bool", "resolve_cors_origins",
     "paginate_from_skip", "register_service_auth", "register_health_endpoints",
+    "register_probe_endpoints", "build_probe_runner",
     "mount_spa_static", "setup_cors", "RequestIdMiddleware",
     "LoggingMiddleware", "NotFoundCheckMiddleware", "StaticAssetsCacheMiddleware",
     "LoadingSplashMiddleware", "ErrorHandlerMiddleware", "ServiceAuthMiddleware",
