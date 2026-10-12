@@ -36,9 +36,10 @@ logger = get_logger("nexus.llm")
 
 
 async def _meter(kind: str, app_name: str, request_id: str, response: object = None,
-                 start: float = 0.0, calls: int = 1) -> None:
+                 start: float = 0.0, calls: int = 1, feature: str = "") -> None:
     await report_llm_usage(app_name=app_name, kind=kind, request_id=request_id, response=response,
-                           latency_s=(time.monotonic() - start) if start else 0.0, calls=calls)
+                           latency_s=(time.monotonic() - start) if start else 0.0, calls=calls,
+                           feature=feature)
 
 
 async def _preflight(kind: str, model: str = "") -> None:
@@ -132,6 +133,7 @@ class LLMService:
         app_name: str,
         request_id: str,
         kind: str,
+        feature: str = "",
     ) -> tuple[str, object]:
         circuit = get_llm_circuit()
         async with llm_telemetry(kind, app_name, request_id) as (metrics, start):
@@ -142,7 +144,7 @@ class LLMService:
             )
             result: str = extract_content(response, request_id)
             record_usage(metrics, app_name, response, time.monotonic() - start, None)
-            await _meter(kind, app_name, request_id, response, start)
+            await _meter(kind, app_name, request_id, response, start, feature=feature)
             logger.info(
                 "LLM %s completed [req_id=%s, app=%s, latency=%.2fs]",
                 kind, request_id, app_name, time.monotonic() - start,
@@ -182,6 +184,7 @@ class LLMService:
         model: Optional[str] = None,
         enable_thinking: bool = False,
         thinking_budget: int = 8192,
+        feature: str = "",
         _want_usage: bool = False,
     ) -> str | dict[str, object]:
         opts, temp, eff_max, budget_mode = await self._prepare_call(
@@ -211,7 +214,7 @@ class LLMService:
             with credits_gateway_handled():
                 return await _chat(messages=ironman_messages, llm=opts)
 
-        result, response = await self._execute(_do, timeout, max_retries, app_name, request_id, "chat")
+        result, response = await self._execute(_do, timeout, max_retries, app_name, request_id, "chat", feature=feature)
         await _charge("chat", app_name, request_id, model=str(getattr(response, "model", "") or ""))
         if cache is not None and result:
             cache.set(key, result)
@@ -270,6 +273,7 @@ class LLMService:
         timeout: float = 60.0,
         max_retries: int = 3,
         raise_on_error: bool = False,
+        feature: str = "",
     ) -> Optional[object]:
         await configure_ironman()
         from ironman import extract as _extract
@@ -296,7 +300,7 @@ class LLMService:
                     _do_with_circuit, timeout, effective_retries(max_retries)
                 )
                 metrics.record(app_name, "unknown", time.monotonic() - start, tokens=0, error=None)
-                await _meter("extract", app_name, request_id, start=start)
+                await _meter("extract", app_name, request_id, start=start, feature=feature)
                 await _charge("extract", app_name, request_id)
                 logger.info(
                     "LLM extract completed [req_id=%s, app=%s, latency=%.2fs]",
@@ -320,6 +324,7 @@ class LLMService:
         model: Optional[str] = None,
         enable_thinking: bool = False,
         thinking_budget: int = 8192,
+        feature: str = "",
     ) -> AsyncGenerator[str, None]:
         opts, _temp, _eff_max, budget_mode = await self._prepare_call(
             temperature=temperature, max_tokens=max_tokens, task_type=task_type,
@@ -340,7 +345,7 @@ class LLMService:
                     produced = True
                     yield chunk
         finally:
-            await _meter("chat_stream", app_name, request_id, start=start)
+            await _meter("chat_stream", app_name, request_id, start=start, feature=feature)
             if produced:
                 await _charge("chat_stream", app_name, request_id,
                               model=str(getattr(opts, "model", "") or ""))
@@ -358,6 +363,7 @@ class LLMService:
         timeout: float = 60.0,
         max_retries: int = 3,
         raise_on_error: bool = False,
+        feature: str = "",
     ) -> Optional[list[list[float]]]:
         await configure_ironman()
         from ironman import embed as _embed
@@ -372,7 +378,7 @@ class LLMService:
 
         try:
             result = await with_llm_retry(_do, timeout, effective_retries(max_retries))
-            await _meter("embed", app_name, request_id, calls=len(texts) or 1)
+            await _meter("embed", app_name, request_id, calls=len(texts) or 1, feature=feature)
             await _charge("embed", app_name, request_id)
             return result
         except Exception as e:

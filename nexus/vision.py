@@ -7,9 +7,14 @@
 from __future__ import annotations
 
 import base64
+import time
+from types import SimpleNamespace
 from typing import Iterable, Optional, Sequence, Union
 
 from nexus._gateway_base import _GatewayServiceBase
+from nexus.context import get_request_id
+from nexus.llm_config import resolve_app_name
+from nexus.credits import CreditsInsufficientError, get_credits_service, report_llm_usage
 from nexus.llm_utils import parse_llm_json
 
 DEFAULT_VISION_MODEL = "glm-4.6v-flash"
@@ -45,6 +50,36 @@ def to_data_url(data: bytes, mime_type: str | None = None) -> str:
 GATEWAY_VISION_PATH = "/chat/completions"
 
 
+async def _vision_preflight(model: str) -> None:
+    try:
+        await get_credits_service().gateway_preflight("vision", model=model)
+    except CreditsInsufficientError:
+        raise
+    except Exception:
+        pass
+
+
+def _usage_shim(data: dict) -> SimpleNamespace:
+    usage = data.get("usage") or {}
+    return SimpleNamespace(
+        usage=SimpleNamespace(
+            prompt_tokens=int(usage.get("prompt_tokens") or 0),
+            completion_tokens=int(usage.get("completion_tokens") or 0),
+            total_tokens=int(usage.get("total_tokens") or 0),
+        ),
+        model=str(data.get("model") or ""),
+    )
+
+
+async def _vision_charge(app_name: str, request_id: str, model: str) -> None:
+    try:
+        await get_credits_service().auto_charge_llm(
+            kind="vision", app_name=app_name, request_id=request_id, model=model
+        )
+    except Exception:
+        pass
+
+
 class VisionService(_GatewayServiceBase):
     _instance: Optional["VisionService"] = None
 
@@ -76,22 +111,33 @@ class VisionService(_GatewayServiceBase):
         prompt: str,
         image_urls: list[str],
         temperature: float,
+        feature: str = "",
     ) -> str:
         await self._resolve_config("vision_model", DEFAULT_VISION_MODEL)
         self._require_config("vision")
+        model = str(self._model or "")
+        await _vision_preflight(model)
         content: list[dict[str, object]] = [
             {"type": "image_url", "image_url": {"url": image_url}} for image_url in image_urls
         ]
         content.append({"type": "text", "text": prompt})
         payload = {
-            "model": self._model,
+            "model": model,
             "temperature": temperature,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": content},
             ],
         }
+        request_id: str = get_request_id() or "-"
+        app_name: str = resolve_app_name()
+        start: float = time.monotonic()
         data = await self._post(f"{self._base_url}{GATEWAY_VISION_PATH}", payload, op="vision request")
+        await report_llm_usage(
+            app_name=app_name, kind="vision", request_id=request_id,
+            response=_usage_shim(data), latency_s=time.monotonic() - start, feature=feature,
+        )
+        await _vision_charge(app_name, request_id, model)
         choices = data.get("choices") or []
         if not choices:
             raise RuntimeError("vision request returned no choices")
@@ -107,13 +153,17 @@ class VisionService(_GatewayServiceBase):
         images: Union[ImageInput, Iterable[ImageInput]],
         system: Optional[str] = None,
         temperature: float = 0.2,
+        feature: str = "",
     ) -> str:
         """通用图片识别：对单张/多张图片提问，返回模型文本回答。
 
         images 元素支持图片 URL、base64 data URL 或原始字节（bytes 自动转 data URL）。
         """
         image_urls = self._normalize_images(images)
-        return await self._chat_vision(system or "你是图片识别助手，用简体中文准确回答。", prompt, image_urls, temperature)
+        return await self._chat_vision(
+            system or "你是图片识别助手，用简体中文准确回答。", prompt, image_urls, temperature,
+            feature=feature,
+        )
 
     async def recognize_json(
         self,
@@ -121,11 +171,12 @@ class VisionService(_GatewayServiceBase):
         images: Union[ImageInput, Iterable[ImageInput]],
         system: Optional[str] = None,
         temperature: float = 0.2,
+        feature: str = "",
     ) -> dict[str, object]:
         """结构化图片识别：要求模型输出 JSON 并解析为 dict，失败抛 RuntimeError。"""
         image_urls = self._normalize_images(images)
         merged_system = f"{system or '你是图片识别助手。'}\n{JSON_HINT}"
-        raw = await self._chat_vision(f"{merged_system}", prompt, image_urls, temperature)
+        raw = await self._chat_vision(f"{merged_system}", prompt, image_urls, temperature, feature=feature)
         result = parse_llm_json(raw)
         # parse_llm_json 失败时返回 {"raw_response": ...} 兜底；结构化接口对该兜底显式报错
         if not result or set(result) == {"raw_response"}:
@@ -138,9 +189,10 @@ class VisionService(_GatewayServiceBase):
         blobs: Union[bytes, bytearray, Iterable[Union[bytes, bytearray]]],
         system: Optional[str] = None,
         temperature: float = 0.2,
+        feature: str = "",
     ) -> str:
         """本地图片字节识别的语义化入口（等价 recognize + 自动 data URL 转换）。"""
-        return await self.recognize(prompt, blobs, system=system, temperature=temperature)
+        return await self.recognize(prompt, blobs, system=system, temperature=temperature, feature=feature)
 
 
 def get_vision_service() -> VisionService:
