@@ -13,7 +13,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncConnection
-from sqlalchemy.schema import MetaData
+from sqlalchemy.schema import Column, MetaData
 
 logger = logging.getLogger("nexus.sqlite_migrate")
 
@@ -43,6 +43,27 @@ def ensure_columns_sync(conn: Connection, migrations: Sequence[ColumnSpec]) -> L
     return added
 
 
+def _add_column_default(table_name: str, col: Column) -> str:
+    """SQLite ADD COLUMN 仅接受常量默认：字面量照排（缺引号补引号），
+    SQL 表达式（func.now() 等）按可空性降级为无默认或拒绝（NOT NULL 需手工表重建）。"""
+    if col.server_default is None:
+        return " DEFAULT ''" if col.nullable is False else ""
+    arg: object = col.server_default.arg
+    if not isinstance(arg, (str, int, float)):
+        arg = getattr(arg, "text", None)
+    if isinstance(arg, (int, float)):
+        return f" DEFAULT {arg}"
+    if isinstance(arg, str):
+        quoted = arg.startswith("'") and arg.endswith("'") and len(arg) >= 2
+        return f" DEFAULT {arg}" if quoted else f" DEFAULT '{arg}'"
+    if col.nullable is False:
+        raise ValueError(
+            f"sqlite_migrate: {table_name}.{col.name} server_default 为 SQL 表达式且 NOT NULL，"
+            "SQLite ADD COLUMN 不支持非常量默认，需手工表重建迁移"
+        )
+    return ""
+
+
 def ensure_model_columns_sync(
     conn: Connection, metadata: MetaData, tables: Optional[Iterable[str]] = None
 ) -> List[Tuple[str, str]]:
@@ -64,13 +85,7 @@ def ensure_model_columns_sync(
             if col.name in existing:
                 continue
             col_type: str = str(col.type.compile(dialect=conn.dialect))
-            default_clause: str
-            if col.server_default is not None:
-                default_clause = f" DEFAULT {col.server_default.arg}"
-            elif col.nullable is False:
-                default_clause = " DEFAULT ''"
-            else:
-                default_clause = ""
+            default_clause: str = _add_column_default(table_name, col)
             null_clause: str = "" if col.nullable else " NOT NULL"
             sql: str = (
                 f'ALTER TABLE "{table_name}" ADD COLUMN "{col.name}"'

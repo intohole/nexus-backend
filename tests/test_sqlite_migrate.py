@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import Column, Integer, MetaData, String, Table, create_engine, inspect, text
+from sqlalchemy import Column, DateTime, Integer, MetaData, String, Table, create_engine, func, inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from nexus.sqlite_migrate import (
@@ -89,6 +89,34 @@ def test_ensure_model_columns_sync_skips_missing_tables() -> None:
     Table("never_created", md, Column("id", Integer, primary_key=True))
     with engine.begin() as conn:
         assert ensure_model_columns_sync(conn, md) == []
+
+
+def test_ensure_model_columns_sync_sql_expr_default_nullable_downgrades() -> None:
+    engine = _make_db()
+    md = MetaData()
+    Table(
+        "orders", md,
+        Column("id", Integer, primary_key=True),
+        Column("created_at", DateTime, server_default=func.now()),
+        Column("origin", String(16), nullable=False, server_default="cn"),
+    )
+    with engine.begin() as conn:
+        added = ensure_model_columns_sync(conn, md)
+        assert set(added) == {("orders", "created_at"), ("orders", "origin")}
+        conn.execute(text("INSERT INTO orders (id) VALUES (1)"))
+    with engine.connect() as conn:
+        nullables = {c["name"]: c["nullable"] for c in inspect(conn).get_columns("orders")}
+    assert nullables["created_at"] is True
+    assert nullables["origin"] is False
+
+
+def test_ensure_model_columns_sync_sql_expr_default_not_null_rejected() -> None:
+    engine = _make_db()
+    md = MetaData()
+    Table("orders", md, Column("stamp", DateTime, nullable=False, server_default=func.now()))
+    with engine.begin() as conn:
+        with pytest.raises(ValueError, match="非常量默认"):
+            ensure_model_columns_sync(conn, md)
 
 
 @pytest.mark.asyncio
