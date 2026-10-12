@@ -12,6 +12,7 @@ from nexus.middleware_auth import (
     DEFAULT_WHITELIST_PATHS,
     ServiceAuthMiddleware,
 )
+from nexus.middleware_cache import CacheRule, ResponseCacheMiddleware
 from nexus.middleware_exception import (
     ErrorHandlerMiddleware,
     setup_exception_handlers,
@@ -26,6 +27,8 @@ __all__ = [
     "LoadingSplashMiddleware",
     "ErrorHandlerMiddleware",
     "ServiceAuthMiddleware",
+    "ResponseCacheMiddleware",
+    "CacheRule",
     "setup_exception_handlers",
     "DEFAULT_WHITELIST_PATHS",
     "DEFAULT_PUBLIC_API_PREFIXES",
