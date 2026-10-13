@@ -7,7 +7,6 @@ from sqlalchemy import func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import Select
 
-from nexus.errors import NotFoundError
 
 ModelT = TypeVar("ModelT")
 

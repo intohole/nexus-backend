@@ -7,7 +7,6 @@ from typing import Optional
 import pytest
 
 import nexus.credits as credits_module
-import nexus.ironman_instrument as instrument_module
 from nexus.credits import (
     CreditsInsufficientError,
     CreditsService,
