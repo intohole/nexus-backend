@@ -99,6 +99,7 @@ class NexusScheduler:
         job_id: str,
         hour: Optional[int] = None,
         minute: Optional[int] = None,
+        day: Optional[int] = None,
         day_of_week: Optional[str] = None,
         expr: Optional[str] = None,
         timezone: Optional[str] = None,
@@ -113,6 +114,8 @@ class NexusScheduler:
                 trigger_kwargs["hour"] = hour
             if minute is not None:
                 trigger_kwargs["minute"] = minute
+            if day is not None:
+                trigger_kwargs["day"] = day
             if day_of_week is not None:
                 trigger_kwargs["day_of_week"] = day_of_week
             trigger = CronTrigger(**trigger_kwargs)
