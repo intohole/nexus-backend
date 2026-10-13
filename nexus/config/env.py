@@ -1,33 +1,36 @@
-"""配置环境变量解析：${VAR:-default} 替换引擎。"""
+"""配置环境变量解析：${VAR:-default} 替换引擎，default 支持一层嵌套 ${VAR:-${ALT}}。"""
 from __future__ import annotations
 
 import os
 import re
 from typing import Callable
 
-_ENV_SUB = re.compile(r"\$\{(\w+)(?::-([^}]*))?\}")
-_ENV_FULL = re.compile(r"^\$\{(\w+)(?::-([^}]*))?\}$")
+_ENV_TOKEN = re.compile(r"\$\{(\w+)(?::-(\$\{\w+\}|[^}]*))?\}")
+_INNER_REF = re.compile(r"^\$\{(\w+)\}$")
 
 
 def _substitute_env(value: str, *, anchored: bool, missing: str) -> str:
-    if anchored:
-        m = _ENV_FULL.match(value)
-        if m is None:
-            return value
-        val = os.environ.get(m.group(1))
-        if val is not None:
-            return val
-        return m.group(2) if m.group(2) is not None else ""
-
     def _repl(m: re.Match) -> str:
         val = os.environ.get(m.group(1))
         if val is not None:
             return val
-        if m.group(2) is not None:
-            return m.group(2)
-        return "" if missing == "empty" else m.group(0)
+        default = m.group(2)
+        if default is None:
+            return "" if missing == "empty" else m.group(0)
+        inner = _INNER_REF.match(default)
+        if inner is not None:
+            val = os.environ.get(inner.group(1))
+            if val is not None:
+                return val
+            return "" if missing == "empty" else m.group(0)
+        return default
 
-    return _ENV_SUB.sub(_repl, value)
+    if anchored:
+        m = _ENV_TOKEN.fullmatch(value)
+        if m is None:
+            return value
+        return _repl(m)
+    return _ENV_TOKEN.sub(_repl, value)
 
 
 def _walk_env(data: object, resolve: Callable[[str], str]) -> object:
