@@ -38,6 +38,10 @@ async def try_send(
     content: str = "",
     **kwargs: object,
 ) -> Optional[dict[str, object]]:
+    """发送通知，几乎不抛异常。返回 dict（检查 result["status"]：sent/suppressed/failed）
+    或 None（调用层异常）。仅 status=="sent" 表示已送达；网络失败返回 failed dict 而非 None。
+    判定送达请写 `result and result.get("status") == "sent"`，不要写 `result is None`。
+    """
     from nexus.notify import get_notify_client  # 调用时解析：monkeypatch nexus.notify.get_notify_client 的测试桩保持有效
 
     try:
