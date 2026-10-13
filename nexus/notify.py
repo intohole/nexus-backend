@@ -200,6 +200,20 @@ class NotifyClient:
             logger.error("NotifyCenter SMS send failed: %s", str(exc))
             return False
 
+    async def stats(self, days: int = 14) -> dict[str, object]:
+        try:
+            resp: httpx.Response = await self._http.get(
+                "/api/notify/stats",
+                params={"days": days},
+                headers=await self._headers(),
+            )
+            resp.raise_for_status()
+            body: dict[str, object] = resp.json()
+        except Exception as exc:
+            logger.error("Notify stats error: %s", str(exc))
+            return {"apps": []}
+        return body if isinstance(body, dict) else {"apps": []}
+
     async def close(self) -> None:
         await self._http.close()
 
