@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from nexus.crontab import CronScheduler, next_run_at
@@ -192,6 +192,96 @@ def test_scheduler_cron_job_error_isolated() -> None:
 
     asyncio.run(run())
     assert "good" in fired
+
+
+def test_add_cron_job_rejects_sync_func() -> None:
+    """同步函数注册必须 fail-fast：运行时才炸是 aiPet r11 每 30s ERROR 风暴的根因。"""
+    scheduler = CronScheduler(tick_seconds=1)
+
+    def sync_job() -> None:
+        pass
+
+    try:
+        scheduler.add_cron_job("sync", "* * * * * *", sync_job)
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("sync handler should be rejected at registration")
+    assert "sync" not in scheduler._cron_jobs
+
+
+def test_failed_job_backoff_is_exponential() -> None:
+    """失败任务指数退避：不再原样保持过期 next_run_at（每 tick 重试风暴的根因）。"""
+    scheduler = CronScheduler(tick_seconds=30)
+    calls: list[int] = []
+
+    async def bad() -> None:
+        calls.append(1)
+        raise RuntimeError("boom")
+
+    async def run() -> None:
+        scheduler.add_cron_job("bad", "* * * * * *", bad)
+        job = scheduler._cron_jobs["bad"]
+        for expected_backoff in (30.0, 60.0, 120.0):
+            before = datetime.now(CHINA).replace(tzinfo=None)
+            job["next_run_at"] = before - timedelta(seconds=1)
+            await scheduler._maybe_fire("bad", job)
+            delta = (job["next_run_at"] - before).total_seconds()
+            assert expected_backoff - 1.0 <= delta <= expected_backoff + 1.0
+        assert job["failures"] == 3
+        assert "boom" in str(job["last_error"])
+        st = scheduler.status()
+        assert st["jobs"]["bad"]["failures"] == 3
+        assert "boom" in str(st["jobs"]["bad"]["last_error"])
+
+    asyncio.run(run())
+
+
+def test_job_success_resets_failure_state() -> None:
+    """失败后成功：failures 归零、last_error 清空、next_run_at 回归表达式节奏。"""
+    scheduler = CronScheduler(tick_seconds=30)
+    calls: list[str] = []
+
+    async def flaky() -> None:
+        calls.append("run")
+        if len(calls) == 1:
+            raise RuntimeError("boom")
+
+    async def run() -> None:
+        scheduler.add_cron_job("flaky", "*/5 * * * * *", flaky)
+        job = scheduler._cron_jobs["flaky"]
+        job["next_run_at"] = datetime.now(CHINA).replace(tzinfo=None) - timedelta(seconds=1)
+        await scheduler._maybe_fire("flaky", job)
+        assert job["failures"] == 1
+        job["next_run_at"] = datetime.now(CHINA).replace(tzinfo=None) - timedelta(seconds=1)
+        await scheduler._maybe_fire("flaky", job)
+        assert calls == ["run", "run"]
+        assert job["failures"] == 0
+        assert job["last_error"] is None
+        assert job["next_run_at"] > datetime.now(CHINA).replace(tzinfo=None)
+
+    asyncio.run(run())
+
+
+def test_backed_off_job_does_not_refire_immediately() -> None:
+    """退避窗口内同任务不重触发：next_run_at 已推进到未来即静默等待。"""
+    scheduler = CronScheduler(tick_seconds=30)
+    calls: list[int] = []
+
+    async def bad() -> None:
+        calls.append(1)
+        raise RuntimeError("boom")
+
+    async def run() -> None:
+        scheduler.add_cron_job("bad", "* * * * * *", bad)
+        job = scheduler._cron_jobs["bad"]
+        job["next_run_at"] = datetime.now(CHINA).replace(tzinfo=None) - timedelta(seconds=1)
+        await scheduler._maybe_fire("bad", job)
+        assert calls == [1]
+        await scheduler._maybe_fire("bad", job)
+        assert calls == [1]
+
+    asyncio.run(run())
 
 
 def test_nexus_scheduler_add_cron_expr() -> None:

@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, tzinfo
+from datetime import datetime, timedelta, tzinfo
 from typing import Awaitable, Callable, Optional
 
 from nexus.logging import get_logger
@@ -65,6 +65,13 @@ class CronScheduler:
       不再冻结整个 loop（fired 日志在 func 返回后才打——挂死=无日志无报错的观测死角）
     - ensure_alive(): task 缺失/已死时重建，适合挂在 health check 上做看门狗
     - status()/last_tick_at: loop 活性与各任务 next_run_at 可随时内省
+
+    失败退避（aiPet r11 生产每 30s ERROR 风暴的教训）：
+    - 任务异常后不再原样保持过期 next_run_at（那会导致每 tick 重试风暴），
+      改为指数退避：tick_seconds * 2^(n-1)，封顶 max_backoff（默认 15min），
+      成功后自动回归 cron 表达式节奏——对齐 Temporal RetryPolicy 业界标准
+    - add_cron_job 注册时校验 handler 必须是 async 函数（fail-fast，
+      同步函数注册会在每次触发时抛 object can't be used in 'await'）
     """
 
     def __init__(
@@ -73,10 +80,12 @@ class CronScheduler:
         *,
         tz: tzinfo = CHINA_TZ,
         fire_timeout: float = 300.0,
+        max_backoff: float = 900.0,
     ) -> None:
         self._tick_seconds = tick_seconds
         self._tz = tz
         self._fire_timeout = fire_timeout
+        self._max_backoff = max_backoff
         self._task: Optional[asyncio.Task] = None
         self._cron_jobs: dict[str, dict[str, object]] = {}
         self._scanners: dict[str, ScanHandler] = {}
@@ -89,10 +98,16 @@ class CronScheduler:
         expr: str,
         func: CoroFunc,
     ) -> None:
+        if not asyncio.iscoroutinefunction(func):
+            raise TypeError(
+                f"cron job {job_id!r} handler must be async, got {type(func).__name__}"
+            )
         self._cron_jobs[job_id] = {
             "expr": expr,
             "func": func,
             "next_run_at": next_run_at(expr, tz=self._tz),
+            "failures": 0,
+            "last_error": None,
         }
 
     def remove_cron_job(self, job_id: str) -> bool:
@@ -110,7 +125,12 @@ class CronScheduler:
             "alive": self._task is not None and not self._task.done(),
             "last_tick_at": self.last_tick_at.isoformat(timespec="seconds") if self.last_tick_at else None,
             "jobs": {
-                jid: {"expr": str(job["expr"]), "next_run_at": str(job.get("next_run_at"))}
+                jid: {
+                    "expr": str(job["expr"]),
+                    "next_run_at": str(job.get("next_run_at")),
+                    "failures": int(job.get("failures", 0)),
+                    "last_error": job.get("last_error"),
+                }
                 for jid, job in self._cron_jobs.items()
             },
         }
@@ -187,8 +207,21 @@ class CronScheduler:
             )
             job["next_run_at"] = next_run_at(str(job["expr"]), base=datetime.now(self._tz).replace(tzinfo=None), tz=self._tz)
             return
+        except Exception as exc:
+            failures = int(job.get("failures", 0)) + 1
+            backoff = min(float(self._tick_seconds) * (2 ** (failures - 1)), self._max_backoff)
+            job["failures"] = failures
+            job["last_error"] = str(exc)
+            job["next_run_at"] = now_naive + timedelta(seconds=backoff)
+            logger.error(
+                "crontab job %s failed (%s consecutive): %s — retry in %ss",
+                job_id, failures, exc, backoff,
+            )
+            return
         finally:
             self._running_jobs.discard(job_id)
+        job["failures"] = 0
+        job["last_error"] = None
         job["next_run_at"] = next_run_at(str(job["expr"]), base=datetime.now(self._tz).replace(tzinfo=None), tz=self._tz)
         logger.info("crontab job %s fired, next run at %s", job_id, job["next_run_at"])
 
