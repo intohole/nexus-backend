@@ -105,7 +105,6 @@ from nexus.uc_sdk_helper import (
     standard_err,
 )
 from nexus.repository import StatelessRepository, paginate, paginate_skip
-from nexus.storage import read_limited
 from nexus.uc_proxy import register_uc_proxy
 from nexus.lifespan import create_standard_lifespan
 from nexus.service import BaseService
@@ -292,7 +291,7 @@ __all__ = [
     "DOMAIN_KNOWLEDGE", "DOMAIN_CREATIVE", "DOMAIN_GROWTH", "DOMAIN_ASSET",
     "get_client_ip", "sanitize_platform_text", "resolve_env_tree", "init_uc_sdk",
     "init_uc_sdk_from_lion", "get_uc_sdk", "close_uc_sdk", "extract_bearer_token",
-    "standard_ok", "standard_err", "StatelessRepository", "read_limited", "paginate", "paginate_skip",
+    "standard_ok", "standard_err", "StatelessRepository", "paginate", "paginate_skip",
     "register_uc_proxy",
     "ANON_ID_RE", "get_current_user_or_anon", "get_current_user_or_anon_lax",
     "get_current_user_or_anon_optional",
