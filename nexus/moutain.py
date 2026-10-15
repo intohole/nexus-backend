@@ -221,8 +221,8 @@ class MoutainClient:
         return result
 
     async def crawl(self, url: str) -> Optional[Dict[str, Any]]:
-        """直接爬取指定URL，返回页面内容."""
-        data = await self._post("/api/spider/crawl", {"url": url})
+        """直接采集指定URL，返回页面内容."""
+        data = await self._post("/api/gather/crawl", {"url": url})
         if not data:
             return None
         payload = data.get("data") if isinstance(data, dict) else None
