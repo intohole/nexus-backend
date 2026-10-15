@@ -10,7 +10,8 @@ _INVALID_USER_IDS = frozenset({"", "default", "none", "null", "unknown", "0"})
 
 class NotifyCenterChannel(NotificationChannel):
     """notification dict 必须带 user_id（通知中心按用户投递）；
-    app_id/link/type/priority 可选，priority 为 1-3 的通知中心级别。
+    app_id/link/type/priority 可选，priority 为 1-3 的通知中心级别；
+    channels 可选列表透传通知中心（email/wecom 等），缺省 in_app。
     无主占位 user（default/空/unknown 等）直接拒发——这类投递永远无人可见，
     只会在通知中心积累死行（goldenFish 曾向 default 连发 6 条停摆通知）。"""
 
@@ -25,6 +26,11 @@ class NotifyCenterChannel(NotificationChannel):
                 user_id, notification.get("app_id", ""), str(notification.get("title", ""))[:50],
             )
             return False
+        raw_channels = notification.get("channels")
+        channels = (
+            [str(c).strip() for c in raw_channels if str(c).strip()]
+            if isinstance(raw_channels, list) else None
+        )
         from nexus.notify import get_notify_client
 
         result = await get_notify_client().send(
@@ -35,6 +41,7 @@ class NotifyCenterChannel(NotificationChannel):
             priority=int(notification.get("priority", 1) or 1),
             app_id=str(notification.get("app_id", "") or "system"),
             link=str(notification.get("link", "")),
+            channels=channels,
         )
         if not isinstance(result, dict) or result.get("status") != "sent":
             logger.warning("NotifyCenter send failed for user=%s result=%s", user_id, result)
