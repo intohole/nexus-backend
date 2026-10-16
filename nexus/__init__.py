@@ -243,6 +243,10 @@ from nexus.scheduler import (
     get_scheduler,
     get_thread_scheduler,
 )
+from nexus.scheduler_gate import (
+    GateDecision,
+    scheduler_gate,
+)
 from nexus.crontab import (
     CronScheduler,
     next_run_at,
@@ -321,7 +325,8 @@ __all__ = [
     "CostBudget", "BudgetPeriod", "TokenUsage", "CostBudgetExceededError",
     "get_cost_guard", "configure_pricing", "LLMRateLimiter", "resilient_ask",
     "resilient_extract", "resilient_stream", "get_scheduler", "JobManager",
-    "get_thread_scheduler", "CronScheduler", "next_run_at", "AutomationContext",
+    "get_thread_scheduler", "CronScheduler", "next_run_at", "GateDecision", "scheduler_gate",
+    "AutomationContext",
     "AutomationResult", "AutomationEngine", "EventTrigger", "ScheduleTrigger",
     "sanitize_agent_output", "sanitize_text_stream",
 ]

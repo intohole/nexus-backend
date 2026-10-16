@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, tzinfo
 from typing import Awaitable, Callable, Optional
 
 from nexus.logging import get_logger
+from nexus.scheduler_gate import GateDecision, log_gate_refusal, scheduler_gate
 from nexus.utils.time import TimeUtils
 
 try:
@@ -91,6 +92,7 @@ class CronScheduler:
         self._scanners: dict[str, ScanHandler] = {}
         self._running_jobs: set[str] = set()
         self.last_tick_at: Optional[datetime] = None
+        self.gate: Optional[GateDecision] = None
 
     def add_cron_job(
         self,
@@ -120,10 +122,11 @@ class CronScheduler:
         return {jid: "cron" for jid in self._cron_jobs} | {name: "scan" for name in self._scanners}
 
     def status(self) -> dict[str, object]:
-        """调度器内省：loop 活性、最近 tick、各任务下次运行时间。"""
+        """调度器内省：loop 活性、最近 tick、门禁裁决、各任务下次运行时间。"""
         return {
             "alive": self._task is not None and not self._task.done(),
             "last_tick_at": self.last_tick_at.isoformat(timespec="seconds") if self.last_tick_at else None,
+            "gate": self.gate.as_dict() if self.gate is not None else None,
             "jobs": {
                 jid: {
                     "expr": str(job["expr"]),
@@ -140,15 +143,23 @@ class CronScheduler:
 
         适合挂到 health check 等高频入口当看门狗——create_task 后 task
         静默死亡（无异常日志）在生产出现过，靠外部心跳发现并自愈。
+        门禁拒绝过的实例不重建（看门狗不得绕过 gated/off 语义）。
         """
         if self._task is not None and not self._task.done():
+            return False
+        if self.gate is not None and not self.gate.allowed:
             return False
         logger.warning("crontab loop not running (task=%r), restarting", self._task)
         self.start()
         return True
 
-    def start(self) -> None:
+    def start(self, mode: Optional[str] = None) -> None:
+        """启动 tick 循环。mode 见 nexus.scheduler_gate；门禁拒绝时不建 task 且留痕于 self.gate。"""
         if self._task and not self._task.done():
+            return
+        self.gate = scheduler_gate(mode)
+        if not self.gate.allowed:
+            log_gate_refusal(logger, self.gate, "CronScheduler")
             return
         self._task = asyncio.create_task(self._loop())
 

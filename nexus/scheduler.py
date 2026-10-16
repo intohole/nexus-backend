@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Awaitable, Callable, Optional, Union
 
 from nexus.logging import get_logger
+from nexus.scheduler_gate import GateDecision, log_gate_refusal, scheduler_gate
 
 logger = get_logger("nexus.scheduler")
 
@@ -36,6 +37,7 @@ class NexusScheduler:
 
     def __init__(self) -> None:
         self._jobs: dict[str, str] = {}
+        self.gate: Optional[GateDecision] = None
 
     @classmethod
     def get_instance(cls) -> "NexusScheduler":
@@ -144,7 +146,12 @@ class NexusScheduler:
     def list_jobs(self) -> dict[str, str]:
         return dict(self._jobs)
 
-    def start(self) -> None:
+    def start(self, mode: Optional[str] = None) -> None:
+        """启动调度。mode 见 nexus.scheduler_gate（auto/gated/off）；门禁拒绝时不启动且留痕于 self.gate。"""
+        self.gate = scheduler_gate(mode)
+        if not self.gate.allowed:
+            log_gate_refusal(logger, self.gate, "NexusScheduler")
+            return
         if self._scheduler is None:
             logger.info("No jobs registered, scheduler not started")
             return
@@ -153,6 +160,12 @@ class NexusScheduler:
             logger.info(f"Scheduler started with {len(self._jobs)} jobs")
         else:
             logger.info("Scheduler already running")
+
+    @property
+    def gate_reason(self) -> str:
+        if self.gate is None:
+            return "not-started"
+        return f"{self.gate.mode}:{self.gate.reason}"
 
     def shutdown(self, wait: bool = True) -> None:
         if self._scheduler is not None and self._scheduler.running:
