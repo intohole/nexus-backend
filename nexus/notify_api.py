@@ -151,3 +151,69 @@ async def send_webhook_robot(
         return False
     except Exception:
         return False
+
+
+DEFAULT_TASK_FAILURE_RULES: list[tuple[str, str]] = [
+    ("timeout", "生成超时（模型繁忙或网络波动），重试通常可过"),
+    ("circuit", "AI 网关熔断保护中，稍等片刻重试"),
+    ("rate", "触发频率保护，稍等片刻重试"),
+    ("429", "触发频率保护，稍等片刻重试"),
+    ("json", "AI 输出格式异常，重试会换一种写法"),
+    ("解析", "AI 输出格式异常，重试会换一种写法"),
+    ("重启", "服务重启导致任务中断，点开直接重新生成"),
+]
+
+
+def friendly_task_failure(error_message: str, extra_rules: Optional[list[tuple[str, str]]] = None) -> str:
+    """技术错误 → 作者/用户语言（1.83.0 收编 verseCraft task_notify 规则表）。
+
+    长任务失败文案的通用映射：错误码必须落到「用户下一步该做什么」；
+    未命中规则时截断原文前 80 字（未知原因如实呈现，不编造）。
+    """
+    text = error_message or ""
+    lowered = text.lower()
+    for needle, friendly in list(extra_rules or []) + DEFAULT_TASK_FAILURE_RULES:
+        if needle.lower() in lowered:
+            return friendly
+    return text[:80] or "未知原因"
+
+
+async def notify_task_result(
+    user_id: str,
+    *,
+    app_id: str,
+    ok: bool,
+    title: str,
+    content: str = "",
+    link: str = "",
+    type: str = "task",
+    priority: Optional[int] = None,
+) -> Optional[dict[str, object]]:
+    """任务终态触达样板（1.83.0）：成功/失败统一走 try_send 并按终态契约留痕。
+
+    记账纪律（教训#294 生态化）：只有 status=="sent" 记「已投递」；
+    suppressed/failed 与 None 都按未送达 WARNING（suppressed 属用户侧
+    主动静默，语义不同但都不是送达）。priority 默认成功 1 / 失败 2。
+    """
+    try:
+        result = await try_send(
+            user_id=str(user_id),
+            title=str(title)[:200],
+            content=str(content)[:500],
+            type=type,
+            priority=priority if priority is not None else (1 if ok else 2),
+            app_id=app_id,
+            link=link,
+        )
+    except Exception as exc:
+        logger.warning("任务终态通知投递异常: app=%s ok=%s err=%s", app_id, ok, exc)
+        return None
+    status = result.get("status") if isinstance(result, dict) else None
+    if status == "sent":
+        logger.info("任务终态通知已投递: app=%s ok=%s", app_id, ok)
+    else:
+        logger.warning(
+            "任务终态通知未送达: app=%s ok=%s status=%s resp=%s",
+            app_id, ok, status, str(result)[:120],
+        )
+    return result
