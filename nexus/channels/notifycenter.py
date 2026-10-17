@@ -13,7 +13,10 @@ class NotifyCenterChannel(NotificationChannel):
     app_id/link/type/priority 可选，priority 为 1-3 的通知中心级别；
     channels 可选列表透传通知中心（email/wecom 等），缺省 in_app。
     无主占位 user（default/空/unknown 等）直接拒发——这类投递永远无人可见，
-    只会在通知中心积累死行（goldenFish 曾向 default 连发 6 条停摆通知）。"""
+    只会在通知中心积累死行（goldenFish 曾向 default 连发 6 条停摆通知）。
+    link 契约：商业端应用（app_group=商业端，公网入口在 biz 域）必须传绝对 URL，
+    相对链接在主域的铃铛/通知面板渲染时不可达、点击即 404（truemirror r2 修复
+    后 goldenFish r19 复踩同型——消费侧无法安全改写相对链接，发送侧负责绝对化）。"""
 
     def __init__(self) -> None:
         super().__init__("notifycenter")
