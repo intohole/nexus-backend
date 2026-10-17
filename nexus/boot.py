@@ -36,6 +36,13 @@ def register_service_auth(
     )
 
 
+def _check_is_ok(status: str) -> bool:
+    """check 返回 "ok" 或 "ok (诊断详情)" 均视为健康：消费方（LifeCompass r8/oneNote r14）要在 ok 后
+    带 jobs 数等诊断信息，精确 != "ok" 会把它们判成 degraded。"""
+    s = str(status or "").strip()
+    return s == "ok" or s.startswith("ok ") or s.startswith("ok(")
+
+
 def register_health_endpoints(
     app: FastAPI,
     *,
@@ -58,7 +65,7 @@ def register_health_endpoints(
             try:
                 status: str = await check()
                 results[name] = status
-                if status != "ok":
+                if not _check_is_ok(status):
                     overall = False
             except Exception:
                 results[name] = "error"
