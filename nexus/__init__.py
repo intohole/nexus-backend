@@ -52,6 +52,9 @@ from nexus.utils import (
     resolve_cors_origins,
     get_client_ip,
     paginate_from_skip,
+    spawn_background,
+    pending_background_tasks,
+    drain_background_tasks,
 )
 from nexus.boot import (
     register_service_auth,
@@ -281,7 +284,8 @@ __all__ = [
     "extract_document_text", "DocExtractError",
     "validate_upload", "read_upload_with_limit", "split_ext",
     "batch_cosine_similarity", "clamp", "loads_or", "safe_float", "safe_bool", "resolve_cors_origins",
-    "paginate_from_skip", "register_service_auth", "register_health_endpoints",
+    "paginate_from_skip", "spawn_background", "pending_background_tasks", "drain_background_tasks",
+    "register_service_auth", "register_health_endpoints",
     "register_probe_endpoints", "build_probe_runner", "probe_scheduler",
     "mount_spa_static", "setup_cors", "RequestIdMiddleware",
     "LoggingMiddleware", "NotFoundCheckMiddleware", "StaticAssetsCacheMiddleware",
