@@ -263,6 +263,7 @@ from nexus.automation import (
 )
 from nexus.sanitize import sanitize_agent_output, sanitize_platform_text, sanitize_text_stream
 from nexus.touch import TouchAction, TouchDecision, decide_touch, fingerprint as touch_fingerprint
+from nexus.audience import sendable_users as audience_sendable_users, sendable as audience_sendable, guard_enabled as audience_guard_enabled
 
 try:
     from importlib.metadata import version as _version
@@ -335,4 +336,5 @@ __all__ = [
     "AutomationResult", "AutomationEngine", "EventTrigger", "ScheduleTrigger",
     "sanitize_agent_output", "sanitize_text_stream",
     "TouchAction", "TouchDecision", "decide_touch", "touch_fingerprint",
+    "audience_sendable_users", "audience_sendable", "audience_guard_enabled",
 ]
