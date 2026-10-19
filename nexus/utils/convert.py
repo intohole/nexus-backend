@@ -1,8 +1,10 @@
-"""类型安全转换与数据整形：safe 系转换、区间钳制、列表分页。"""
+"""类型安全转换与数据整形：safe 系转换、区间钳制、列表分页、JSON 落库归一化。"""
 from __future__ import annotations
 
+import datetime as _dt
 import json
-from typing import TypeVar
+from decimal import Decimal
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 
@@ -44,6 +46,25 @@ def safe_bool(value: object, default: bool = False) -> bool:
     if isinstance(value, (int, float)):
         return bool(value)
     return default
+
+
+def jsonable(value: Any) -> Any:
+    """递归收敛为 JSON 安全类型：Decimal→float、date/datetime→isoformat、set/tuple→list。
+
+    JSON 列落库走裸 json.dumps（不走 FastAPI 的 jsonable_encoder），
+    NUMERIC 列直出的 Decimal 混进 dict 就是落库 TypeError——写 JSON 列前先过本函数。
+    """
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, _dt.datetime):
+        return value.isoformat()
+    if isinstance(value, _dt.date):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(k): jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [jsonable(v) for v in value]
+    return value
 
 
 def paginate_from_skip(items: list[object], skip: int, limit: int) -> dict[str, object]:

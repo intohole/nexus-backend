@@ -1,7 +1,7 @@
 """通用工具门面：实现按域拆分于同目录子模块，此处聚合保持 `nexus.utils.X` 引用稳定。"""
 from nexus.utils.background import drain_background_tasks, pending_background_tasks, spawn_background  # noqa: F401
 from nexus.utils.cache import MemoryCache, SyncTTLCache  # noqa: F401
-from nexus.utils.convert import clamp, loads_or, paginate_from_skip, safe_bool, safe_float  # noqa: F401
+from nexus.utils.convert import clamp, jsonable, loads_or, paginate_from_skip, safe_bool, safe_float  # noqa: F401
 from nexus.utils.http import HttpClient  # noqa: F401
 from nexus.utils.math import batch_cosine_similarity, cosine_similarity  # noqa: F401
 from nexus.utils.net import HealthRegistry, get_client_ip, resolve_cors_origins  # noqa: F401
@@ -19,6 +19,7 @@ __all__ = [
     "RetryExhausted",
     "HealthRegistry",
     "clamp",
+    "jsonable",
     "loads_or",
     "safe_float",
     "safe_bool",
