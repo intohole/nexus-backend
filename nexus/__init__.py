@@ -177,6 +177,7 @@ from nexus.channels import (
     ChannelDispatcher,
 )
 from nexus.llm_client import LLMJsonClient
+from nexus.llm_verify import ask_json_verified, chat_json_verified
 from nexus.credits import (
     get_credits_service,
     PrecheckResult,
@@ -317,6 +318,7 @@ __all__ = [
     "parse_llm_json_lenient", "parse_llm_json_or", "parse_json_column", "find_balanced_json", "with_llm_retry",
     "is_llm_json_error",
     "strip_code_fence", "LLMTimeoutError", "get_llm_service", "LLMJsonClient",
+    "ask_json_verified", "chat_json_verified",
     "get_image_service", "get_vision_service", "JSON_ONLY_HINT", "estimate_tokens",
     "get_credits_service", "charged", "credits_user_scope", "PrecheckResult",
     "ConsumeResult", "CreditsInsufficientError",

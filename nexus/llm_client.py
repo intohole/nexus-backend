@@ -4,8 +4,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel
+
 from nexus.llm import get_llm_service
 from nexus.llm_utils import parse_llm_json
+from nexus.llm_verify import verified_json_chat
 
 logger = logging.getLogger("nexus.llm_client")
 
@@ -92,6 +95,8 @@ class LLMJsonClient:
         thinking_budget: Optional[int] = None,
         task_type: Optional[str] = None,
         timeout: Optional[float] = None,
+        schema: Optional[type[BaseModel]] = None,
+        repair_attempts: int = 1,
     ) -> Dict[str, Any]:
         call: dict[str, object] = {
             "temperature": self._temperature if temperature is None else temperature,
@@ -101,6 +106,25 @@ class LLMJsonClient:
         eff_task_type = self._task_type if task_type is None else task_type
         eff_timeout = self._timeout if timeout is None else timeout
         budget = self._max_tokens if max_tokens is None else max_tokens
+        if schema is not None:
+            try:
+                return await verified_json_chat(
+                    self._svc.chat,
+                    [{"role": "user", "content": prompt}],
+                    schema=schema,
+                    repair_attempts=repair_attempts,
+                    raise_on_error=True,
+                    system=system,
+                    max_tokens=budget,
+                    task_type=eff_task_type,
+                    timeout=eff_timeout,
+                    **call,
+                )
+            except Exception as exc:
+                self._last_error = str(exc)
+            if fallback is not None:
+                return fallback
+            raise ValueError(self._last_error or "LLM 返回无效 JSON")
         try:
             result = await self._ask_json_once(
                 prompt, system,
