@@ -77,7 +77,7 @@ async def init_ironman(
         if not bootstrap.is_available():
             raise IronmanConfigError(
                 f"ironman Bootstrap 配置不完整（app={app_name}），api_key/base_url 缺失，"
-                "拒绝降级启动。请检查 LION_NAMESPACE 对应 llm/chat 配置。"
+                "拒绝降级启动。请检查 LION__NAMESPACE 对应 llm/chat 配置。"
             )
 
         _bootstrap = bootstrap

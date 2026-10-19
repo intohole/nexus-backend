@@ -52,7 +52,7 @@ async def default_config_loader(app_name: str) -> dict[str, object]:
     if not api_key or not base_url:
         raise IronmanConfigError(
             f"Lion 未返回 {app_name} 可用的 LLM chat 配置（api_key/base_url 为空）。"
-            f"请检查 LION_NAMESPACE={app_name} 的 llm/chat 配置是否存在、Lion 服务是否可达、"
+            f"请检查 LION__NAMESPACE={app_name} 的 llm/chat 配置是否存在、Lion 服务是否可达、"
             f"SERVICE_TOKEN 是否注入应用环境。收到配置: {chat_cfg or '{}'}"
         )
 
