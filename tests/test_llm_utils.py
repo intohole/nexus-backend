@@ -120,6 +120,29 @@ class TestParseLlmJsonLenient:
         assert parse_llm_json_lenient('无 JSON') is None
 
 
+class TestParseTruncatedArray:
+    def test_truncated_after_object_element(self):
+        raw = '[{"id": 1}, {"id": 2}, {"id": 3'
+        assert parse_llm_json_lenient(raw) == [{"id": 1}, {"id": 2}]
+
+    def test_truncated_with_trailing_comma(self):
+        raw = '[{"a": 1}, {"b": 2},'
+        assert parse_llm_json_lenient(raw) == [{"a": 1}, {"b": 2}]
+
+    def test_goldenstock_semantics_preserved(self):
+        raw = '研究发现了以下机会：\n[{"title": "机会A", "score": 8}, {"title": "机会B", "sc'
+        assert parse_llm_json_lenient(raw) == [{"title": "机会A", "score": 8}]
+
+    def test_no_array_returns_none(self):
+        assert parse_llm_json_lenient('{"a": 1') is None
+
+    def test_truncated_inside_object_no_complete_element_returns_none(self):
+        assert parse_llm_json_lenient('[{"a": "x"') is None
+
+    def test_truncated_inside_string_mid_word_drops_partial_element(self):
+        assert parse_llm_json_lenient('["alpha", "beta", "gam') == ["alpha", "beta"]
+
+
 class TestParseLlmJsonOr:
     def test_success_passthrough(self):
         assert parse_llm_json_or('{"a": 1}', {}) == {"a": 1}

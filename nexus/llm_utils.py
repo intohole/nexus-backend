@@ -202,25 +202,81 @@ def is_llm_json_error(result: object) -> bool:
     """
     return isinstance(result, dict) and set(result.keys()) == {"raw_response"}
 
+def _parse_truncated_array(text: str) -> Optional[object]:
+    """截断 JSON 数组的确定性修复：按最后完整元素边界闭合回收。
+
+    LLM 长列表输出被 max_tokens 掐断（缺右括号）是高频形态——完整元素仍可回收，
+    比整体丢弃保住大部分结果（goldenStock 私有版语义收编，harness r7 层2 收归）。
+    边界用引号态扫描判定（对象元素=`}`回深度1、字符串元素=闭合引号），
+    截断在字符串中段/数字元素后不回收，宁缺勿错。
+    """
+    start = text.find("[")
+    if start < 0:
+        return None
+    raw = text[start:]
+    boundaries: list[int] = []
+    depth = 0
+    in_string = False
+    escaped = False
+    for i, ch in enumerate(raw):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+                if depth == 1:
+                    boundaries.append(i)
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+        elif ch in "]}":
+            depth -= 1
+            if depth == 0:
+                break
+            if depth == 1:
+                boundaries.append(i)
+    if not boundaries:
+        return None
+    try:
+        repaired = json.loads(raw[: boundaries[-1] + 1] + "]")
+    except json.JSONDecodeError:
+        return None
+    return repaired if isinstance(repaired, list) else None
+
+
 def parse_llm_json_lenient(raw: str) -> Optional[object]:
     """LLM 输出的宽容解析：支持顶层对象或数组，逐级降级提取，全部失败返回 None。
 
     与 parse_llm_json 的分工：parse_llm_json 面向"必须是 JSON 对象"的结构化抽取
     （失败返回 {"raw_response": ...} 哨兵）；本函数面向"对象或数组皆可"的
     自由输出（如研究发现列表），失败返回 None 由调用方跳过本轮。
+    降级梯子末级为截断修复（`_parse_truncated_array`）：输出被 max_tokens 掐断、
+    缺右括号时按最后完整元素闭合回收。
     """
     text = strip_code_fence(raw).strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-    for pattern in (r"\[[\s\S]*\]", r"\{[\s\S]*\}"):
-        m = re.search(pattern, text)
-        if m:
-            try:
-                return json.loads(m.group())
-            except json.JSONDecodeError:
-                continue
+    m = re.search(r"\[[\s\S]*\]", text)
+    if m:
+        try:
+            return json.loads(m.group())
+        except json.JSONDecodeError:
+            pass
+    repaired = _parse_truncated_array(text)
+    if repaired is not None:
+        return repaired
+    m = re.search(r"\{[\s\S]*\}", text)
+    if m:
+        try:
+            return json.loads(m.group())
+        except json.JSONDecodeError:
+            return None
     return None
 
 

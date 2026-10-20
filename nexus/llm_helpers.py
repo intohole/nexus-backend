@@ -1,13 +1,45 @@
-"""LLM 调用辅助：输出纪律注入、命名空间解析、消息转换与用量记账。"""
+"""LLM 调用辅助：输出纪律注入、前缀纪律装配、命名空间解析、消息转换与用量记账。"""
 from __future__ import annotations
 
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Iterable, Optional
 
 from nexus.logging import get_logger
 from nexus.llm_optimizer import CONCISENESS_HINT, JSON_ONLY_HINT
 from nexus.llm_budget import OutputMode, PROSE_HINT
 
 logger = get_logger("nexus.llm_helpers")
+
+
+def with_tail_context(user_content: str, *blocks: str) -> str:
+    """前缀纪律原语：动态上下文块后置本轮用户消息尾部，system 前缀保持逐字节稳定。
+
+    deepseek 缓存从首 token 精确匹配前缀（命中价差 46-100×），system 嵌时间戳/
+    检索结果/用户记忆等每请求变化的内容会让该点之后全部击穿；多轮会话下更是
+    连历史轮次缓存一并丢失。范式源：nexus-agent `_build_system/_build_tail_context`。
+    """
+    tail = "\n\n".join(block.strip() for block in blocks if block and block.strip())
+    if not tail:
+        return user_content
+    return f"{user_content}\n\n{tail}" if user_content else tail
+
+
+def disciplined_messages(
+    system: str,
+    history: Iterable[dict[str, str]],
+    user_content: str,
+) -> list[dict[str, str]]:
+    """前缀纪律消息装配：[稳定 system] + 历史透传 + 本轮用户消息。
+
+    与 with_tail_context 配套：动态内容一律先进尾部再传入 user_content，
+    本函数不改写 history（保证跨请求消息前缀逐字节稳定）。
+    """
+    messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+    for msg in history:
+        role = msg.get("role", "")
+        if role in ("user", "assistant"):
+            messages.append({"role": role, "content": msg.get("content", "")})
+    messages.append({"role": "user", "content": user_content})
+    return messages
 
 
 def apply_output_discipline(

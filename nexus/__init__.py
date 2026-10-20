@@ -166,6 +166,7 @@ from nexus.llm_utils import (
     strip_code_fence,
     LLMTimeoutError,
 )
+from nexus.llm_helpers import with_tail_context, disciplined_messages
 from nexus.llm import get_llm_service
 from nexus.sse_manager import (
     SSEManager,
@@ -318,6 +319,7 @@ __all__ = [
     "setup_static_files", "register_internal_endpoints", "AppLifecycle", "parse_llm_json",
     "parse_llm_json_lenient", "parse_llm_json_or", "parse_json_column", "find_balanced_json", "with_llm_retry",
     "is_llm_json_error",
+    "with_tail_context", "disciplined_messages",
     "strip_code_fence", "LLMTimeoutError", "get_llm_service", "LLMJsonClient",
     "ask_json_verified", "chat_json_verified",
     "get_image_service", "get_vision_service", "JSON_ONLY_HINT", "estimate_tokens",
