@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""检查全工作区后端 requirements.txt 公共包版本与 nexus-backend/python-deps.json 一致。
+"""检查全工作区后端 requirements.txt/pyproject.toml 公共包版本与 nexus-backend/python-deps.json 一致。
 
 用法:
     python3 nexus-backend/check_python_deps.py [工作区根目录]
@@ -12,6 +12,8 @@ import json
 import os
 import re
 import sys
+
+LIB_REPOS = {"nexus-backend", "ironman"}
 
 
 def load_deps(root: str) -> dict:
@@ -83,10 +85,53 @@ def find_requirements(root: str, ignore_dirs: tuple) -> list:
         if any(p in dirpath for p in ("/.git", "/node_modules", "/vendor", "/_shared")):
             continue
         for fn in filenames:
-            if fn == "requirements.txt" and "sdk" not in dirpath:
+            if fn.startswith("requirements") and fn.endswith(".txt") and "sdk" not in dirpath:
                 results.append(os.path.join(dirpath, fn))
     results.sort()
     return results
+
+
+def find_pyprojects(root: str, ignore_dirs: tuple) -> list:
+    results = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in ignore_dirs and d not in LIB_REPOS]
+        if any(p in dirpath for p in ("/.git", "/node_modules", "/vendor", "/_shared")):
+            continue
+        if os.path.basename(dirpath) in LIB_REPOS:
+            continue
+        for fn in filenames:
+            if fn == "pyproject.toml":
+                results.append(os.path.join(dirpath, fn))
+    results.sort()
+    return results
+
+
+def check_pyproject(path: str, deps: dict) -> list:
+    try:
+        import tomllib
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+    except Exception:
+        return []
+    dep_list = (data.get("project") or {}).get("dependencies") or []
+    problems = []
+    for raw in dep_list:
+        m = re.match(r"^([A-Za-z0-9_.\-\[\]]+)\s*(.*)$", raw.strip())
+        if not m:
+            continue
+        name = m.group(1).lower()
+        rest = m.group(2).strip().replace(" ", "")
+        for key, spec in deps.items():
+            base = spec.get("base", key)
+            if name == key.lower() or name == base.lower():
+                actual = target_version(rest)
+                expected = spec["version"]
+                if not actual:
+                    problems.append(f"  {name}: 未锁定版本({rest or '无版本'}),规范 {expected}")
+                elif actual != expected:
+                    problems.append(f"  {name}: 声明 {actual}, 规范 {expected}")
+                break
+    return problems
 
 
 def main() -> int:
@@ -110,7 +155,17 @@ def main() -> int:
                 print(p_)
         total += 1
 
-    print(f"\n扫描完成: 后端 requirements.txt {total} 个,不一致文件 {bad_files} 个")
+    py_total = 0
+    for path in find_pyprojects(root, ignore_dirs):
+        problems = check_pyproject(path, deps)
+        if problems:
+            bad_files += 1
+            print(f"[不一致] {os.path.relpath(path, root)}")
+            for p_ in problems:
+                print(p_)
+        py_total += 1
+
+    print(f"\n扫描完成: requirements.txt {total} 个, pyproject.toml {py_total} 个,不一致文件 {bad_files} 个")
     return 1 if bad_files else 0
 
 
