@@ -214,6 +214,31 @@ class NotifyClient:
             return {"apps": []}
         return body if isinstance(body, dict) else {"apps": []}
 
+    async def read_status(self, ids: list[int]) -> dict[int, bool]:
+        """批量查询通知已读状态（notifyCenter ≥2026-10 read-status 端点）。
+
+        返回 {id: is_read}；查无此行/请求失败时该 id 缺失——消费方以
+        「id 不在结果里=证据链缺失」处理，不得当成已读或未读（教训#373）。
+        """
+        if not ids:
+            return {}
+        try:
+            resp: httpx.Response = await self._http.get(
+                "/api/notify/read-status",
+                params={"ids": ",".join(str(i) for i in ids[:100])},
+                headers=await self._headers(),
+            )
+            resp.raise_for_status()
+            body: dict[str, object] = resp.json()
+        except Exception as exc:
+            logger.warning("Notify read_status error: %s", str(exc))
+            return {}
+        result: dict[int, bool] = {}
+        for item in body.get("statuses") or []:
+            if isinstance(item, dict) and item.get("exists") and item.get("id"):
+                result[int(item["id"])] = bool(item.get("is_read"))
+        return result
+
     async def close(self) -> None:
         await self._http.close()
 
