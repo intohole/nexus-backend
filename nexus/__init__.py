@@ -190,6 +190,7 @@ from nexus.credits import (
 )
 from nexus.image import get_image_service
 from nexus.vision import get_vision_service
+from nexus.volc import VolcArkClient, VolcArkError, VolcArkUnavailableError
 from nexus.llm_optimizer import (
     JSON_ONLY_HINT,
     estimate_tokens,
@@ -275,6 +276,7 @@ except Exception:  # source-tree import without installed metadata
     __version__ = "unknown"
 
 __all__ = [
+    "VolcArkClient", "VolcArkError", "VolcArkUnavailableError",
     "register_voice_endpoints",
     "NexusConfig", "get_settings", "load_project_config", "deep_merge", "yaml_get",
     "yaml_secret", "yaml_int", "yaml_float", "yaml_bool", "NexusError",
