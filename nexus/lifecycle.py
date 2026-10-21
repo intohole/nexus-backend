@@ -212,7 +212,9 @@ def enforce_lifecycle(
                     report.tables.append(tr)
                     continue
                 cols = _columns(conn, policy.table)
-                needed = {policy.time_column, policy.id_column}
+                needed = {policy.time_column}
+                if policy.keep_n > 0:
+                    needed.add(policy.id_column)
                 if policy.group_column:
                     needed.add(policy.group_column)
                 missing = needed - cols

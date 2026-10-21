@@ -197,3 +197,23 @@ def test_extra_where_scopes_deletion(tmp_path: Path) -> None:
     conn.close()
     assert report.total_deleted == 7
     assert survivors == {"e2e": 3, "prod": 10}
+
+
+def test_composite_pk_table_without_id_column(tmp_path: Path) -> None:
+    path = tmp_path / "link.db"
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE link (a_id INTEGER, b_id INTEGER, created_at TEXT, PRIMARY KEY (a_id, b_id))"
+    )
+    now = datetime.now()
+    for i in range(12):
+        conn.execute(
+            "INSERT INTO link VALUES (?,?,?)",
+            (i, i, (now - timedelta(days=i)).strftime("%Y-%m-%d %H:%M:%S")),
+        )
+    conn.commit()
+    conn.close()
+    policy = LifecyclePolicy(table="link", ttl_days=5, min_age_hours=0)
+    report = enforce_lifecycle(path, [policy], dry_run=False, archive_root=tmp_path)
+    assert report.tables[0].skipped_reason == ""
+    assert 6 <= report.total_deleted <= 7
