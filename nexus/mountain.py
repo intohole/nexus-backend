@@ -1,6 +1,7 @@
-"""Mountain 望岳服务客户端: 统一封装智能内容监测的搜索/爬取/RSS能力."""
+"""Mountain 望岳服务客户端: 统一封装智能内容监测的搜索/爬取/RSS/深度研究能力."""
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any, Dict, List, Optional
 
@@ -239,6 +240,61 @@ class MountainClient:
     async def hot_news(self, page: int = 1, per_page: int = 20) -> Optional[Dict[str, Any]]:
         """获取热点新闻列表."""
         return await self._get("/api/topic/hot_news", {"page": page, "per_page": per_page})
+
+    # -- 深度研究(异步任务+轮询) --
+
+    async def research_task(
+        self,
+        question: str,
+        max_iterations: int = 3,
+        report_style: str = "comprehensive",
+        extra_urls: Optional[List[str]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """提交深度研究任务，返回 {task_id, status}."""
+        payload = {
+            "question": question,
+            "max_iterations": max_iterations,
+            "report_style": report_style,
+            "extra_urls": extra_urls or [],
+        }
+        return await self._post("/api/deepresearch/tasks", payload)
+
+    async def research_task_result(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """查询深度研究任务，返回 task dict（status/report/material/error）."""
+        data = await self._get(f"/api/deepresearch/tasks/{task_id}")
+        if not isinstance(data, dict):
+            return None
+        task = data.get("task")
+        return task if isinstance(task, dict) else None
+
+    async def research(
+        self,
+        question: str,
+        max_iterations: int = 3,
+        report_style: str = "comprehensive",
+        extra_urls: Optional[List[str]] = None,
+        poll_interval: float = 2.0,
+        timeout: float = 600.0,
+    ) -> Dict[str, Any]:
+        """提交深度研究并轮询至终态；返回 task dict（附 success 布尔）."""
+        submitted = await self.research_task(question, max_iterations, report_style, extra_urls)
+        task_id = str((submitted or {}).get("task_id") or "")
+        if not task_id:
+            return {"success": False, "error": "research task submit failed"}
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while True:
+            await asyncio.sleep(poll_interval)
+            task = await self.research_task_result(task_id)
+            if not task:
+                return {"success": False, "error": "research task result unavailable", "task_id": task_id}
+            status = str(task.get("status") or "")
+            if status == "succeeded":
+                return {**task, "success": True}
+            if status == "failed":
+                return {**task, "success": False, "error": str(task.get("error") or "research failed")}
+            if loop.time() > deadline:
+                return {**task, "success": False, "error": "research timeout", "task_id": task_id}
 
     async def close(self) -> None:
         """关闭底层HTTP客户端."""
