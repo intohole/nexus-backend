@@ -25,7 +25,7 @@ html[data-theme="dark"] #__nexus_splash__{background:#0f172a;color:#e2e8f0}
   <div class="nexus-hint">正在加载应用，请稍候…</div>
 </div>
 <script>
-(function(){var el=document.getElementById("__nexus_splash__");if(!el)return;var MIN=1100,start=Date.now(),fired=false,ready=false;function removeIt(){if(fired)return;fired=true;el.classList.add("is-done");setTimeout(function(){var p=el.parentNode;if(p)p.removeChild(el)},400)}function maybe(){if(!ready||fired)return;var wait=Math.max(0,MIN-(Date.now()-start));setTimeout(removeIt,wait)}window.NexusSplash={done:function(){ready=true;maybe()}};function watch(a){if(!a)return;if(a.childNodes.length){ready=true;maybe();return}if(window.MutationObserver){var mo=new MutationObserver(function(){if(a.childNodes.length){ready=true;mo.disconnect();maybe()}});mo.observe(a,{childList:true,subtree:true})}}watch(document.getElementById("app"));if(!document.getElementById("app")){var iv=setInterval(function(){var a=document.getElementById("app");if(a){clearInterval(iv);watch(a)}},150)}window.addEventListener("load",function(){ready=true;maybe()});setTimeout(removeIt,15000);window.NexusSplashReady=true})();
+(function(){var el=document.getElementById("__nexus_splash__");if(!el)return;var seen=false;try{seen=sessionStorage.getItem("__nexus_splash_seen__")==="1"}catch(e){}try{sessionStorage.setItem("__nexus_splash_seen__","1")}catch(e){}var MIN=seen?280:1100,start=Date.now(),fired=false,ready=false;function removeIt(){if(fired)return;fired=true;el.classList.add("is-done");setTimeout(function(){var p=el.parentNode;if(p)p.removeChild(el)},400)}function maybe(){if(!ready||fired)return;var wait=Math.max(0,MIN-(Date.now()-start));setTimeout(removeIt,wait)}window.NexusSplash={done:function(){ready=true;maybe()},minShow:MIN};function watch(a){if(!a)return;if(a.childNodes.length){ready=true;maybe();return}if(window.MutationObserver){var mo=new MutationObserver(function(){if(a.childNodes.length){ready=true;mo.disconnect();maybe()}});mo.observe(a,{childList:true,subtree:true})}}watch(document.getElementById("app"));if(!document.getElementById("app")){var iv=setInterval(function(){var a=document.getElementById("app");if(a){clearInterval(iv);watch(a)}},150)}window.addEventListener("load",function(){ready=true;maybe()});setTimeout(removeIt,15000);window.NexusSplashReady=true})();
 </script>
 """
 
@@ -53,6 +53,8 @@ class LoadingSplashMiddleware(BaseHTTPMiddleware):
 
     内联注入零网络请求，Vue 挂载到 #app 或 window.load 后自动淡出移除。
     全部页面复用，通过 setup_middleware(enable_loading_splash=True) 统一开启。
+    最短展示按会话自适应：每 tab 首载 1100ms 品牌档，同会话二次起 280ms 快档
+    （登录跳转/回访导航不再被品牌动画阻断），ready 前的白屏覆盖与 15s 兜底不变。
     """
 
     def __init__(
