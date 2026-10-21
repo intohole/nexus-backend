@@ -121,7 +121,8 @@ class MountainClient:
             "source": source,
             "timeout": timeout,
         }
-        return await self._post("/api/v1/crawler/execute", payload)
+        # moutain 前缀已由 /api/v1/crawler 更名 /api/v1/gather（2026-10 生产 404 实锤）
+        return await self._post("/api/v1/gather/execute", payload)
 
     async def submit_websearch_task(
         self,
@@ -143,7 +144,7 @@ class MountainClient:
             "callback_headers": callback_headers,
             "source": source,
         }
-        return await self._post("/api/v1/crawler/websearch", payload)
+        return await self._post("/api/v1/gather/websearch", payload)
 
     async def submit_rss_task(
         self,
@@ -161,7 +162,7 @@ class MountainClient:
             "source": source,
             "timeout": timeout,
         }
-        return await self._post("/api/v1/crawler/fetch-rss", payload)
+        return await self._post("/api/v1/gather/fetch-rss", payload)
 
     async def submit_batch_websearch(
         self,
