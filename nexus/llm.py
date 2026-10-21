@@ -274,6 +274,7 @@ class LLMService:
         max_retries: int = 3,
         raise_on_error: bool = False,
         feature: str = "",
+        task_type: Optional[str] = None,
     ) -> Optional[object]:
         await configure_ironman()
         from ironman import extract as _extract
@@ -289,7 +290,7 @@ class LLMService:
                 return await _extract(
                     prompt=prompt,
                     schema=schema,
-                    llm=LLMOptions(),
+                    llm=LLMOptions(extra={"task_type": task_type} if task_type else None),
                 )
 
         try:
