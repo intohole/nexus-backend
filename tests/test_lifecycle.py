@@ -264,3 +264,29 @@ def test_cascade_requires_prior_policy(tmp_path: Path) -> None:
         dry_run=False, archive_root=tmp_path,
     )
     assert "not seen" in report.tables[0].skipped_reason
+
+
+def test_keep_n_independent_of_ttl(tmp_path: Path) -> None:
+    path = tmp_path / "snap2.db"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE snaps (id INTEGER PRIMARY KEY, uid TEXT, created_at TEXT)")
+    now = datetime.now()
+    seq = 0
+    for uid in ("u1", "u2"):
+        for i in range(8):
+            seq += 1
+            conn.execute(
+                "INSERT INTO snaps VALUES (?,?,?)",
+                (seq, uid, (now - timedelta(days=i)).strftime("%Y-%m-%d %H:%M:%S")),
+            )
+    conn.commit()
+    conn.close()
+    policy = LifecyclePolicy(
+        table="snaps", ttl_days=180, keep_n=3, group_column="uid", min_age_hours=0,
+    )
+    report = enforce_lifecycle(path, [policy], dry_run=False, archive_root=tmp_path)
+    assert report.total_deleted == 10, "keep-N 收敛不以行龄为前提（未到 180d 也删组内超量行）"
+    conn = sqlite3.connect(path)
+    per = dict(conn.execute("SELECT uid, COUNT(*) FROM snaps GROUP BY uid"))
+    conn.close()
+    assert per == {"u1": 3, "u2": 3}

@@ -118,24 +118,26 @@ def _quote(ident: str) -> str:
     return '"' + ident.replace('"', '""') + '"'
 
 
+def _time_lt_hours(col: str, hours: int) -> str:
+    return (
+        f"(datetime({col}) < datetime('now','localtime','-{hours} hours') "
+        f"OR (typeof({col}) IN ('integer','real') AND {col} < "
+        f"strftime('%s','now','localtime') - {hours} * 3600))"
+    )
+
+
 def eligible_where(policy: LifecyclePolicy) -> str:
-    """待删行 WHERE 子句：TTL 到期 ∩ min_age 护栏（保同日）∪ keep-N 圈外。"""
+    """待删行 WHERE 子句：删除集 =（TTL 到期 ∪ keep-N 圈外）∩ min_age 护栏 ∩ extra_where。
+
+    keep-N 与 TTL 是独立删除语义（usercenter trim_login_logs 判例：分组收敛不以
+    行龄为前提——组内最新 N 条之外即删）；min_age 护栏与 extra_where 对删除集
+    全量生效（保同日/圈定）。全部子句缺失时返回恒假（0）——policy 校验已保证
+    至少一个删除维度存在，此为防御。
+    """
     col = _quote(policy.time_column)
-    clauses: list[str] = []
+    removal: list[str] = []
     if policy.ttl_days > 0:
-        ttl_hours = policy.ttl_days * 24
-        clauses.append(
-            f"(datetime({col}) < datetime('now','localtime','-{ttl_hours} hours') "
-            f"OR (typeof({col}) IN ('integer','real') AND {col} < "
-            f"strftime('%s','now','localtime') - {ttl_hours} * 3600))"
-        )
-    if policy.min_age_hours > 0:
-        ma = policy.min_age_hours
-        clauses.append(
-            f"({col} < datetime('now','localtime','-{ma} hours') "
-            f"OR (typeof({col}) IN ('integer','real') AND {col} < "
-            f"strftime('%s','now','localtime') - {ma} * 3600))"
-        )
+        removal.append(_time_lt_hours(col, policy.ttl_days * 24))
     if policy.keep_n > 0:
         idc = _quote(policy.id_column)
         if policy.group_column:
@@ -150,10 +152,15 @@ def eligible_where(policy: LifecyclePolicy) -> str:
                 f"SELECT {idc} FROM {_quote(policy.table)} "
                 f"ORDER BY {col} DESC, {idc} DESC LIMIT {policy.keep_n}"
             )
-        clauses.append(f"{idc} NOT IN ({rank_src})")
+        removal.append(f"{idc} NOT IN ({rank_src})")
+    if not removal:
+        return "0"
+    guards: list[str] = ["(" + " OR ".join(removal) + ")"]
+    if policy.min_age_hours > 0:
+        guards.append(_time_lt_hours(col, policy.min_age_hours))
     if policy.extra_where:
-        clauses.append(f"({policy.extra_where})")
-    return " AND ".join(clauses) if clauses else "0"
+        guards.append(f"({policy.extra_where})")
+    return " AND ".join(guards)
 
 
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
