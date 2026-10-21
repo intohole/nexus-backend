@@ -217,3 +217,50 @@ def test_composite_pk_table_without_id_column(tmp_path: Path) -> None:
     report = enforce_lifecycle(path, [policy], dry_run=False, archive_root=tmp_path)
     assert report.tables[0].skipped_reason == ""
     assert 6 <= report.total_deleted <= 7
+
+
+def test_cascade_follows_parent_deletion_set(tmp_path: Path) -> None:
+    path = tmp_path / "cascade.db"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE news (id INTEGER PRIMARY KEY, publish_time TEXT)")
+    conn.execute("CREATE TABLE news_link (news_id INTEGER, entity_id INTEGER, created_at TEXT, PRIMARY KEY (news_id, entity_id))")
+    now = datetime.now()
+    for i in range(12):
+        pub = (now - timedelta(days=i * 15)).strftime("%Y-%m-%d %H:%M:%S")
+        linked = (now - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        conn.execute("INSERT INTO news VALUES (?,?)", (i + 1, pub))
+        conn.execute("INSERT INTO news_link VALUES (?,?,?)", (i + 1, i * 10, linked))
+    conn.commit()
+    conn.close()
+
+    policies = [
+        LifecyclePolicy(table="news", ttl_days=90, time_column="publish_time", min_age_hours=0),
+        LifecyclePolicy(table="news_link", cascade_from="news", cascade_fk="news_id", min_age_hours=0),
+    ]
+    report = enforce_lifecycle(path, policies, dry_run=True, archive_root=tmp_path)
+    assert all(t.skipped_reason == "" for t in report.tables)
+    rep = enforce_lifecycle(path, policies, dry_run=False, archive_root=tmp_path)
+    by_table = {t.table: t for t in rep.tables}
+    assert by_table["news"].deleted > 0
+    assert by_table["news_link"].deleted == by_table["news"].deleted, "关联行必须逐主行跟随"
+    conn = sqlite3.connect(path)
+    dangling = conn.execute(
+        "SELECT COUNT(*) FROM news_link WHERE news_id NOT IN (SELECT id FROM news)"
+    ).fetchone()[0]
+    conn.close()
+    assert dangling == 0, "级联删除后不得留悬挂外键"
+
+
+def test_cascade_requires_prior_policy(tmp_path: Path) -> None:
+    path = tmp_path / "cascade2.db"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE child (pid INTEGER, created_at TEXT)")
+    conn.execute("INSERT INTO child VALUES (1, datetime('now'))")
+    conn.commit()
+    conn.close()
+    report = enforce_lifecycle(
+        path,
+        [LifecyclePolicy(table="child", cascade_from="parent", cascade_fk="pid")],
+        dry_run=False, archive_root=tmp_path,
+    )
+    assert "not seen" in report.tables[0].skipped_reason

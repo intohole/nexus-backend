@@ -56,11 +56,21 @@ class LifecyclePolicy:
     id_column: str = "id"
     extra_where: str = ""
     """附加圈定条件（SQL 片段），如 "archived_at IS NOT NULL" 或 "channel='e2e'"。"""
+    cascade_from: str = ""
+    cascade_fk: str = ""
+    """级联跟随：本表删除集=前序表（cascade_from）本次删除行的 cascade_fk 外键指向集。
+
+    关联表与主表时间轨常不同步（关联 created_at 回填统一写、主表 publish_time 是
+    业务时间），按各自 TTL 删会留悬挂外键。声明级联后本表不再需要 ttl/keep_n，
+    删除集完全跟随前序表（前序表必须出现在本 policy 之前且带 id_column）。
+    """
 
     def __post_init__(self) -> None:
         if self.mode not in (MODE_PURGE, MODE_ARCHIVE):
             raise ValueError(f"lifecycle policy {self.table}: mode 必须 purge/archive，得到 {self.mode}")
-        if self.ttl_days <= 0 and self.keep_n <= 0:
+        if self.cascade_from and not self.cascade_fk:
+            raise ValueError(f"lifecycle policy {self.table}: cascade_from 需同时声明 cascade_fk")
+        if self.ttl_days <= 0 and self.keep_n <= 0 and not self.cascade_from:
             raise ValueError(f"lifecycle policy {self.table}: ttl_days 与 keep_n 至少一个 > 0")
         if self.keep_n > 0 and self.group_column is not None:
             # 分组 keep-N 依赖窗口函数（SQLite >= 3.25）
@@ -158,13 +168,13 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 
 def _export_rows_jsonl(conn: sqlite3.Connection, policy: LifecyclePolicy, where: str,
-                       backup_dir: Path, stamp: str) -> Path:
+                       backup_dir: Path, stamp: str, params: tuple[Any, ...] = ()) -> Path:
     """删除前护栏：待删行全量导出 JSONL.gz（purge 与 archive 模式同走此备份）。"""
     backup_dir.mkdir(parents=True, exist_ok=True)
     out = backup_dir / f"{policy.table}-{stamp}.jsonl.gz"
     cols = [r[1] for r in conn.execute(f"PRAGMA table_info({_quote(policy.table)})")]
     sel = ", ".join(_quote(c) for c in cols)
-    cursor = conn.execute(f"SELECT {sel} FROM {_quote(policy.table)} WHERE {where}")
+    cursor = conn.execute(f"SELECT {sel} FROM {_quote(policy.table)} WHERE {where}", params)
     count = 0
     with gzip.open(out, "wt", encoding="utf-8") as fh:
         for row in cursor:
@@ -203,6 +213,7 @@ def enforce_lifecycle(
         return report
     conn = sqlite3.connect(path, timeout=10)
     conn.row_factory = sqlite3.Row
+    cascaded_ids: dict[str, list[Any]] = {}
     try:
         for policy in policies:
             tr = TableReport(table=policy.table, mode=policy.mode, dry_run=dry_run)
@@ -212,7 +223,7 @@ def enforce_lifecycle(
                     report.tables.append(tr)
                     continue
                 cols = _columns(conn, policy.table)
-                needed = {policy.time_column}
+                needed = set() if policy.cascade_from else {policy.time_column}
                 if policy.keep_n > 0:
                     needed.add(policy.id_column)
                 if policy.group_column:
@@ -225,27 +236,47 @@ def enforce_lifecycle(
                 tr.scanned = int(conn.execute(
                     f"SELECT COUNT(*) FROM {_quote(policy.table)}"
                 ).fetchone()[0])
-                where = eligible_where(policy)
+                if policy.cascade_from:
+                    ids = cascaded_ids.get(policy.cascade_from)
+                    if ids is None:
+                        tr.skipped_reason = f"cascade source {policy.cascade_from} not seen"
+                        report.tables.append(tr)
+                        continue
+                    if not ids:
+                        report.tables.append(tr)
+                        continue
+                    marks = ",".join("?" for _ in ids)
+                    where = f"{_quote(policy.cascade_fk)} IN ({marks})"
+                    params: tuple[Any, ...] = tuple(ids)
+                else:
+                    where = eligible_where(policy)
+                    params = ()
                 tr.eligible = int(conn.execute(
-                    f"SELECT COUNT(*) FROM {_quote(policy.table)} WHERE {where}"
+                    f"SELECT COUNT(*) FROM {_quote(policy.table)} WHERE {where}", params
                 ).fetchone()[0])
-                kept = conn.execute(
-                    f"SELECT MIN({_quote(policy.time_column)}) FROM {_quote(policy.table)} "
-                    f"WHERE NOT ({where})"
-                ).fetchone()[0]
-                tr.oldest_kept = str(kept)[:19] if kept is not None else None
+                if not policy.cascade_from:
+                    kept = conn.execute(
+                        f"SELECT MIN({_quote(policy.time_column)}) FROM {_quote(policy.table)} "
+                        f"WHERE NOT ({where})"
+                    ).fetchone()[0]
+                    tr.oldest_kept = str(kept)[:19] if kept is not None else None
+                    cascaded_ids[policy.table] = [
+                        r[0] for r in conn.execute(
+                            f"SELECT {_quote(policy.id_column)} FROM {_quote(policy.table)} WHERE {where}", params
+                        )
+                    ]
                 if tr.eligible == 0 or dry_run:
                     report.tables.append(tr)
                     continue
                 stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
                 backup_dir = Path(archive_root or path.parent) / policy.archive_dir
-                backup = _export_rows_jsonl(conn, policy, where, backup_dir, stamp)
+                backup = _export_rows_jsonl(conn, policy, where, backup_dir, stamp, params)
                 tr.backup_path = str(backup)
                 if policy.mode == MODE_ARCHIVE:
                     logger.info("[lifecycle] archived %s rows of %s -> %s",
                                 tr.eligible, policy.table, backup)
                 cur = conn.execute(
-                    f"DELETE FROM {_quote(policy.table)} WHERE {where}"
+                    f"DELETE FROM {_quote(policy.table)} WHERE {where}", params
                 )
                 conn.commit()
                 tr.deleted = int(cur.rowcount or 0)
