@@ -272,6 +272,7 @@ def build_probe_runner(
     scheduler: Optional[Union[SchedulerLike, ActiveSchedulerLike]] = None,
     scheduler_check: Optional[ProbeCheck] = None,
     watermark_check: Optional[ProbeCheck] = None,
+    value_check: Optional[ProbeCheck] = None,
 ) -> Callable[[bool], Awaitable[dict[str, object]]]:
     _prefix: str = f"{app_name}:"
 
@@ -306,12 +307,14 @@ def build_probe_runner(
         )
         sched_fn: Optional[ProbeCheck] = scheduler_check or (_sched_via_obj if scheduler else None)
         wm_fn: Optional[ProbeCheck] = watermark_check
+        val_fn: Optional[ProbeCheck] = value_check
 
         for name, fn in (
             ("db", db_fn),
             ("notify", notify_fn),
             ("scheduler", sched_fn),
             ("watermark", wm_fn),
+            ("value", val_fn),
         ):
             if fn is None:
                 checks[name] = _skip(f"no_{name}_consumer")
@@ -356,6 +359,7 @@ def register_probe_endpoints(
     scheduler: Optional[Union[SchedulerLike, ActiveSchedulerLike]] = None,
     scheduler_check: Optional[ProbeCheck] = None,
     watermark_check: Optional[ProbeCheck] = None,
+    value_check: Optional[ProbeCheck] = None,
 ) -> None:
     run_probe: Callable[[bool], Awaitable[dict[str, object]]] = build_probe_runner(
         app_name=app_name,
@@ -367,6 +371,7 @@ def register_probe_endpoints(
         scheduler=scheduler,
         scheduler_check=scheduler_check,
         watermark_check=watermark_check,
+        value_check=value_check,
     )
     router: APIRouter = APIRouter(
         prefix="/api/_internal", tags=["internal-probe"], dependencies=[Depends(require_service_token)]

@@ -347,3 +347,21 @@ def test_probe_v2_scheduler_per_job_failing() -> None:
     assert sched["status"] == "fail"
     assert sched["evidence"]["per_job"]["failing"] == ["job-dead"]
     assert "failing: job-dead" in sched["detail"]
+
+
+def test_probe_value_check_skipped_by_default() -> None:
+    data = _get(_app(llm=False, notify=False))
+    assert data["checks"]["value"]["status"] == "skipped"
+    assert data["checks"]["value"]["evidence"]["reason"] == "no_value_consumer"
+
+
+def test_probe_value_check_custom_reports() -> None:
+    async def _value() -> dict:
+        return {
+            "status": "ok",
+            "evidence": {"actions_per_active_user_day": 3.2, "window_days": 7},
+        }
+
+    data = _get(_app(llm=False, notify=False, value_check=_value))
+    assert data["checks"]["value"]["status"] == "ok"
+    assert data["checks"]["value"]["evidence"]["actions_per_active_user_day"] == 3.2
