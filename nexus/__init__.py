@@ -67,6 +67,12 @@ from nexus.business_probe import (
     build_probe_runner,
     probe_scheduler,
 )
+from nexus.probe_extras import (
+    record_send_outcome,
+    last_send_outcome,
+    make_watermark_check,
+    jobs_health,
+)
 from nexus.middleware import (
     setup_cors,
     RequestIdMiddleware,
@@ -293,6 +299,7 @@ __all__ = [
     "paginate_from_skip", "spawn_background", "pending_background_tasks", "drain_background_tasks",
     "register_service_auth", "register_health_endpoints",
     "register_probe_endpoints", "build_probe_runner", "probe_scheduler",
+    "record_send_outcome", "last_send_outcome", "make_watermark_check", "jobs_health",
     "mount_spa_static", "setup_cors", "RequestIdMiddleware",
     "LoggingMiddleware", "NotFoundCheckMiddleware", "StaticAssetsCacheMiddleware",
     "LoadingSplashMiddleware", "ErrorHandlerMiddleware", "ServiceAuthMiddleware",

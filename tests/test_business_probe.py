@@ -12,7 +12,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import nexus.business_probe as bp
+import nexus.probe_extras as _pe
 from nexus import build_probe_runner, register_probe_endpoints
+from nexus.probe_extras import record_send_outcome
 
 
 class _FakeScheduler:
@@ -65,13 +67,15 @@ def test_probe_requires_service_token() -> None:
 
 def test_probe_all_skipped_overall_ok() -> None:
     data = _get(_app(llm=False, notify=False))
-    assert data["schema"] == 1
+    assert data["schema"] == 2
     assert data["app"] == "demo"
     assert data["overall"] == "ok"
     assert data["cached"] is False
     for name in ("llm", "db", "notify", "scheduler"):
         assert data["checks"][name]["status"] == "skipped"
         assert data["checks"][name]["evidence"]["reason"] == f"no_{name}_consumer"
+    assert data["checks"]["watermark"]["status"] == "skipped"
+    assert data["checks"]["watermark"]["evidence"]["reason"] == "no_watermark_consumer"
 
 
 def test_probe_llm_custom_check() -> None:
@@ -240,3 +244,106 @@ def test_probe_llm_lazy_init_error_is_fail_not_5xx() -> None:
     assert llm["status"] == "fail"
     assert llm["evidence"]["reason"] == "lazy_init_error"
     assert "lion down" in llm["detail"]
+
+
+def test_probe_v2_watermark_custom_check() -> None:
+    async def wm() -> dict:
+        return {"status": "degraded", "latency_ms": 3, "detail": "cleanup overdue: t1", "evidence": {}}
+
+    data = _get(_app(llm=False, notify=False, watermark_check=wm))
+    assert data["checks"]["watermark"]["status"] == "degraded"
+    assert data["overall"] == "degraded"
+
+
+def test_probe_v2_notify_custom_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def self_check() -> dict:
+        return {"status": "ok", "latency_ms": 1, "detail": "self ok", "evidence": {"self": True}}
+
+    data = _get(_app(llm=False, notify=self_check))
+    assert data["checks"]["notify"]["status"] == "ok"
+    assert data["checks"]["notify"]["evidence"]["self"] is True
+
+
+def test_probe_v2_send_ledger_ok_not_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Resp:
+        status_code = 200
+
+    class _Client:
+        base_url = "http://notify.test"
+
+        def __init__(self, **kwargs: object) -> None: ...
+
+        async def __aenter__(self) -> "_Client":
+            return self
+
+        async def __aexit__(self, *args: object) -> None: ...
+
+        async def get(self, url: str) -> "_Resp":
+            return _Resp()
+
+    async def _get_resp() -> _Resp:
+        return _Resp()
+
+    monkeypatch.setattr("nexus.business_probe.httpx.AsyncClient", _Client)
+    monkeypatch.setattr("nexus.business_probe.get_notify_client", lambda: _Client())
+    os.environ["SERVICE_TOKEN"] = "t"
+    try:
+        _pe._send_ledger.pop("demo", None)
+        record_send_outcome("demo", ok=True, notify_id=1627, detail="sent")
+        data = _get(_app(llm=False, notify=True))
+        notify = data["checks"]["notify"]
+        assert notify["status"] == "ok"
+        assert notify["evidence"]["last_send"]["notify_id"] == "1627"
+        assert notify["evidence"]["last_send"]["ok"] is True
+    finally:
+        os.environ.pop("SERVICE_TOKEN", None)
+        _pe._send_ledger.pop("demo", None)
+
+
+def test_probe_v2_send_ledger_fail_flips_notify(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Resp:
+        status_code = 200
+
+    class _Client:
+        base_url = "http://notify.test"
+
+        def __init__(self, **kwargs: object) -> None: ...
+
+        async def __aenter__(self) -> "_Client":
+            return self
+
+        async def __aexit__(self, *args: object) -> None: ...
+
+        async def get(self, url: str) -> "_Resp":
+            return _Resp()
+
+    monkeypatch.setattr("nexus.business_probe.httpx.AsyncClient", _Client)
+    monkeypatch.setattr("nexus.business_probe.get_notify_client", lambda: _Client())
+    os.environ["SERVICE_TOKEN"] = "t"
+    try:
+        _pe._send_ledger.pop("demo", None)
+        record_send_outcome("demo", ok=False, detail="401 unauthorized")
+        data = _get(_app(llm=False, notify=True))
+        notify = data["checks"]["notify"]
+        assert notify["status"] == "fail"
+        assert "last real send failed" in notify["detail"]
+        assert data["overall"] == "fail"
+    finally:
+        os.environ.pop("SERVICE_TOKEN", None)
+        _pe._send_ledger.pop("demo", None)
+
+
+def test_probe_v2_scheduler_per_job_failing() -> None:
+    recent: str = (datetime.now() - timedelta(seconds=60)).isoformat(timespec="seconds")
+    failing = _FakeScheduler(
+        {
+            "job-ok": {"next_run_at": "2026-10-12T07:00:00", "failures": 0, "last_success_at": recent},
+            "job-dead": {"next_run_at": "2026-10-12T07:00:00", "failures": 7},
+        },
+        last_tick=recent,
+    )
+    data = _get(_app(llm=False, notify=False, scheduler=failing))
+    sched = data["checks"]["scheduler"]
+    assert sched["status"] == "fail"
+    assert sched["evidence"]["per_job"]["failing"] == ["job-dead"]
+    assert "failing: job-dead" in sched["detail"]

@@ -133,6 +133,7 @@ class CronScheduler:
                     "next_run_at": str(job.get("next_run_at")),
                     "failures": int(job.get("failures", 0)),
                     "last_error": job.get("last_error"),
+                    "last_success_at": job.get("last_success_at"),
                 }
                 for jid, job in self._cron_jobs.items()
             },
@@ -233,6 +234,7 @@ class CronScheduler:
             self._running_jobs.discard(job_id)
         job["failures"] = 0
         job["last_error"] = None
+        job["last_success_at"] = datetime.now(self._tz).replace(tzinfo=None).isoformat(timespec="seconds")
         job["next_run_at"] = next_run_at(str(job["expr"]), base=datetime.now(self._tz).replace(tzinfo=None), tz=self._tz)
         logger.info("crontab job %s fired, next run at %s", job_id, job["next_run_at"])
 

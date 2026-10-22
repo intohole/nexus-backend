@@ -1,8 +1,10 @@
-"""业务级深度探针（S1 契约 v1 单源）：GET /api/_internal/probe 四问 llm/db/notify/scheduler。
+"""业务级深度探针（S1 契约 v1→v2 单源）：GET /api/_internal/probe 五问 llm/db/notify/scheduler/watermark。
 
-/health 只证明进程活着，本探针证明业务链路活着。四问标准实现收于此处，
+/health 只证明进程活着，本探针证明业务链路活着。问的标准实现收于此处，
 仓侧仅注入差异化适配（session factory / 调度器对象 / 异构问回调），
 无对应消费面的问以显式声明落 skipped（evidence.reason 必填，禁谎报）。
+v2（S31）：schema=2——第五问 watermark（probe_extras.make_watermark_check）、
+notify 问消费投递记账（record_send_outcome）、scheduler 问 per-job 分级。
 """
 from __future__ import annotations
 
@@ -16,8 +18,9 @@ import httpx
 from fastapi import APIRouter, Depends, FastAPI
 from nexus.internal_endpoints import require_service_token
 from nexus.notify import get_notify_client
+from nexus.probe_extras import jobs_health, merge_last_send_evidence
 
-PROBE_SCHEMA: int = 1
+PROBE_SCHEMA: int = 2
 CACHE_TTL_S: int = 300
 LLM_TTL_S: int = 600
 SCHED_TICK_MAX_AGE_S: int = 900
@@ -118,7 +121,7 @@ async def _standard_llm_check() -> dict[str, object]:
         return _fail(started, exc)
 
 
-async def _standard_notify_check() -> dict[str, object]:
+async def _standard_notify_check(app_name: str = "") -> dict[str, object]:
     started: float = time.monotonic()
     client = get_notify_client()
     auth_configured: bool = bool(os.environ.get("SERVICE_TOKEN", "")) or bool(
@@ -132,7 +135,7 @@ async def _standard_notify_check() -> dict[str, object]:
         detail: str = "center reachable" if reachable else f"center http {resp.status_code}"
         if reachable and not auth_configured:
             detail = "center reachable but service token not configured"
-        return {
+        result: dict[str, object] = {
             "status": status,
             "latency_ms": int((time.monotonic() - started) * 1000),
             "detail": detail,
@@ -143,9 +146,11 @@ async def _standard_notify_check() -> dict[str, object]:
             },
         }
     except Exception as exc:
-        result: dict[str, object] = _fail(started, exc)
+        result = _fail(started, exc)
         result["evidence"] = {"center_reachable": False, "auth_configured": auth_configured}
-        return result
+    if app_name:
+        return merge_last_send_evidence(app_name, result)
+    return result
 
 
 def _active_scheduler_check(scheduler: ActiveSchedulerLike) -> dict[str, object]:
@@ -201,6 +206,10 @@ def _standard_scheduler_check(scheduler: SchedulerLike) -> dict[str, object]:
         ok: bool = alive and not never_scheduled and (
             tick_age_s is not None and tick_age_s <= SCHED_TICK_MAX_AGE_S
         )
+        per_job: dict[str, object] = jobs_health(jobs)
+        failing_jobs: list[str] = list(per_job.get("failing") or [])
+        if failing_jobs:
+            ok = False
         detail: str = (
             f"last tick {int(tick_age_s)}s ago, {len(jobs)} jobs"
             if tick_age_s is not None
@@ -208,6 +217,8 @@ def _standard_scheduler_check(scheduler: SchedulerLike) -> dict[str, object]:
         )
         if never_scheduled:
             detail += f", never-scheduled: {','.join(never_scheduled[:3])}"
+        if failing_jobs:
+            detail += f", failing: {','.join(failing_jobs[:3])}"
         return {
             "status": "ok" if ok else "fail",
             "latency_ms": int((time.monotonic() - started) * 1000),
@@ -217,6 +228,7 @@ def _standard_scheduler_check(scheduler: SchedulerLike) -> dict[str, object]:
                 "last_tick_at": last_tick,
                 "tick_age_s": tick_age_s,
                 "never_scheduled": never_scheduled,
+                "per_job": per_job,
             },
         }
     except Exception as exc:
@@ -256,9 +268,10 @@ def build_probe_runner(
     db_check: Optional[ProbeCheck] = None,
     llm: Union[bool, ProbeCheck] = True,
     llm_lazy_init: Optional[Callable[[], Awaitable[None]]] = None,
-    notify: bool = True,
+    notify: Union[bool, ProbeCheck] = True,
     scheduler: Optional[Union[SchedulerLike, ActiveSchedulerLike]] = None,
     scheduler_check: Optional[ProbeCheck] = None,
+    watermark_check: Optional[ProbeCheck] = None,
 ) -> Callable[[bool], Awaitable[dict[str, object]]]:
     _prefix: str = f"{app_name}:"
 
@@ -267,6 +280,9 @@ def build_probe_runner(
 
     def _sched_via_obj() -> dict[str, object]:
         return _dispatch_scheduler_check(scheduler)
+
+    async def _notify_standard() -> dict[str, object]:
+        return await _standard_notify_check(app_name)
 
     async def run_probe(fresh: bool = False) -> dict[str, object]:
         checks: dict[str, dict[str, object]] = {}
@@ -285,10 +301,18 @@ def build_probe_runner(
             checks["llm"] = _store(_prefix + "llm", await llm())
 
         db_fn: Optional[ProbeCheck] = db_check or (_db_via_factory if db_session_factory else None)
-        notify_fn: Optional[ProbeCheck] = _standard_notify_check if notify else None
+        notify_fn: Optional[ProbeCheck] = (
+            _notify_standard if notify is True else (notify if notify else None)
+        )
         sched_fn: Optional[ProbeCheck] = scheduler_check or (_sched_via_obj if scheduler else None)
+        wm_fn: Optional[ProbeCheck] = watermark_check
 
-        for name, fn in (("db", db_fn), ("notify", notify_fn), ("scheduler", sched_fn)):
+        for name, fn in (
+            ("db", db_fn),
+            ("notify", notify_fn),
+            ("scheduler", sched_fn),
+            ("watermark", wm_fn),
+        ):
             if fn is None:
                 checks[name] = _skip(f"no_{name}_consumer")
                 continue
@@ -328,9 +352,10 @@ def register_probe_endpoints(
     db_check: Optional[ProbeCheck] = None,
     llm: Union[bool, ProbeCheck] = True,
     llm_lazy_init: Optional[Callable[[], Awaitable[None]]] = None,
-    notify: bool = True,
+    notify: Union[bool, ProbeCheck] = True,
     scheduler: Optional[Union[SchedulerLike, ActiveSchedulerLike]] = None,
     scheduler_check: Optional[ProbeCheck] = None,
+    watermark_check: Optional[ProbeCheck] = None,
 ) -> None:
     run_probe: Callable[[bool], Awaitable[dict[str, object]]] = build_probe_runner(
         app_name=app_name,
@@ -341,6 +366,7 @@ def register_probe_endpoints(
         notify=notify,
         scheduler=scheduler,
         scheduler_check=scheduler_check,
+        watermark_check=watermark_check,
     )
     router: APIRouter = APIRouter(
         prefix="/api/_internal", tags=["internal-probe"], dependencies=[Depends(require_service_token)]
