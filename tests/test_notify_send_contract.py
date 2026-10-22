@@ -96,3 +96,92 @@ def test_try_send_exported_from_notify_package() -> None:
     from nexus.notify import try_send
 
     assert callable(try_send)
+
+
+def test_send_merges_why_you_into_data() -> None:
+    import asyncio
+
+    from nexus.notify import NotifyClient
+
+    client = NotifyClient.__new__(NotifyClient)
+    captured: dict[str, object] = {}
+
+    class _Http:
+        async def post(self, path: str, json: dict[str, object], headers: dict[str, str]) -> object:
+            captured.update(json)
+
+            class _Resp:
+                status_code = 200
+
+                def raise_for_status(self) -> None:
+                    return None
+
+                def json(self) -> dict[str, object]:
+                    return {"status": "sent", "id": 1}
+
+            return _Resp()
+
+    object.__setattr__(client, "_http", _Http())
+    object.__setattr__(client, "_service_token", "tok")
+    resp = asyncio.run(client.send(user_id="2", title="t", why_you="因为你上次的推演卡到了对账日", data={"k": 1}))
+    assert resp["status"] == "sent"
+    assert captured["data"]["why_you"] == "因为你上次的推演卡到了对账日"
+    assert captured["data"]["k"] == 1
+
+
+def test_send_existing_why_you_not_overwritten() -> None:
+    import asyncio
+
+    from nexus.notify import NotifyClient
+
+    client = NotifyClient.__new__(NotifyClient)
+    captured: dict[str, object] = {}
+
+    class _Http:
+        async def post(self, path: str, json: dict[str, object], headers: dict[str, str]) -> object:
+            captured.update(json)
+
+            class _Resp:
+                status_code = 200
+
+                def raise_for_status(self) -> None:
+                    return None
+
+                def json(self) -> dict[str, object]:
+                    return {"status": "sent", "id": 1}
+
+            return _Resp()
+
+    object.__setattr__(client, "_http", _Http())
+    object.__setattr__(client, "_service_token", "tok")
+    asyncio.run(client.send(user_id="2", title="t", data={"why_you": "既有"}, why_you="kwarg 版"))
+    assert captured["data"]["why_you"] == "既有"
+
+
+def test_send_without_why_you_keeps_data_empty() -> None:
+    import asyncio
+
+    from nexus.notify import NotifyClient
+
+    client = NotifyClient.__new__(NotifyClient)
+    captured: dict[str, object] = {}
+
+    class _Http:
+        async def post(self, path: str, json: dict[str, object], headers: dict[str, str]) -> object:
+            captured.update(json)
+
+            class _Resp:
+                status_code = 200
+
+                def raise_for_status(self) -> None:
+                    return None
+
+                def json(self) -> dict[str, object]:
+                    return {"status": "sent", "id": 1}
+
+            return _Resp()
+
+    object.__setattr__(client, "_http", _Http())
+    object.__setattr__(client, "_service_token", "tok")
+    asyncio.run(client.send(user_id="2", title="t"))
+    assert captured["data"] == {}

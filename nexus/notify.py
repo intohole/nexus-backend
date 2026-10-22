@@ -52,7 +52,11 @@ class NotifyClient:
         data: Optional[dict[str, object]] = None,
         link: str = "",
         channels: Optional[list[str]] = None,
+        why_you: str = "",
     ) -> dict[str, object]:
+        merged_data: dict[str, object] = dict(data or {})
+        if why_you and "why_you" not in merged_data:
+            merged_data["why_you"] = why_you[:200]
         payload: dict[str, object] = {
             "user_id": user_id,
             "app_id": app_id,
@@ -60,7 +64,7 @@ class NotifyClient:
             "priority": priority,
             "title": title,
             "content": content,
-            "data": data or {},
+            "data": merged_data,
             "link": link,
             "channels": channels or ["in_app"],
         }
