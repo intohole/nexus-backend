@@ -40,6 +40,13 @@ def register_uc_proxy(app: FastAPI, prefix: str = "/uc-api") -> None:
             for k, v in request.headers.items()
             if k.lower() not in ("host", "content-length", "accept-encoding")
         }
+        from nexus.trace import TRACE_HEADER, ensure_request_id
+
+        req_headers[TRACE_HEADER] = (
+            getattr(request.state, "request_id", "")
+            or request.headers.get(TRACE_HEADER, "")
+            or ensure_request_id()
+        )
         resp: httpx.Response = await proxy_client.request(
             method=request.method,
             url=f"{base}/{path}",

@@ -55,7 +55,11 @@ class _GatewayServiceBase:
             raise RuntimeError(f"{capability} gateway config missing (base_url/api_key)")
 
     async def _post(self, url: str, payload: dict[str, object], op: str) -> dict[str, object]:
-        headers = {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
+        from nexus.trace import outbound_headers
+
+        headers = outbound_headers(
+            {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
+        )
         async with httpx.AsyncClient(timeout=self.REQUEST_TIMEOUT) as client:
             resp = await client.post(url, json=payload, headers=headers)
         if resp.status_code != 200:

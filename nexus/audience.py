@@ -91,7 +91,9 @@ async def _fetch_statuses(ids: list[str]) -> dict[str, dict[str, object]] | None
         logger.warning("UC__BASE_URL unset — user status guard skipped")
         return None
     try:
-        headers = await client.header()
+        from nexus.trace import outbound_headers
+
+        headers = outbound_headers(await client.header())
         async with httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=3.0)) as http:
             resp = await http.get(
                 f"{base_url}/api/internal/users/status",

@@ -51,6 +51,11 @@ class HttpClient:
             await self.init()
         if self._client is None:
             raise RuntimeError("HttpClient initialization failed.")
+        from nexus.trace import ensure_request_id, TRACE_HEADER
+
+        per_request_headers: dict[str, str] = dict(cast("dict[str, str] | None", kwargs.get("headers")) or {})
+        per_request_headers.setdefault(TRACE_HEADER, ensure_request_id())
+        kwargs["headers"] = per_request_headers
         return await self._client.request(method, url, **kwargs)
 
     async def get(self, url: str, **kwargs: object) -> httpx.Response:

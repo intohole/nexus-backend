@@ -19,6 +19,7 @@ from nexus.errors import (
     ContentFilterError,
 )
 from nexus.context import get_user_id
+from nexus.trace import TRACE_HEADER, ensure_request_id, outbound_headers
 from nexus.database import DatabaseManager, get_db, db_manager, Base, init_db, close_db
 from nexus.sqlite_migrate import (
     ensure_column,
@@ -293,6 +294,7 @@ __all__ = [
     "ensure_column_sync", "ensure_columns_sync", "ensure_model_columns_sync",
     "success_response", "error_response", "paginate_response", "paginated_payload", "spa_index_response",
     "TimeUtils", "MemoryCache", "SyncTTLCache", "MoutainClient", "HttpClient", "cosine_similarity",
+    "TRACE_HEADER", "ensure_request_id", "outbound_headers",
     "extract_document_text", "DocExtractError",
     "validate_upload", "read_upload_with_limit", "split_ext",
     "batch_cosine_similarity", "clamp", "loads_or", "safe_float", "safe_bool", "jsonable", "resolve_cors_origins",

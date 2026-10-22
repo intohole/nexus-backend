@@ -67,7 +67,9 @@ class BaseAsyncClient:
         params: Optional[dict[str, object]] = None,
     ) -> dict[str, object]:
         client = await self._get_client()
-        headers: dict[str, str] = await self._headers()
+        from nexus.trace import outbound_headers
+
+        headers: dict[str, str] = outbound_headers(await self._headers())
         try:
             response = await client.request(
                 method, path, headers=headers, json=json_data, data=data, params=params,

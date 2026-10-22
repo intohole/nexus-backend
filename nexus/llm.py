@@ -108,6 +108,14 @@ class LLMService:
         返回 (llm_opts, 生效温度, 生效 max_tokens, output_mode)。
         """
         await configure_ironman()
+        try:
+            from ironman.tracing.request_scope import set_outbound_request_id
+
+            from nexus.trace import ensure_request_id
+
+            set_outbound_request_id(ensure_request_id())
+        except ImportError:
+            pass
         budget_max, budget_temp, budget_mode = resolve_effective_budget(
             task_type, max_tokens, temperature, output_mode
         )
@@ -367,6 +375,14 @@ class LLMService:
         feature: str = "",
     ) -> Optional[list[list[float]]]:
         await configure_ironman()
+        try:
+            from ironman.tracing.request_scope import set_outbound_request_id
+
+            from nexus.trace import ensure_request_id
+
+            set_outbound_request_id(ensure_request_id())
+        except ImportError:
+            pass
         from ironman import embed as _embed
 
         app_name: str = resolve_app_name()

@@ -43,6 +43,8 @@ class MountainClient:
         return self._client
 
     async def _auth_headers(self) -> Dict[str, str]:
+        from nexus.trace import outbound_headers
+
         headers: Dict[str, str] = {"Content-Type": "application/json"}
         token: str = await get_service_token()
         if token:
@@ -50,7 +52,7 @@ class MountainClient:
         source_app = get_init_app_name() or os.environ.get("LION__NAMESPACE", "") or ""
         if source_app:
             headers["X-App-Name"] = source_app
-        return headers
+        return outbound_headers(headers)
 
     async def _do(
         self,
