@@ -15,6 +15,7 @@ from nexus.lifecycle import LifecyclePolicy, lifecycle_status
 
 SEND_STALE_S: int = 7 * 24 * 3600
 JOB_FAILURES_FAIL: int = 5
+OVERDUE_FAIL_ROWS: int = 1000
 
 _send_ledger: dict[str, dict[str, object]] = {}
 
@@ -117,10 +118,14 @@ def make_watermark_check(
                     "detail": f"watch error: {','.join(errors[:3])}"[:160],
                     "evidence": {"tables": report},
                 }
-            status: str = "degraded" if overdue else "ok"
+            overdue_rows: int = sum(
+                int(v.get("overdue") or 0) for v in report.values() if isinstance(v, dict)
+            )
+            hard: bool = overdue_rows > OVERDUE_FAIL_ROWS
+            status: str = ("fail" if hard else "degraded") if overdue else "ok"
             detail: str = f"{len(report)} tables watched"
             if overdue:
-                detail += f", cleanup overdue: {','.join(overdue[:3])}"
+                detail += f", cleanup overdue: {','.join(overdue[:3])} ({overdue_rows} rows)"
             return {
                 "status": status,
                 "latency_ms": int((time.monotonic() - started) * 1000),
