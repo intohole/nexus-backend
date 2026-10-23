@@ -13,6 +13,7 @@ from nexus.scheduler import (
     IntervalTrigger,
     _HAS_APSCHEDULER,
     logger,
+    sanitize_job_kwargs,
 )
 
 class NexusThreadScheduler:
@@ -86,6 +87,7 @@ class NexusThreadScheduler:
             minutes=interval_minutes,
             hours=interval_hours,
         )
+        kwargs = sanitize_job_kwargs(kwargs, job_id)
         scheduler.add_job(
             func, trigger=trigger, id=job_id, replace_existing=True, **kwargs
         )
@@ -117,6 +119,7 @@ class NexusThreadScheduler:
                 trigger_kwargs["day_of_week"] = day_of_week
 
             trigger = CronTrigger(**trigger_kwargs)
+        kwargs = sanitize_job_kwargs(kwargs, job_id)
         scheduler.add_job(
             func, trigger=trigger, id=job_id, replace_existing=True, **kwargs
         )

@@ -31,6 +31,21 @@ CoroFunc = Callable[..., Awaitable[object]]
 SyncFunc = Callable[..., object]
 
 
+def sanitize_job_kwargs(kwargs: dict[str, object], job_id: str) -> dict[str, object]:
+    """next_run_time=None 在 APScheduler 语义是「暂停」而非「首轮延后」。
+
+    调用方传 None（多误以为等于延后首轮）时弹出该键回落默认调度：
+    interval=now+interval、cron=下一触发点；确需延后请传显式 datetime。
+    """
+    if kwargs.get("next_run_time") is None:
+        kwargs.pop("next_run_time", None)
+        logger.warning(
+            f"Job '{job_id}': next_run_time=None 语义为「暂停」已弹出回落默认调度；"
+            "确需延后首轮请传显式 datetime"
+        )
+    return kwargs
+
+
 class NexusScheduler:
     _instance: Optional["NexusScheduler"] = None
     _scheduler: Optional[object] = None
@@ -85,6 +100,7 @@ class NexusScheduler:
             minutes=interval_minutes,
             hours=interval_hours,
         )
+        kwargs = sanitize_job_kwargs(kwargs, job_id)
         scheduler.add_job(
             func, trigger=trigger, id=job_id, replace_existing=True, **kwargs
         )
@@ -123,6 +139,7 @@ class NexusScheduler:
             trigger = CronTrigger(**trigger_kwargs)
         # 墙钟对齐的意义在部署重启后依然成立：默认给 6h misfire 容忍 + 合并补跑，
         # 停机跨过触发点的 job 恢复后立即补跑一次，而不是默认 1s 容忍直接丢弃等下个周期。
+        kwargs = sanitize_job_kwargs(kwargs, job_id)
         kwargs.setdefault("misfire_grace_time", 6 * 3600)
         kwargs.setdefault("coalesce", True)
         scheduler.add_job(
