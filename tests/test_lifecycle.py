@@ -68,8 +68,7 @@ def test_min_age_guard_keeps_same_day(db: Path, tmp_path: Path) -> None:
     conn.commit()
     conn.close()
     policy = LifecyclePolicy(table="usage_log", ttl_days=7, min_age_hours=24)
-    report = enforce_lifecycle(db, [policy], dry_run=False, archive_root=tmp_path)
-    tr = report.tables[0]
+    enforce_lifecycle(db, [policy], dry_run=False, archive_root=tmp_path)
     kept = {r[0] for r in _rows(db)}
     assert 999 not in kept, "30 天前老行受 min_age 护栏外仍应删——本用例 min_age 只保 24h 内"
     fresh_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

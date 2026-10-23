@@ -387,11 +387,11 @@ def test_precheck_caches_allowed_result(service, monkeypatch):
     sdk = FakeSdk()
     monkeypatch.setattr(service, "_sdk", lambda: sdk)
     import asyncio
-    r1 = asyncio.run(service.precheck("chat", user_id=7))
+    asyncio.run(service.precheck("chat", user_id=7))
     r2 = asyncio.run(service.precheck("chat", user_id=7))
     assert sdk.precheck_calls == 1
     assert r2.allowed is True
-    r3 = asyncio.run(service.precheck("chat", user_id=8))
+    asyncio.run(service.precheck("chat", user_id=8))
     assert sdk.precheck_calls == 2
     asyncio.run(service.precheck("extract", user_id=7))
     assert sdk.precheck_calls == 3

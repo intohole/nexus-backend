@@ -1,6 +1,4 @@
 """nexus.web_extract 原语单测：SSRF 拒绝面 / 逐跳重定向校验契约。"""
-import asyncio
-
 import pytest
 
 from nexus.web_extract import WebExtractError, extract_content, resolve_and_check
