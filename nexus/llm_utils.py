@@ -202,6 +202,68 @@ def is_llm_json_error(result: object) -> bool:
     """
     return isinstance(result, dict) and set(result.keys()) == {"raw_response"}
 
+_META_START_RE = None
+
+
+def is_meta_narration(text: str) -> dict:
+    """判断 LLM 输出是否为「分析过程/工作日志」而非可直接发布的正文。
+
+    verseCraft r15 生产实锤：作者把修改指令贴进生成入口，推理模型输出
+    整段修改分析独白（「用户希望我…让我逐一分析」）被当正文落库发布。
+    凡「LLM 输出 → 落库/发布」链路（章节正文/简历/讲义）都应在落库前
+    单源调用本函数，而不是各自攒正则。
+
+    判定纪律：宁缺毋滥——正文（含对话、编号引文）不得误杀；
+    全信号确定性零 LLM，同一输入重复调用同结果。
+
+    Returns:
+        {"is_meta": bool, "signals": list[str], "process_hits": int,
+         "numbered_lines": int, "dialogue_marks": int}
+    """
+    import re as _re
+
+    global _META_START_RE
+    if _META_START_RE is None:
+        _META_START_RE = _re.compile(
+            r"^(?:用户希望|让我|我来|我需要|我选择|好的[，,、]|明白了|收到[。！]|"
+            r"首先[，,]?.{0,8}(?:分析|看|处理)|根据.{0,16}(?:指令|要求|意见)|"
+            r"以下是我|这是修改|修改说明|关于.{0,12}修改)"
+        )
+    process_patterns = [
+        r"让我(?:想想|重新想|分析|看|梳理)", r"我(?:选择|倾向|认为应该|决定)",
+        r"(?:逐一|逐条|依次)(?:分析|检查|处理|执行)", r"(?:分析|思考)如下",
+        r"按照(?:用户|修改|他的|她的)?指令", r"(?:指令|第)\s*\d+\s*[:：]",
+        r"(?:选项|方案)(?:是|有)[:：]?", r"如果(?:我)?选择", r"两个版本",
+        r"更(?:合理|戏剧化|简单)", r"(?:需要|需要相应)修改", r"原文(?:说|中)",
+    ]
+    numbered_re = _re.compile(
+        r"(?:^|[：:。！？\n])\s*\d+\s*[\.、．]\s*(?:将|把|在|修改|改为|删|补|保持|若|指令|第)",
+        _re.M,
+    )
+    dialogue_re = _re.compile(r"[「『“\"]")
+
+    verdict = {"is_meta": False, "signals": [], "process_hits": 0,
+               "numbered_lines": 0, "dialogue_marks": 0}
+    if not text or not text.strip():
+        return verdict
+    head = text.strip()[:120]
+    sample = text[:2500]
+
+    verdict["dialogue_marks"] = len(dialogue_re.findall(sample))
+    verdict["numbered_lines"] = len(numbered_re.findall(sample))
+    verdict["process_hits"] = sum(1 for p in process_patterns if _re.search(p, sample))
+
+    if _META_START_RE.search(head):
+        verdict["signals"].append("开头即工作日志口吻")
+        verdict["is_meta"] = True
+    if verdict["numbered_lines"] >= 3 and verdict["process_hits"] >= 3:
+        verdict["signals"].append(f"编号指令复述 {verdict['numbered_lines']} 行")
+        verdict["is_meta"] = True
+    if not verdict["is_meta"] and verdict["process_hits"] >= 5 and verdict["dialogue_marks"] <= 2:
+        verdict["signals"].append(f"过程性话术 {verdict['process_hits']} 处且几乎无对话")
+        verdict["is_meta"] = True
+    return verdict
+
 def _parse_truncated_array(text: str) -> Optional[object]:
     """截断 JSON 数组的确定性修复：按最后完整元素边界闭合回收。
 

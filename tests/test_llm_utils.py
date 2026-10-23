@@ -275,3 +275,28 @@ class TestIsLlmJsonError:
         from nexus.llm_utils import is_llm_json_error
         assert is_llm_json_error(parse_llm_json("bad", fallback=None)) is False
         assert is_llm_json_error(parse_llm_json("bad", fallback={"d": 1})) is False
+
+class TestIsMetaNarration:
+    def test_meta_monologue_detected(self):
+        from nexus import is_meta_narration
+        text = (
+            "用户希望我根据7条修改指令修改章节。让我逐一分析：\n\n"
+            "1. 将「那不是父亲」拆分为短句。\n2. 补充抬脚动作。\n"
+            "3. 改为「铁钩把脚挪开」。\n\n让我想想哪个更合理。如果选择归零……"
+        )
+        v = is_meta_narration(text)
+        assert v["is_meta"] is True and v["signals"]
+
+    def test_prose_not_flagged(self):
+        from nexus import is_meta_narration
+        text = (
+            "雨珠落在刀刃上，碎成两半。\n\n老鸦的刀抵着马克的喉结。"
+            "“三天前你说的，别碰那个孩子。”\n\n马克没有说话，指尖压着怀表。"
+        )
+        assert is_meta_narration(text)["is_meta"] is False
+
+    def test_empty_and_deterministic(self):
+        from nexus import is_meta_narration
+        assert is_meta_narration("")["is_meta"] is False
+        sample = "让我逐一分析：1. 将「X」拆分。2. 改为「Y」。3. 保持「Z」。"
+        assert is_meta_narration(sample) == is_meta_narration(sample)
