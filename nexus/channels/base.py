@@ -14,6 +14,7 @@ VALID_CHANNELS: list[str] = [
     "dingtalk",
     "telegram",
     "bark",
+    "webpush",
 ]
 
 
