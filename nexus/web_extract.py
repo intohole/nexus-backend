@@ -6,6 +6,9 @@ follow_redirects=True 只在首跳做 IP 校验，存在 302 跳内网风险—�
 
 安全边界：仅公网 http/https；DNS 解析后校验目标 IP，拒绝私网/环回/链路本地。
 提取链：trafilatura 正文提取，缺失时降级为标签剥离纯文本。
+不可信边界：出口文本默认过 nexus.untrusted.sanitize_untrusted（剥离 Unicode Tag
+外泄通道/零宽/控制字符，旗标打日志）；进 LLM 前再由消费方用 wrap_untrusted
+包裹并配 UNTRUSTED_CONTENT_RULE。
 """
 import asyncio
 import ipaddress
@@ -14,6 +17,8 @@ import re
 from urllib.parse import urlparse
 
 import httpx
+
+from nexus.untrusted import sanitize_untrusted
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +76,15 @@ def _strip_tags_fallback(html: str) -> str:
     return "\n".join(ln for ln in lines if ln)
 
 
+def _sanitize(text: str) -> str:
+    cleaned, flags = sanitize_untrusted(text)
+    if flags:
+        logger.warning("untrusted content hygiene flags: %s", ",".join(flags))
+    return cleaned
+
+
 def extract_content(html: str, url: str) -> tuple[str, str]:
-    """返回 (title, 正文)。正文过短视为提取失败。"""
+    """返回 (title, 正文)。正文过短视为提取失败；出口文本已经不可信卫生清洗。"""
     title = ""
     try:
         import trafilatura
@@ -83,9 +95,9 @@ def extract_content(html: str, url: str) -> tuple[str, str]:
         )
         metadata = trafilatura.extract_metadata(html)
         if metadata and metadata.title:
-            title = metadata.title.strip()
+            title = metadata.title.strip()[:300]
         if downloaded and len(downloaded.strip()) >= 100:
-            return title, downloaded.strip()
+            return _sanitize(title), _sanitize(downloaded.strip())
     except ImportError:
         logger.warning("trafilatura 未安装，使用降级正文提取")
     except Exception as e:
@@ -97,7 +109,7 @@ def extract_content(html: str, url: str) -> tuple[str, str]:
     text = _strip_tags_fallback(html)
     if len(text) < 100:
         raise WebExtractError("未能从该网页提取到有效正文")
-    return title, text
+    return _sanitize(title), _sanitize(text)
 
 
 async def fetch_page_text(url: str) -> tuple[str, str]:
