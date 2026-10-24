@@ -15,7 +15,7 @@ from nexus._gateway_base import _GatewayServiceBase
 from nexus.context import get_request_id
 from nexus.llm_config import resolve_app_name
 from nexus.credits import CreditsInsufficientError, get_credits_service, report_llm_usage
-from nexus.llm_utils import parse_llm_json
+from nexus.llm_json import parse_llm_json
 
 DEFAULT_VISION_MODEL = "glm-4.6v-flash"
 JSON_HINT = "只输出一个 JSON 对象，不要包含解释、markdown 代码块或其他文字。"

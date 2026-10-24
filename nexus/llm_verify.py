@@ -7,7 +7,7 @@ from typing import Awaitable, Callable, Optional
 from pydantic import BaseModel, ValidationError
 
 from nexus.llm import get_llm_service
-from nexus.llm_utils import is_llm_json_error, parse_llm_json
+from nexus.llm_json import is_llm_json_error, parse_llm_json
 
 logger = logging.getLogger("nexus.llm_verify")
 

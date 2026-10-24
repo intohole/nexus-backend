@@ -8,14 +8,11 @@ from typing import AsyncGenerator, Optional
 from nexus.context import get_request_id
 from nexus.logging import get_logger
 from nexus.circuit_breaker import get_llm_circuit
-from nexus.credits import (
-    CreditsInsufficientError,
-    credits_gateway_handled,
-    get_credits_service,
-    report_llm_usage,
-)
+from nexus.credits import credits_gateway_handled
 from nexus.llm_metrics import llm_telemetry
-from nexus.llm_utils import parse_llm_json, with_llm_retry, is_llm_json_error
+from nexus.llm_meter import charge as _charge, meter as _meter, preflight as _preflight
+from nexus.llm_utils import with_llm_retry
+from nexus.llm_json import is_llm_json_error, parse_llm_json
 from nexus.llm_helpers import (
     apply_output_discipline,
     convert_messages,
@@ -33,33 +30,6 @@ from nexus.llm_config import (
 )
 
 logger = get_logger("nexus.llm")
-
-
-async def _meter(kind: str, app_name: str, request_id: str, response: object = None,
-                 start: float = 0.0, calls: int = 1, feature: str = "") -> None:
-    await report_llm_usage(app_name=app_name, kind=kind, request_id=request_id, response=response,
-                           latency_s=(time.monotonic() - start) if start else 0.0, calls=calls,
-                           feature=feature)
-
-
-async def _preflight(kind: str, model: str = "") -> None:
-    """正式计费模式下调用前预检；CreditsInsufficientError(402) 放行，其余积分故障静默。"""
-    try:
-        await get_credits_service().gateway_preflight(kind, model=model)
-    except CreditsInsufficientError:
-        raise
-    except Exception:
-        pass
-
-
-async def _charge(kind: str, app_name: str, request_id: str, model: str = "") -> None:
-    """调用成功后网关自动计费（fail-open，绝不影响响应），按模型档位系数定价。"""
-    try:
-        await get_credits_service().auto_charge_llm(
-            kind=kind, app_name=app_name, request_id=request_id, model=model
-        )
-    except Exception:
-        pass
 
 DEFAULT_MAX_OUTPUT_TOKENS: int = int(os.environ.get("LLM_DEFAULT_MAX_OUTPUT_TOKENS", "2048"))
 

@@ -19,7 +19,8 @@ from nexus.circuit_breaker import (
 )
 from nexus.cost_guard import CostBudgetExceededError, get_cost_guard
 from nexus.llm import get_llm_service
-from nexus.llm_utils import is_retryable_error, parse_llm_json
+from nexus.llm_utils import is_retryable_error
+from nexus.llm_json import parse_llm_json
 from nexus.logging import get_logger
 
 logger = get_logger("nexus.resilient_llm")
