@@ -42,6 +42,23 @@ class NotifyClient:
         token: str = self._service_token or await get_service_token()
         return {"X-Service-Token": token} if token else {}
 
+    async def _audience_blocked(self, user_id: str) -> bool:
+        """出口受众净化：True=该用户不可触达（孤儿/测试/停用号），请求不出网。
+
+        nexus.audience 缺席（旧 venv）或查询异常一律 fail-open——与 audience
+        原语自身的 UC 不可达语义一致，不为净化引入新故障面。
+        """
+        try:
+            from nexus.audience import sendable
+        except ImportError:
+            logger.warning("audience_check requested but nexus.audience unavailable — fail-open")
+            return False
+        try:
+            return not await sendable(user_id)
+        except Exception as exc:
+            logger.warning("audience guard check failed (%s) — fail-open", exc)
+            return False
+
     async def send(
         self,
         user_id: str,
@@ -54,7 +71,14 @@ class NotifyClient:
         link: str = "",
         channels: Optional[list[str]] = None,
         why_you: str = "",
+        audience_check: bool = False,
     ) -> dict[str, object]:
+        if audience_check and await self._audience_blocked(str(user_id)):
+            logger.info(
+                "Notify send suppressed by audience guard: user=%s app=%s title=%s",
+                user_id, app_id, str(title)[:40],
+            )
+            return {"status": "suppressed", "id": 0, "reason": "audience_not_sendable"}
         merged_data: dict[str, object] = dict(data or {})
         if why_you and "why_you" not in merged_data:
             merged_data["why_you"] = why_you[:200]

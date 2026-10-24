@@ -267,3 +267,90 @@ def test_send_many_mixed_batch_keeps_order() -> None:
         {"user_id": "3", "title": "plain-path"},
     ]))
     assert [r.get("status") for r in results] == ["sent", "sent"]
+
+
+# ---- 出口受众净化（audience_check）：守卫收进发送出口，旁路生产者同门 ----
+
+def test_send_audience_check_blocks_without_http() -> None:
+    client = _client()
+    client._http = _FakeHttp(resp=_ok_body())
+    posted: list[dict] = []
+
+    async def _fake_post(*args: object, **kwargs: object) -> httpx.Response:
+        posted.append(kwargs)
+        assert isinstance(_ok_body(), httpx.Response)
+        return _ok_body()
+
+    client._http = type("_H", (), {"post": staticmethod(_fake_post), "close": staticmethod(lambda: None)})()
+
+    import nexus.audience as audience_mod
+
+    async def _not_sendable(uid: str) -> bool:
+        return False
+
+    orig = audience_mod.sendable
+    audience_mod.sendable = _not_sendable
+    try:
+        result = asyncio.run(client.send(user_id="613", title="t", audience_check=True))
+    finally:
+        audience_mod.sendable = orig
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "audience_not_sendable"
+    assert posted == []
+
+
+def test_send_audience_check_passes_sendable_user() -> None:
+    client = _client()
+    client._http = _FakeHttp(resp=_ok_body())
+
+    import nexus.audience as audience_mod
+
+    async def _sendable(uid: str) -> bool:
+        return True
+
+    orig = audience_mod.sendable
+    audience_mod.sendable = _sendable
+    try:
+        result = asyncio.run(client.send(user_id="2", title="t", audience_check=True))
+    finally:
+        audience_mod.sendable = orig
+    assert result["status"] == "sent"
+
+
+def test_send_audience_check_fail_open_on_missing_module() -> None:
+    client = _client()
+    client._http = _FakeHttp(resp=_ok_body())
+    import sys
+    import nexus.audience as audience_mod
+
+    saved = sys.modules.get("nexus.audience")
+    sys.modules["nexus.audience"] = None  # type: ignore[assignment]
+    try:
+        result = asyncio.run(client.send(user_id="2", title="t", audience_check=True))
+    finally:
+        if saved is not None:
+            sys.modules["nexus.audience"] = saved
+        else:
+            sys.modules.pop("nexus.audience", None)
+    assert result["status"] == "sent"
+
+
+def test_send_without_audience_check_skips_guard() -> None:
+    client = _client()
+    client._http = _FakeHttp(resp=_ok_body())
+    import nexus.audience as audience_mod
+
+    calls: list[str] = []
+
+    async def _spy(uid: str) -> bool:
+        calls.append(uid)
+        return False
+
+    orig = audience_mod.sendable
+    audience_mod.sendable = _spy
+    try:
+        result = asyncio.run(client.send(user_id="2", title="t"))
+    finally:
+        audience_mod.sendable = orig
+    assert result["status"] == "sent"
+    assert calls == []
