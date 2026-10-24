@@ -1,6 +1,7 @@
 """通知统一出口：站内/邮件等通知发送与 notifyCenter 客户端管理。"""
 from __future__ import annotations
 
+import inspect
 import os
 from typing import Optional
 
@@ -104,6 +105,31 @@ class NotifyClient:
         for item in items:
             try:
                 result: dict[str, object] = await self.send(**item)
+            except TypeError:
+                # 未知键 = 新版调用方载荷落到旧版客户端（教训#488 why_you 案）：
+                # 触达数据键不该炸掉发送，降级并入 data 重试一次。
+                known = set(inspect.signature(self.send).parameters)
+                unknown = {k: v for k, v in item.items() if k not in known}
+                if not unknown:
+                    logger.error("Batch notify item failed: bad arguments %s", sorted(item))
+                    result = {}
+                else:
+                    demoted: dict[str, object] = {
+                        k: v for k, v in item.items() if k in known
+                    }
+                    data = dict(demoted.get("data") or {})
+                    for key, value in unknown.items():
+                        data.setdefault(key, str(value)[:200])
+                    demoted["data"] = data
+                    try:
+                        result = await self.send(**demoted)
+                        logger.warning(
+                            "Batch notify item: unknown keys %s demoted to data",
+                            sorted(unknown),
+                        )
+                    except Exception as exc:
+                        logger.error("Batch notify item failed: %s", str(exc))
+                        result = {}
             except Exception as exc:
                 logger.error("Batch notify item failed: %s", str(exc))
                 result = {}

@@ -185,3 +185,85 @@ def test_send_without_why_you_keeps_data_empty() -> None:
     object.__setattr__(client, "_service_token", "tok")
     asyncio.run(client.send(user_id="2", title="t"))
     assert captured["data"] == {}
+
+
+class _OldSignatureClient(NotifyClient):
+    """旧版节点客户端形态：send 尚无 why_you 形参（教训#488 why_you 案仿真）。"""
+
+    async def send(  # type: ignore[override]
+        self,
+        user_id: str,
+        title: str,
+        content: str = "",
+        type: str = "system",
+        priority: int = 1,
+        app_id: str = "system",
+        data: Optional[dict[str, object]] = None,
+        link: str = "",
+        channels: Optional[list[str]] = None,
+    ) -> dict[str, object]:
+        return await super().send(
+            user_id=user_id, title=title, content=content, type=type,
+            priority=priority, app_id=app_id, data=data, link=link,
+            channels=channels,
+        )
+
+
+def test_send_many_demotes_unknown_keys_to_data_on_type_error() -> None:
+    client = _OldSignatureClient(base_url="http://notify.test", service_token="t")
+    client._http = _FakeHttp(resp=_ok_body())
+    results = asyncio.run(client.send_many([
+        {"user_id": "2", "title": "t", "why_you": "断了 8 天，星轨还留着", "data": {"k": 1}},
+    ]))
+    assert len(results) == 1
+    assert results[0].get("status") == "sent"
+
+
+def test_send_many_unknown_key_lands_in_data_payload() -> None:
+    client = _OldSignatureClient(base_url="http://notify.test", service_token="t")
+    captured: dict[str, object] = {}
+
+    class _Http:
+        async def post(self, path: str, json: dict[str, object], headers: dict[str, str]) -> object:
+            captured.update(json)
+
+            class _Resp:
+                status_code = 200
+
+                def raise_for_status(self) -> None:
+                    return None
+
+                def json(self) -> dict[str, object]:
+                    return {"status": "sent", "id": 3}
+
+            return _Resp()
+
+    client._http = _Http()
+    results = asyncio.run(client.send_many([
+        {"user_id": "2", "title": "t", "why_you": "星轨还在", "data": {"challenge_id": 4}},
+    ]))
+    assert results[0]["status"] == "sent"
+    assert captured["data"]["why_you"] == "星轨还在"
+    assert captured["data"]["challenge_id"] == 4
+
+
+def test_send_many_non_type_error_still_returns_empty_dict() -> None:
+    client = NotifyClient.__new__(NotifyClient)
+
+    class _BoomClient:
+        async def send(self, **kwargs: object) -> dict[str, object]:
+            raise RuntimeError("network down")
+
+    object.__setattr__(client, "send", _BoomClient().send)
+    results = asyncio.run(client.send_many([{"user_id": "2", "title": "t"}]))
+    assert results == [{}]
+
+
+def test_send_many_mixed_batch_keeps_order() -> None:
+    client = _OldSignatureClient(base_url="http://notify.test", service_token="t")
+    client._http = _FakeHttp(resp=_ok_body())
+    results = asyncio.run(client.send_many([
+        {"user_id": "2", "title": "new-path", "why_you": "x"},
+        {"user_id": "3", "title": "plain-path"},
+    ]))
+    assert [r.get("status") for r in results] == ["sent", "sent"]
