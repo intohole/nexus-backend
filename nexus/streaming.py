@@ -244,6 +244,66 @@ _STREAM_SENTINEL = object()
 # 内存占用有上限；0 表示无界（旧语义，不推荐）。
 DEFAULT_SSE_QUEUE_SIZE = 256
 
+# 断连后 drain 的总预算秒数：LLM 长流的最长正常时长即可，超过视为上游挂死，
+# 放弃 drain 并取消 pump（防孤儿 task 泄漏）。
+DRAIN_TIMEOUT_SECONDS = 300.0
+
+# drain task 的模块级强引用：asyncio 只持弱引用，无引用的运行中 task 会被 GC
+# 中途回收（官方文档 asyncio.create_task 警告），drain 又恰在客户端断开后运行，
+# 没人 await 它——必须自持引用，结束（含异常/取消）后自摘。
+_DRAIN_TASKS: set[asyncio.Task] = set()
+
+
+async def _drain_after_disconnect(
+    queue: "asyncio.Queue",
+    accumulated: list[str],
+    on_event: Optional[Callable[[str, dict[str, Any]], Awaitable[None]]] = None,
+    on_complete: Optional[Callable[[str], Awaitable[None]]] = None,
+) -> None:
+    """客户端断开后的兜底消费者：接手 queue，把业务流消费到自然结束。
+
+    生产实锤（aiPet r14）：用户在首页连点快捷提问，每次点击都放弃上一个流，
+    LLM 已完整生成并计费，但业务生成器尾部的落库随流被取消——回复凭空丢失。
+    原则：回复是资产、连接只是通道；通道可断，资产必须落地。
+    drain 接手的是 queue 而非业务生成器——pump 仍是 chat_fn 的唯一消费者，
+    队列有 drain 这个读者，pump 的背压 put 才不会永久阻塞。
+    """
+    try:
+        while True:
+            item = await queue.get()
+            if item is _STREAM_SENTINEL:
+                break
+            if isinstance(item, BaseException):
+                break
+            if not item:
+                continue
+            if isinstance(item, dict):
+                if item.get("type") == "delta" and "content" in item:
+                    accumulated.append(str(item["content"]))
+                if on_event:
+                    try:
+                        await on_event(str(item.get("type", "delta")), item)
+                    except Exception:
+                        pass
+            else:
+                accumulated.append(str(item))
+                if on_event:
+                    try:
+                        await on_event("delta", {"content": str(item)})
+                    except Exception:
+                        pass
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        pass
+    finally:
+        if on_complete:
+            try:
+                await on_complete("".join(accumulated))
+            except Exception:
+                pass
+        _DRAIN_TASKS.discard(asyncio.current_task())
+
 
 async def _sse_generator_v2(
     chat_fn: AsyncIterator[Union[str, dict[str, Any]]],
@@ -252,6 +312,7 @@ async def _sse_generator_v2(
     on_event: Optional[Callable[[str, dict[str, Any]], Awaitable[None]]] = None,
     heartbeat_interval: float = 0.0,
     queue_size: int = DEFAULT_SSE_QUEUE_SIZE,
+    drain_on_disconnect: bool = False,
 ) -> AsyncIterator[str]:
     """SSE 生成器：断连检测 + 事件回调 + 心跳 + done 去重 + 有界队列背压。
 
@@ -259,6 +320,9 @@ async def _sse_generator_v2(
     heartbeat_interval > 0 时，超过该秒数无新事件则下发 {"type":"heartbeat"} 保活；
     业务流自身已发过 done 时不重复补发 done。
     queue_size > 0 时队列有界：消费慢于生产时 _pump 阻塞在 put 上，向上游施加背压。
+    drain_on_disconnect: 客户端断开时不再取消业务流，移交独立 drain task 消费到
+        自然结束（业务生成器尾部的落库/回调照常执行，on_complete 在 drain 尾触发），
+        总预算 DRAIN_TIMEOUT_SECONDS 秒。默认 False 保持旧语义（断开即取消）。
     """
     accumulated: list[str] = []
     try:
@@ -318,11 +382,34 @@ async def _sse_generator_v2(
                     yield sse_event_dict("delta", {"content": str(chunk)})
         finally:
             if not pump_task.done():
-                pump_task.cancel()
-                try:
-                    await pump_task
-                except (asyncio.CancelledError, Exception):
-                    pass
+                if drain_on_disconnect:
+                    # 客户端断开（生成器被 aclose）：移交 drain 兜底消费者，
+                    # 业务流跑到自然结束（尾部落库照常执行）。总闸防上游挂死。
+                    async def _guarded_drain() -> None:
+                        try:
+                            await asyncio.wait_for(
+                                _drain_after_disconnect(queue, accumulated, on_event, on_complete),
+                                timeout=DRAIN_TIMEOUT_SECONDS,
+                            )
+                        except asyncio.TimeoutError:
+                            logger.warning("SSE drain timed out after %.0fs", DRAIN_TIMEOUT_SECONDS)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as exc:
+                            logger.warning("SSE drain failed: %s", exc)
+                        finally:
+                            if not pump_task.done():
+                                pump_task.cancel()
+
+                    drain_task = asyncio.create_task(_guarded_drain())
+                    _DRAIN_TASKS.add(drain_task)
+                    drain_task.add_done_callback(_DRAIN_TASKS.discard)
+                else:
+                    pump_task.cancel()
+                    try:
+                        await pump_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
         full_content = "".join(accumulated)
         if on_complete:
             try:
@@ -343,6 +430,7 @@ def sse_chat_stream_v2(
     on_event: Optional[Callable[[str, dict[str, Any]], Awaitable[None]]] = None,
     heartbeat_interval: float = 0.0,
     queue_size: int = DEFAULT_SSE_QUEUE_SIZE,
+    drain_on_disconnect: bool = False,
 ):
     """增强版 sse_chat_stream：支持断连检测 + 多事件类型 + 事件回调。
 
@@ -361,10 +449,14 @@ def sse_chat_stream_v2(
     heartbeat_interval: 超过该秒数无新事件时下发 heartbeat 保活（0 关闭）。
     queue_size: 事件队列容量上限（默认 256）——消费慢于生产时向上游施加背压，
         防止慢客户端把整条 LLM 流缓冲进内存；0 恢复无界旧语义。
+    drain_on_disconnect: 客户端断开时移交 drain 兜底消费者，业务流（含尾部
+        落库）跑到自然结束，on_complete 在 drain 尾触发。适用于「回复是资产」
+        的场景（LLM 已计费、落库在生成器尾部）；默认 False 保持断开即取消。
     """
     return sse_response(
         _sse_generator_v2(
-            chat_fn, request, on_complete, on_event, heartbeat_interval, queue_size
+            chat_fn, request, on_complete, on_event, heartbeat_interval, queue_size,
+            drain_on_disconnect=drain_on_disconnect,
         )
     )
 
