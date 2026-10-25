@@ -188,12 +188,15 @@ async def notify_task_result(
     link: str = "",
     type: str = "task",
     priority: Optional[int] = None,
+    audience_check: bool = False,
 ) -> Optional[dict[str, object]]:
     """任务终态触达样板（1.83.0）：成功/失败统一走 try_send 并按终态契约留痕。
 
     记账纪律（教训#294 生态化）：只有 status=="sent" 记「已投递」；
     suppressed/failed 与 None 都按未送达 WARNING（suppressed 属用户侧
     主动静默，语义不同但都不是送达）。priority 默认成功 1 / 失败 2。
+    audience_check=True 时出口过 nexus.audience 净化（教训#512：守卫须收进
+    发送出口而非依赖调用方自查；1.98.0 起透传，piying/MiaoBi 等渐进采纳）。
     """
     try:
         result = await try_send(
@@ -204,6 +207,7 @@ async def notify_task_result(
             priority=priority if priority is not None else (1 if ok else 2),
             app_id=app_id,
             link=link,
+            audience_check=audience_check,
         )
     except Exception as exc:
         logger.warning("任务终态通知投递异常: app=%s ok=%s err=%s", app_id, ok, exc)
