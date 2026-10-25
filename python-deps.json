@@ -1,8 +1,8 @@
 {
   "说明": {
     "用途": "全工作区后端(requirements.txt/pyproject.toml)统一引用的公共Python包版本,作为唯一事实来源。新增/升级公共包版本必须先更新此文件,再统一同步所有项目,并运行 check_python_deps.py 校验全工作区一致性。",
-    "基线": "2026-10-20 全舰队依赖统一: 以共享开发虚拟环境(.venv, 9-23起)与edge-03线上venv312共同验证的新版本线为权威(fastapi 0.141.1系),终结edge-01/02/04旧线(0.115.6系)与edge-03新线的生产分裂。ironman-llm/nexus-backend为本地仓editable安装,版本由各仓pyproject管理。",
-    "同步纪律": "升级流程: 改此清单 -> check_python_deps.py 全绿 -> 各仓requirements/pyproject同步 -> 全新venv抽样实测 -> 各节点venv312收敛升级"
+    "基线": "2026-10-20 全舰队依赖统一: 以共享开发虚拟环境(.venv, 9-23起)与edge-03线上venv312共同验证的新版本线为权威(fastapi 0.141.1系),终结edge-01/02/04旧线(0.115.6系)与edge-03新线的生产分裂。2026-10-26 r132: ironman-llm 条目移除——editable 中间件版本由各仓 pyproject 单源管理(managed_deps 门禁广播, pip 元数据与实装解耦), 本清单只管公共三方包。",
+    "同步纪律": "升级流程: 改此清单 -> check_python_deps.py 全绿 -> 各仓requirements/pyproject同步 -> 全新venv抽样实测 -> 各节点venv312收敛升级。2026-10-26 r132 起公共包版本校验接入 miniDeploy 提交门禁(check_standards.py), 漂移在提交期即拦。"
   },
   "deps": {
     "fastapi": {"version": "0.141.1"},
@@ -47,7 +47,7 @@
     "joblib": {"version": "1.5.3"},
     "xgboost": {"version": "3.3.0"},
     "networkx": {"version": "3.6.1"},
-    "aiohttp": {"version": "3.14.3"},
+    "aiohttp": {"version": "3.14.4"},
     "beautifulsoup4": {"version": "4.15.0"},
     "trafilatura": {"version": "2.1.0"},
     "python-docx": {"version": "1.2.0"},
@@ -59,8 +59,7 @@
     "markitdown": {"version": "0.1.7"},
     "pycrdt": {"version": "0.14.5"},
     "python-pptx": {"version": "1.0.2"},
-    "openpyxl": {"version": "3.1.5"},
-    "ironman-llm": {"version": "0.12.2"}
+    "openpyxl": {"version": "3.1.5"}
   },
   "ignore_paths": []
 }
