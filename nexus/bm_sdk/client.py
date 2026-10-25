@@ -77,6 +77,7 @@ class BeeMemorySDK(BaseAsyncClient):
         user_id: str,
         app_name: Optional[str] = None,
         session_id: Optional[str] = None,
+        channel: Optional[str] = None,
     ) -> Dict:
         payload: Dict[str, str] = {
             "content": content,
@@ -85,6 +86,8 @@ class BeeMemorySDK(BaseAsyncClient):
         }
         if session_id:
             payload["session_id"] = session_id
+        if channel:
+            payload["channel"] = channel
         return await self._request("POST", "/api/memory/v1/add", data=payload)
 
     async def search_memories(
