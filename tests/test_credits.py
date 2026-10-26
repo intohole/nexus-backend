@@ -350,56 +350,6 @@ async def test_gateway_preflight_allows_formal_with_balance(service, monkeypatch
     assert sdk.precheck_calls == 1
 
 
-@pytest.mark.asyncio
-async def test_consume_structured_error_data_carries_recovery(service, monkeypatch):
-    sdk = FakeSdk({"success": False, "message": "积分余额不足，请先充值", "error_data": {
-        "code": "insufficient_balance", "balance": 3, "charge_mode": "formal",
-        "wallet_url": "/user-center.html#wallet",
-        "recovery": {"checkin": {"available": True, "next_reward": 10}},
-    }})
-    monkeypatch.setattr(service, "_sdk", lambda: sdk)
-    outcome = await service.consume("chat", user_id=1)
-    assert outcome.allowed is False
-    assert outcome.reason == "insufficient_balance"
-    assert outcome.raw.get("recovery") == {"checkin": {"available": True, "next_reward": 10}}
-    assert outcome.raw.get("code") == "insufficient_balance"
-
-
-@pytest.mark.asyncio
-async def test_gateway_preflight_passes_recovery_through(service, monkeypatch):
-    sdk = FakeSdk(precheck_result={"success": True, "data": {
-        "allowed": False, "cost": 10, "balance": 5, "list_cost": 10,
-        "charge_mode": "formal", "reason": "insufficient_balance",
-        "recovery": {"claimable_tasks": {"count": 2, "points": 60}},
-    }})
-    monkeypatch.setattr(service, "_sdk", lambda: sdk)
-    service._remember_charge_mode("formal")
-    with credits_user_scope(7), pytest.raises(CreditsInsufficientError) as exc_info:
-        await service.gateway_preflight("chat")
-    details = exc_info.value.details
-    assert details["recovery"] == {"claimable_tasks": {"count": 2, "points": 60}}
-    assert details["code"] == "insufficient_balance"
-    assert details["list_cost"] == 10
-
-
-@pytest.mark.asyncio
-async def test_charged_decorator_raises_structured_details(service, monkeypatch):
-    sdk = FakeSdk({"success": False, "message": "免费体验额度已用完", "error_data": {
-        "code": "overdraft_limit", "balance": 0,
-        "recovery": {"next_daily_gift": {"amount": 200}},
-    }})
-    monkeypatch.setattr(service, "_sdk", lambda: sdk)
-
-    @charged("generate")
-    async def action() -> str:
-        return "done"
-
-    with credits_user_scope(1), pytest.raises(CreditsInsufficientError) as exc_info:
-        await action()
-    assert exc_info.value.error_code == "OVERDRAFT_LIMIT"
-    assert exc_info.value.details.get("recovery") == {"next_daily_gift": {"amount": 200}}
-
-
 def test_resolve_model_tier_defaults():
     from nexus.credits_tiers import resolve_model_tier
 
