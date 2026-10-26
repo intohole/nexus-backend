@@ -18,7 +18,7 @@ class ChromaSDK(BaseAsyncClient):
         timeout: float = 30.0,
     ) -> None:
         if not base_url:
-            base_url = os.environ.get("CHROMA_BASE_URL", "${CHROMA_BASE_URL}")
+            base_url = os.environ.get("CHROMA_BASE_URL", "http://localhost:8999")
         super().__init__(base_url, timeout=timeout)
         self._service_token = service_token
         self._api_key = api_key or os.environ.get("CHROMA_API_KEY")
@@ -69,13 +69,18 @@ class ChromaSDK(BaseAsyncClient):
     async def get_collection(self, name: str) -> dict[str, object]:
         return await self._request("GET", f"/api/v1/collections/{name}")
 
+    @staticmethod
+    def is_not_found(result: dict[str, object]) -> bool:
+        detail = str(result.get("detail", "")).lower()
+        return "http 404" in detail or "not found" in detail or "does not exist" in detail
+
     async def ensure_collection(
         self,
         name: str,
         metadata: dict[str, object] | None = None,
     ) -> dict[str, object]:
         result = await self.get_collection(name)
-        if isinstance(result, dict) and result.get("success") is False and "404" in str(result.get("detail", "")):
+        if isinstance(result, dict) and self.is_not_found(result):
             return await self.create_collection(name, metadata)
         return result
 
@@ -121,6 +126,25 @@ class ChromaSDK(BaseAsyncClient):
             payload["include"] = include
         return await self._request(
             "POST", f"/api/v1/collections/{collection_name}/documents/query", json_data=payload,
+        )
+
+    async def upsert_documents(
+        self,
+        collection_name: str,
+        ids: list[str],
+        documents: list[str] | None = None,
+        embeddings: list[list[float]] | None = None,
+        metadatas: list[dict[str, object]] | None = None,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {"ids": ids}
+        if documents is not None:
+            payload["documents"] = documents
+        if embeddings is not None:
+            payload["embeddings"] = embeddings
+        if metadatas is not None:
+            payload["metadatas"] = metadatas
+        return await self._request(
+            "POST", f"/api/v1/collections/{collection_name}/documents/upsert", json_data=payload,
         )
 
     async def update_documents(
