@@ -32,10 +32,15 @@ def run_lifecycle_report(
     label: str = "数据生命周期",
     logger: logging.Logger | None = None,
     dry_run: bool = False,
+    archive_root: str | Path | None = None,
 ) -> dict[str, Any]:
-    """执行生命周期策略并落地统一留痕契约（enforce_lifecycle 的仓内接线壳）。"""
+    """执行生命周期策略并落地统一留痕契约（enforce_lifecycle 的仓内接线壳）。
+
+    archive_root 透传给 enforce_lifecycle：db URL 为相对路径（如 sqlite:///data/x.db）
+    时缺省落点会拼成 data/data/archives——凡 db 不在应用根直下的仓必须显式传应用根。
+    """
     log = logger or logging.getLogger("nexus.lifecycle")
-    report = enforce_lifecycle(db_path, policies, dry_run=dry_run)
+    report = enforce_lifecycle(db_path, policies, dry_run=dry_run, archive_root=archive_root)
     if not report.ok:
         log.warning("[lifecycle] %s存在跳过项: %s",
                     label, [t.skipped_reason for t in report.tables if t.skipped_reason])
