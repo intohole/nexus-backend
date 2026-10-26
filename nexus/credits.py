@@ -174,11 +174,17 @@ class CreditsService(GatewayBillingMixin):
             logger.warning("积分消费调用失败，放行: %s", exc)
             return ConsumeResult(allowed=True, reason="credits_unavailable")
         if res.get("success") is False:
+            error_data = res.get("error_data") if isinstance(res.get("error_data"), dict) else {}
+            code = str(error_data.get("code") or "")
             message = str(res.get("message") or "")
-            if "额度已用完" in message:
-                return ConsumeResult(allowed=False, reason="overdraft_limit", raw=res)
-            if "余额不足" in message:
-                return ConsumeResult(allowed=False, reason="insufficient_balance", raw=res)
+            if code == "overdraft_limit" or "额度已用完" in message:
+                return ConsumeResult(
+                    allowed=False, reason="overdraft_limit", raw={**res, **error_data}
+                )
+            if code == "insufficient_balance" or "余额不足" in message:
+                return ConsumeResult(
+                    allowed=False, reason="insufficient_balance", raw={**res, **error_data}
+                )
             logger.warning("积分消费异常(放行): %s", message)
             return ConsumeResult(allowed=True, reason="credits_unavailable")
         data = res.get("data") or {}
@@ -295,7 +301,16 @@ def charged(feature: str, description: str | None = None) -> Callable:
             result = await func(*args, **kwargs)
             outcome = await get_credits_service().consume(feature, description=description)
             if not outcome.allowed:
-                raise CreditsInsufficientError("积分余额不足")
+                raw = outcome.raw or {}
+                detail_keys = (
+                    "code", "balance", "cost", "charge_mode", "wallet_url",
+                    "recovery", "overdraft", "lite_grace",
+                )
+                raise CreditsInsufficientError(
+                    str(raw.get("message") or "积分余额不足"),
+                    code="OVERDRAFT_LIMIT" if outcome.reason == "overdraft_limit" else "INSUFFICIENT_CREDITS",
+                    details={k: raw[k] for k in detail_keys if k in raw},
+                )
             return result
         return wrapper
     return decorator

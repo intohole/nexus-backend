@@ -79,28 +79,27 @@ class GatewayBillingMixin:
         if not result.allowed:
             from nexus.credits import CreditsInsufficientError
 
+            raw = result.raw or {}
+            details: dict = {
+                "code": result.reason,
+                "balance": result.balance,
+                "cost": result.cost,
+                "charge_mode": result.charge_mode or mode,
+                "wallet_url": "/user-center.html#wallet",
+            }
+            for key in ("recovery", "overdraft", "lite_grace", "grace", "list_cost"):
+                if key in raw:
+                    details[key] = raw[key]
             if result.reason == "overdraft_limit":
                 raise CreditsInsufficientError(
                     "免费体验额度已用完，每日赠送积分到账后可继续使用",
                     code="OVERDRAFT_LIMIT",
-                    details={
-                        "code": "overdraft_limit",
-                        "balance": result.balance,
-                        "cost": result.cost,
-                        "charge_mode": result.charge_mode or mode,
-                        "wallet_url": "/user-center.html#wallet",
-                    },
+                    details=details,
                 )
             raise CreditsInsufficientError(
                 "积分余额不足，请充值后重试",
                 code="INSUFFICIENT_CREDITS",
-                details={
-                    "code": "insufficient_balance",
-                    "balance": result.balance,
-                    "cost": result.cost,
-                    "charge_mode": result.charge_mode or mode,
-                    "wallet_url": "/user-center.html#wallet",
-                },
+                details=details,
             )
 
     @classmethod
