@@ -47,14 +47,18 @@ class ChromaSDK(BaseAsyncClient):
     async def stats(self) -> dict[str, object]:
         return await self._request("GET", "/stats")
 
-    async def list_collections(self) -> list[dict[str, object]]:
+    async def list_collections(self) -> dict[str, object]:
+        """集合列表（信封契约）：成功 {"success": True, "collections": [...], "total": n}，失败 {"success": False, "detail": ...}。
+
+        不吞错转 []——空列表与错误必须可区分（假空治理，教训#84 同族）。
+        """
         result = await self._request("GET", "/api/v1/collections")
         if self._is_error(result):
-            return []
+            return result
         collections = result.get("collections")
-        if isinstance(collections, list):
-            return collections
-        return []
+        if not isinstance(collections, list):
+            return {"success": False, "detail": "Chroma collections response missing 'collections' list"}
+        return {"success": True, "collections": collections, "total": result.get("total", len(collections))}
 
     async def create_collection(
         self,

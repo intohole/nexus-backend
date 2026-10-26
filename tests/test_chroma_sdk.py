@@ -74,6 +74,26 @@ def test_upsert_documents_posts_upsert_endpoint(monkeypatch):
     assert json_data == {"ids": ["a", "b"], "embeddings": [[0.1], [0.2]], "documents": ["x", "y"], "metadatas": [{"k": 1}, {"k": 2}]}
 
 
+def test_list_collections_envelope_success_and_error(monkeypatch):
+    sdk, calls = _make_sdk(monkeypatch, [
+        (lambda k: k == "GET /api/v1/collections", {"collections": [{"name": "a"}, {"name": "b"}], "total": 2}),
+    ])
+    result = asyncio.run(sdk.list_collections())
+    assert result == {"success": True, "collections": [{"name": "a"}, {"name": "b"}], "total": 2}
+
+    sdk2, _ = _make_sdk(monkeypatch, [
+        (lambda k: k == "GET /api/v1/collections", {"success": False, "detail": "HTTP 500: boom"}),
+    ])
+    result = asyncio.run(sdk2.list_collections())
+    assert result == {"success": False, "detail": "HTTP 500: boom"}
+
+    sdk3, _ = _make_sdk(monkeypatch, [
+        (lambda k: k == "GET /api/v1/collections", {"unexpected": "shape"}),
+    ])
+    result = asyncio.run(sdk3.list_collections())
+    assert result.get("success") is False and "collections" in result.get("detail", "")
+
+
 def test_base_url_default_and_env(monkeypatch):
     monkeypatch.delenv("CHROMA_BASE_URL", raising=False)
     sdk = ChromaSDK()
