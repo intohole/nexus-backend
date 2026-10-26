@@ -119,6 +119,46 @@ def test_ensure_model_columns_sync_sql_expr_default_not_null_rejected() -> None:
             ensure_model_columns_sync(conn, md)
 
 
+def test_ensure_model_columns_sync_text_clause_timestamp_kept_as_expr() -> None:
+    engine = _make_db()
+    md = MetaData()
+    Table(
+        "orders", md,
+        Column("id", Integer, primary_key=True),
+        Column("updated_at", DateTime, server_default=text("CURRENT_TIMESTAMP")),
+    )
+    with engine.begin() as conn:
+        assert ensure_model_columns_sync(conn, md) == [("orders", "updated_at")]
+        conn.execute(text("INSERT INTO orders (id) VALUES (1)"))
+        ddl = conn.execute(
+            text("SELECT sql FROM sqlite_master WHERE name = 'orders'")
+        ).scalar()
+    assert "DEFAULT CURRENT_TIMESTAMP" in ddl
+    assert "'CURRENT_TIMESTAMP'" not in ddl
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO orders (id, note) VALUES (2, 'x')"))
+    with engine.connect() as conn:
+        first = conn.execute(text("SELECT updated_at FROM orders WHERE id = 1")).scalar()
+    assert first is not None
+    assert "CURRENT_TIMESTAMP" not in str(first)
+
+
+def test_ensure_model_columns_sync_unknown_text_clause_downgrades() -> None:
+    engine = _make_db()
+    md = MetaData()
+    Table(
+        "orders", md,
+        Column("id", Integer, primary_key=True),
+        Column("seed", String(16), server_default=text("random()")),
+    )
+    with engine.begin() as conn:
+        assert ensure_model_columns_sync(conn, md) == [("orders", "seed")]
+        conn.execute(text("INSERT INTO orders (id) VALUES (1)"))
+    with engine.connect() as conn:
+        stored = conn.execute(text("SELECT seed FROM orders WHERE id = 1")).scalar()
+    assert stored is None
+
+
 @pytest.mark.asyncio
 async def test_async_family_smoke() -> None:
     engine = create_async_engine("sqlite+aiosqlite://")

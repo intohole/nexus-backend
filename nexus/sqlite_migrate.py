@@ -14,10 +14,13 @@ from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.schema import Column, MetaData
+from sqlalchemy.sql.elements import TextClause
 
 logger = logging.getLogger("nexus.sqlite_migrate")
 
 ColumnSpec = Tuple[str, str, str]
+
+_TS_EXPR_DEFAULTS = ("CURRENT_TIMESTAMP", "CURRENT_DATE", "CURRENT_TIME")
 
 
 def ensure_column_sync(conn: Connection, table: str, column: str, col_ddl: str) -> bool:
@@ -45,10 +48,16 @@ def ensure_columns_sync(conn: Connection, migrations: Sequence[ColumnSpec]) -> L
 
 def _add_column_default(table_name: str, col: Column) -> str:
     """SQLite ADD COLUMN 仅接受常量默认：字面量照排（缺引号补引号），
-    SQL 表达式（func.now() 等）按可空性降级为无默认或拒绝（NOT NULL 需手工表重建）。"""
+    CURRENT_* 时间函数照排（SQLite 官方允许的 ADD COLUMN 特例，函数语义），
+    其余 SQL 表达式按可空性降级为无默认或拒绝（NOT NULL 需手工表重建）。"""
     if col.server_default is None:
         return " DEFAULT ''" if col.nullable is False else ""
     arg: object = col.server_default.arg
+    if isinstance(arg, TextClause):
+        expr: str = arg.text.strip()
+        if expr in _TS_EXPR_DEFAULTS:
+            return f" DEFAULT {expr}"
+        return " DEFAULT ''" if col.nullable is False else ""
     if not isinstance(arg, (str, int, float)):
         arg = getattr(arg, "text", None)
     if isinstance(arg, (int, float)):
