@@ -35,6 +35,16 @@ class LLMTimeoutError(Exception):
     pass
 
 
+class LLMEmptyContentError(RuntimeError):
+    """LLM 返回空 content（含 reasoning-only 输出）。
+
+    reasoning 是思考过程而非业务内容，禁止兜底充当 content（2026-10-22
+    verseCraft novel 8 实锤：思考独白整章落库）。空 content 属瞬时故障
+    （thinking 吃光预算，S27 实测约 50% 概率），交由 with_llm_retry 重试。
+    """
+    pass
+
+
 def is_retryable_error(exc: Exception) -> bool:
     """P1: 判断异常是否值得重试。
 

@@ -6,6 +6,7 @@ from typing import AsyncGenerator, Iterable, Optional
 from nexus.logging import get_logger
 from nexus.llm_optimizer import CONCISENESS_HINT, JSON_ONLY_HINT
 from nexus.llm_budget import OutputMode, PROSE_HINT
+from nexus.llm_utils import LLMEmptyContentError
 
 logger = get_logger("nexus.llm_helpers")
 
@@ -97,15 +98,10 @@ def convert_messages(
 def extract_content(response: object, request_id: str = "-") -> str:
     if response.content:
         return response.content
-    if getattr(response, "reasoning", None):
-        logger.warning(
-            "LLM returned empty content, using reasoning as fallback [req_id=%s, tokens=%s]",
-            request_id,
-            getattr(response.usage, "completion_tokens", "?"),
-        )
-        return response.reasoning
-    logger.warning("LLM returned empty content and no reasoning [req_id=%s]", request_id)
-    return ""
+    reasoning = getattr(response, "reasoning", None) or ""
+    raise LLMEmptyContentError(
+        f"LLM returned empty content (reasoning_chars={len(reasoning)}) [req_id={request_id}]"
+    )
 
 
 def record_usage(

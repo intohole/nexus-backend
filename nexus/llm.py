@@ -116,7 +116,9 @@ class LLMService:
         circuit = get_llm_circuit()
         async with llm_telemetry(kind, app_name, request_id) as (metrics, start):
             async def _do_with_circuit() -> object:
-                return await circuit.call(do)
+                response: object = await circuit.call(do)
+                extract_content(response, request_id)
+                return response
             response: object = await with_llm_retry(
                 _do_with_circuit, timeout, effective_retries(max_retries)
             )
