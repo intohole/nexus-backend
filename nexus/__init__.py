@@ -58,6 +58,12 @@ from nexus.utils import (
     pending_background_tasks,
     drain_background_tasks,
 )
+from nexus.rag_quality import (
+    extract_citations,
+    validate_citations,
+    judge_support,
+    run_check,
+)
 from nexus.boot import (
     register_service_auth,
     register_health_endpoints,
@@ -302,6 +308,7 @@ __all__ = [
     "validate_upload", "read_upload_with_limit", "split_ext",
     "batch_cosine_similarity", "clamp", "loads_or", "safe_float", "safe_bool", "jsonable", "resolve_cors_origins",
     "paginate_from_skip", "spawn_background", "pending_background_tasks", "drain_background_tasks",
+    "extract_citations", "validate_citations", "judge_support", "run_check",
     "register_service_auth", "register_health_endpoints",
     "register_probe_endpoints", "build_probe_runner", "probe_scheduler",
     "record_send_outcome", "last_send_outcome", "make_watermark_check", "jobs_health",
