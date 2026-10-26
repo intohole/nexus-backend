@@ -164,7 +164,7 @@ class VolcArkClient:
             if not b64:
                 raise VolcArkError("Seedream 返回空图")
             out_path.write_bytes(base64.b64decode(b64))
-        return ArkResult(provider="seedream", model=self.seedream_model, cost_cents=30)
+        return ArkResult(provider="seedream", model=self.seedream_model, cost_cents=21)
 
     async def generate_video(
         self, prompt: str, image_path: Path, out_path: Path, duration: int = 5
