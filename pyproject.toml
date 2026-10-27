@@ -19,7 +19,7 @@ dependencies = [
     "python-multipart>=0.0.32",
     "pyyaml>=6.0.3",
     "cachetools>=7.2.0",
-    "ironman-llm==0.12.4",
+    "ironman-llm==0.13.0",
     "apscheduler>=3.11.3",
     "croniter>=6.2.4",
 ]

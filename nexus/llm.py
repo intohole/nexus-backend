@@ -47,6 +47,7 @@ class LLMService:
         json_mode: bool,
         namespace: Optional[str],
         task_type: Optional[str],
+        reasoning_effort: Optional[str] = None,
     ) -> dict[str, object] | None:
         extra: dict[str, object] | None = None
         if json_mode:
@@ -58,6 +59,9 @@ class LLMService:
         if task_type:
             extra = dict(extra or {})
             extra["task_type"] = task_type
+        if reasoning_effort:
+            extra = dict(extra or {})
+            extra["reasoning_effort"] = reasoning_effort
         return extra
 
     async def _prepare_call(
@@ -72,6 +76,7 @@ class LLMService:
         model: Optional[str],
         enable_thinking: bool,
         thinking_budget: int,
+        reasoning_effort: Optional[str] = None,
     ) -> tuple[object, float, int, Optional[OutputMode]]:
         """公共前置：配置 ironman、预算解析并构造 LLMOptions。
 
@@ -99,7 +104,7 @@ class LLMService:
             model=model,
             enable_thinking=enable_thinking,
             thinking_budget=thinking_budget,
-            extra=self._build_extra(json_mode, namespace, task_type),
+            extra=self._build_extra(json_mode, namespace, task_type, reasoning_effort),
         )
         return opts, temp, eff_max, budget_mode
 
@@ -164,6 +169,7 @@ class LLMService:
         model: Optional[str] = None,
         enable_thinking: bool = False,
         thinking_budget: int = 8192,
+        reasoning_effort: Optional[str] = None,
         feature: str = "",
         _want_usage: bool = False,
     ) -> str | dict[str, object]:
@@ -171,6 +177,7 @@ class LLMService:
             temperature=temperature, max_tokens=max_tokens, task_type=task_type,
             output_mode=output_mode, json_mode=json_mode, namespace=namespace,
             model=model, enable_thinking=enable_thinking, thinking_budget=thinking_budget,
+            reasoning_effort=reasoning_effort,
         )
         system, _ = apply_output_discipline(system, "", concise, json_mode, budget_mode)
         ironman_messages = convert_messages(messages, system)
@@ -305,12 +312,14 @@ class LLMService:
         model: Optional[str] = None,
         enable_thinking: bool = False,
         thinking_budget: int = 8192,
+        reasoning_effort: Optional[str] = None,
         feature: str = "",
     ) -> AsyncGenerator[str, None]:
         opts, _temp, _eff_max, budget_mode = await self._prepare_call(
             temperature=temperature, max_tokens=max_tokens, task_type=task_type,
             output_mode=output_mode, json_mode=False, namespace=namespace,
             model=model, enable_thinking=enable_thinking, thinking_budget=thinking_budget,
+            reasoning_effort=reasoning_effort,
         )
         system, _ = apply_output_discipline(system, "", False, False, budget_mode)
         ironman_messages = convert_messages(messages, system)

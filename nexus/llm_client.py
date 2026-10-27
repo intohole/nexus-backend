@@ -28,6 +28,7 @@ class LLMJsonClient:
         task_type: str = "default",
         timeout: float = 90.0,
         budget_retry: bool = True,
+        reasoning_effort: Optional[str] = None,
     ) -> None:
         self._svc = get_llm_service()
         self._last_error = ""
@@ -39,6 +40,7 @@ class LLMJsonClient:
         self._task_type = task_type
         self._timeout = timeout
         self._budget_retry = budget_retry
+        self._reasoning_effort = reasoning_effort
 
     @property
     def last_error(self) -> str:
@@ -97,12 +99,16 @@ class LLMJsonClient:
         timeout: Optional[float] = None,
         schema: Optional[type[BaseModel]] = None,
         repair_attempts: int = 1,
+        reasoning_effort: Optional[str] = None,
     ) -> Dict[str, Any]:
         call: dict[str, object] = {
             "temperature": self._temperature if temperature is None else temperature,
             "model": model if model is not None else self._model,
         }
         call.update(self._thinking_kwargs(enable_thinking, thinking_budget))
+        eff_effort = self._reasoning_effort if reasoning_effort is None else reasoning_effort
+        if eff_effort:
+            call["reasoning_effort"] = eff_effort
         eff_task_type = self._task_type if task_type is None else task_type
         eff_timeout = self._timeout if timeout is None else timeout
         budget = self._max_tokens if max_tokens is None else max_tokens
@@ -155,6 +161,7 @@ class LLMJsonClient:
         model: Optional[str] = None,
         enable_thinking: Optional[bool] = None,
         thinking_budget: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> str:
         try:
             return await self._svc.chat(
@@ -165,6 +172,7 @@ class LLMJsonClient:
                 model=model if model is not None else self._model,
                 enable_thinking=self._enable_thinking if enable_thinking is None else enable_thinking,
                 thinking_budget=self._thinking_budget if thinking_budget is None else thinking_budget,
+                reasoning_effort=self._reasoning_effort if reasoning_effort is None else reasoning_effort,
             )
         except Exception as exc:
             self._last_error = str(exc)
@@ -185,6 +193,7 @@ class LLMJsonClient:
         task_type: Optional[str] = None,
         timeout: Optional[float] = None,
         image_detail: str = "low",
+        reasoning_effort: Optional[str] = None,
     ) -> Dict[str, Any]:
         """多模态 JSON 调用：文本 prompt + 图片列表(URL/dataURL) 走统一 LLM 栈，供原生多模态模型使用。"""
         content: List[dict] = [{"type": "text", "text": prompt}]
@@ -200,6 +209,7 @@ class LLMJsonClient:
                 task_type=self._task_type if task_type is None else task_type,
                 timeout=self._timeout if timeout is None else timeout,
                 model=model if model is not None else self._model,
+                reasoning_effort=self._reasoning_effort if reasoning_effort is None else reasoning_effort,
                 **self._thinking_kwargs(enable_thinking, thinking_budget),
             )
             parsed = parse_llm_json(raw)
