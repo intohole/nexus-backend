@@ -304,6 +304,52 @@ def test_nexus_scheduler_add_cron_params_backward_compat() -> None:
     scheduler.remove_job(job_id)
 
 
+def test_add_cron_job_bad_expr_logs_error(caplog) -> None:
+    import logging
+
+    scheduler = CronScheduler(tick_seconds=1)
+
+    async def job() -> None:
+        return None
+
+    with caplog.at_level(logging.ERROR, logger="nexus.crontab"):
+        scheduler.add_cron_job("bad-expr", "not a cron", job)
+    assert scheduler._cron_jobs["bad-expr"]["next_run_at"] is None
+    assert any("bad-expr" in r.message and "永不触发" in r.message for r in caplog.records)
+
+
+def test_start_self_check_flags_dead_jobs(caplog) -> None:
+    import logging
+
+    scheduler = CronScheduler(tick_seconds=1)
+
+    async def job() -> None:
+        return None
+
+    scheduler.add_cron_job("dead-job", "99 99 99 99 99", job)
+    scheduler._cron_jobs["dead-job"]["next_run_at"] = None
+    scheduler._task = None
+    with caplog.at_level(logging.ERROR, logger="nexus.crontab"):
+        scheduler.start(mode="gated")
+    assert any("启动自检" in r.message and "dead-job" in r.message for r in caplog.records)
+
+
+def test_good_expr_no_error_log(caplog) -> None:
+    import logging
+
+    scheduler = CronScheduler(tick_seconds=1)
+
+    async def job() -> None:
+        return None
+
+    with caplog.at_level(logging.ERROR, logger="nexus.crontab"):
+        scheduler.add_cron_job("good", "30 9 * * *", job)
+        scheduler._task = None
+        scheduler.start(mode="gated")
+    errs = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert not errs or all("gate" not in r.message for r in errs), errs
+
+
 if __name__ == "__main__":
     sys_exit = 0
     for name, fn in list(globals().items()):

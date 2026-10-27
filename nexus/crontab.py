@@ -104,10 +104,17 @@ class CronScheduler:
             raise TypeError(
                 f"cron job {job_id!r} handler must be async, got {type(func).__name__}"
             )
+        first_run = next_run_at(expr, tz=self._tz)
+        if first_run is None:
+            logger.error(
+                "cron job %s 表达式 %r 解析失败（croniter 缺席或表达式非法）——job 将永不触发",
+                job_id,
+                expr,
+            )
         self._cron_jobs[job_id] = {
             "expr": expr,
             "func": func,
-            "next_run_at": next_run_at(expr, tz=self._tz),
+            "next_run_at": first_run,
             "failures": 0,
             "last_error": None,
         }
@@ -158,6 +165,13 @@ class CronScheduler:
         """启动 tick 循环。mode 见 nexus.scheduler_gate；门禁拒绝时不建 task 且留痕于 self.gate。"""
         if self._task and not self._task.done():
             return
+        dead = [jid for jid, job in self._cron_jobs.items() if job.get("next_run_at") is None]
+        if dead:
+            logger.error(
+                "CronScheduler 启动自检: %d 个 job next_run_at=None 将永不触发: %s",
+                len(dead),
+                ", ".join(dead),
+            )
         self.gate = scheduler_gate(mode)
         if not self.gate.allowed:
             log_gate_refusal(logger, self.gate, "CronScheduler")
