@@ -20,9 +20,11 @@ _REFRESH_MARGIN: int = 60
 class ServiceClient:
     """统一服务间凭证：UC client_credentials 短效 JWT，缓存 + 自动续期。
 
-    凭证来源优先级（infra.get_uc_config 单源）：
-    1. env UC_APP_KEY/UC_APP_SECRET（miniDeploy 部署时注入，最终态）
-    2. Lion 当前 namespace business/uc_auth（迁移期引导，infra 层自带缓存）
+    凭证源从活到旧逐级尝试，首个换取成功者胜出：
+    1. Lion 当前 namespace business/uc_auth（应用级身份，与 uc_sdk bootstrap 同源，
+       UC 应用身份轮换后仍活着的凭证——challengePlanet 10-24 实证）
+    2. Lion infra/usercenter app_key/app_secret 或 env UC__APP_KEY/UC__APP_SECRET
+       （平台共享凭证，身份轮换后易成死键，仅作回退）
     3. env SERVICE_TOKEN（过渡兜底，最终移除）
     """
 
@@ -61,28 +63,45 @@ class ServiceClient:
             self._refreshing_task = None
 
     async def _refresh_locked(self) -> None:
-        from nexus.infra import get_uc_config
+        from nexus.infra import get_uc_auth, get_uc_config
 
         try:
             cfg: dict = await get_uc_config()
         except Exception as exc:
             logger.warning("读取 UC 配置失败: %s", exc)
             cfg = {}
-        app_key: str = str(cfg.get("app_key") or "")
-        app_secret: str = str(cfg.get("app_secret") or "")
-        if app_key and app_secret:
-            base_url: str = str(cfg.get("base_url") or "").rstrip("/") or self._uc_base_url()
-            token, expires_in = await self._exchange_token(app_key, app_secret, base_url)
+        base_url: str = str(cfg.get("base_url") or "").rstrip("/") or self._uc_base_url()
+
+        sources: list[tuple[str, str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        try:
+            auth: dict = await get_uc_auth()
+        except Exception as exc:
+            logger.warning("读取 Lion uc_auth 失败: %s", exc)
+            auth = {}
+        for name, creds in (
+            ("lion:uc_auth", auth),
+            ("infra:usercenter", cfg),
+        ):
+            key = str(creds.get("app_key") or "")
+            secret = str(creds.get("app_secret") or "")
+            if not key or not secret or (key, secret) in seen:
+                continue
+            seen.add((key, secret))
+            sources.append((name, key, secret))
+
+        for name, key, secret in sources:
+            token, expires_in = await self._exchange_token(key, secret, base_url)
             if token:
                 self._token = token
                 self._expires_at = time.time() + expires_in
-                logger.info("service token 续期成功 ttl=%ss", expires_in)
+                logger.info("service token 续期成功 source=%s ttl=%ss", name, expires_in)
                 return
         legacy: str = os.getenv("SERVICE_TOKEN", "")
         if legacy:
             self._token = legacy
             self._expires_at = time.time() + _SERVICE_TOKEN_TTL
-            logger.warning("UC 凭证换取失败或不可用，回退 SERVICE_TOKEN 兼容调用")
+            logger.warning("UC 凭证源全部失效，回退 SERVICE_TOKEN 兼容调用")
         else:
             logger.warning("UC 凭证与 SERVICE_TOKEN 均不可用，服务间调用将失败")
 
