@@ -108,3 +108,76 @@ def test_revive_then_silence_cycle():
     revived_at = NOW
     second = decide_touch(new_fingerprint="f1", last_fingerprint="f1", last_sent_at=revived_at, now=NOW + timedelta(days=3))
     assert second.action is TouchAction.SILENCE
+
+
+WEEK = timedelta(days=7)
+
+
+def test_unread_backoff_blocks_new_content_within_schedule():
+    d = decide_touch(
+        new_fingerprint="f2",
+        last_fingerprint="f1",
+        last_sent_at=NOW - timedelta(days=8),
+        min_interval=timedelta(days=6),
+        now=NOW,
+        unread_streak=1,
+        backoff_schedule=(timedelta(days=14), timedelta(days=21)),
+    )
+    assert d.action is TouchAction.SILENCE_TOO_SOON
+    assert d.reason == "within_min_interval_unread_backoff_1" and not d.allowed
+
+
+def test_unread_backoff_picks_streak_tier_and_caps_at_last():
+    base = dict(
+        new_fingerprint="f2", last_fingerprint="f1",
+        last_sent_at=NOW - timedelta(days=15), min_interval=timedelta(days=6), now=NOW,
+        backoff_schedule=(timedelta(days=14), timedelta(days=21)),
+    )
+    streak1 = decide_touch(unread_streak=1, **base)
+    streak5 = decide_touch(unread_streak=5, **base)
+    assert streak1.action is TouchAction.SEND
+    assert streak5.action is TouchAction.SILENCE_TOO_SOON
+    assert streak5.reason == "within_min_interval_unread_backoff_5"
+
+
+def test_unread_backoff_releases_after_tier_elapsed():
+    d = decide_touch(
+        new_fingerprint="f2", last_fingerprint="f1",
+        last_sent_at=NOW - timedelta(days=14), min_interval=timedelta(days=6), now=NOW,
+        unread_streak=1, backoff_schedule=(timedelta(days=14),),
+    )
+    assert d.action is TouchAction.SEND and d.reason == "content_changed" and d.allowed
+
+
+def test_unread_backoff_amplifies_revive_gate_for_same_content():
+    d = decide_touch(
+        new_fingerprint="f1", last_fingerprint="f1",
+        last_sent_at=NOW - WEEK, now=NOW,
+        unread_streak=2, backoff_schedule=(timedelta(days=14), timedelta(days=21)),
+    )
+    assert d.action is TouchAction.SILENCE
+    late = decide_touch(
+        new_fingerprint="f1", last_fingerprint="f1",
+        last_sent_at=NOW - timedelta(days=21), now=NOW,
+        unread_streak=2, backoff_schedule=(timedelta(days=14), timedelta(days=21)),
+    )
+    assert late.action is TouchAction.REVIVE
+    assert "unread_backoff_2" in late.reason
+
+
+def test_no_streak_keeps_legacy_behavior():
+    d = decide_touch(
+        new_fingerprint="f2", last_fingerprint="f1",
+        last_sent_at=NOW - timedelta(days=8), min_interval=timedelta(days=6), now=NOW,
+        backoff_schedule=(timedelta(days=14),),
+    )
+    assert d.action is TouchAction.SEND and d.reason == "content_changed"
+
+
+def test_streak_without_schedule_keeps_legacy_behavior():
+    d = decide_touch(
+        new_fingerprint="f2", last_fingerprint="f1",
+        last_sent_at=NOW - timedelta(days=8), min_interval=timedelta(days=6), now=NOW,
+        unread_streak=3,
+    )
+    assert d.action is TouchAction.SEND and d.reason == "content_changed"

@@ -14,6 +14,16 @@ suki r9 增量判据+revive 续航 / geniusStudent r15 内容指纹聚合 / gold
 - 同内容且 max(last_sent, user_last_active) 距今满 sunset_days -> SUNSET
   （用户长期未回流且无新话，诚实退场；内容变了则不受落日限制，有新话照发）
 - 存在历史触达但无指纹（历史行平滑切进守卫）-> 视为首次放行一条
+
+未读退避（unread_streak + backoff_schedule，1.106.0）：
+周期触达（周报/周灵感/月度盘点）按固定节拍重发，对不读的用户是结构性噪音：
+travelMate 周灵感 3 天 0 已读仍每 7 天一发。调用方回传「连续未读次数」
+（read-status 证据缺失时不计，宁宽勿冤），频率下限取 max(min_interval, 档位值)，
+REVIVE 门槛同步放大——连击越深节拍越稀，读一次即清零回常态。退避拦在
+min_interval 位（先于内容变化判定）：周期选品类触达每期内容天然不同
+（新指纹），只拦同内容等于退避永远被 content_changed 旁路——「你不读，
+我就连新话也少说」才是退避的产品语义；确有强时效内容走独立高优通道，
+不与周期灵感共用节拍。
 """
 
 from __future__ import annotations
@@ -64,17 +74,29 @@ def decide_touch(
     revive_days: int = 7,
     sunset_days: int = 30,
     user_last_active_at: datetime | None = None,
+    unread_streak: int = 0,
+    backoff_schedule: tuple[timedelta, ...] | None = None,
 ) -> TouchDecision:
     """触达决策。now 由调用方传入（纯函数，不读墙钟）。
 
     user_last_active_at：用户最近一次真实写行为时间，仅参与 sunset 锚点——
     触达后用户回流过则落日计时顺延（活跃用户不会被落日）；同内容仍静默
     （回流但内容无增量 ≠ 重发同句的理由）。
+
+    unread_streak：连续未读次数（上次已读/首次=0；read-status 证据缺失时
+    调用方不计数，宁宽勿冤）。backoff_schedule：未读退避间隔档位表，第 N 次
+    连击取第 min(N, len) 档；频率下限 = max(min_interval, 档位值)，REVIVE
+    门槛同步放大——先于内容变化判定（周期选品每期新指纹，不拦新内容则
+    退避恒被旁路），读一次即回常态。
     """
     if not last_sent_at:
         return TouchDecision(TouchAction.SEND, "first_touch")
-    if min_interval and now - last_sent_at < min_interval:
-        return TouchDecision(TouchAction.SILENCE_TOO_SOON, "within_min_interval")
+    backoff = timedelta(0)
+    if unread_streak > 0 and backoff_schedule:
+        backoff = backoff_schedule[min(unread_streak, len(backoff_schedule)) - 1]
+    if min_interval and now - last_sent_at < max(min_interval, backoff):
+        reason = "within_min_interval" + (f"_unread_backoff_{unread_streak}" if backoff else "")
+        return TouchDecision(TouchAction.SILENCE_TOO_SOON, reason)
     if last_fingerprint and new_fingerprint != last_fingerprint:
         return TouchDecision(TouchAction.SEND, "content_changed")
     if not last_fingerprint:
@@ -85,8 +107,11 @@ def decide_touch(
         anchor = user_last_active_at
     if now - anchor > timedelta(days=sunset_days):
         return TouchDecision(TouchAction.SUNSET, f"no_response_over_{sunset_days}d")
-    if now - last_sent_at >= timedelta(days=revive_days):
-        return TouchDecision(TouchAction.REVIVE, f"same_content_over_{revive_days}d")
+    if now - last_sent_at >= max(timedelta(days=revive_days), backoff):
+        return TouchDecision(
+            TouchAction.REVIVE,
+            f"same_content_over_{revive_days}d" + (f"_unread_backoff_{unread_streak}" if backoff else ""),
+        )
     return TouchDecision(TouchAction.SILENCE, "same_content")
 
 
