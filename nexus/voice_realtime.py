@@ -27,6 +27,7 @@ _MAX_AUDIO_B64 = 96 * 1024
 _HARD_PUNCT = "。！？!?；;\n"
 _SOFT_PUNCT = "，,、"
 _RECV_POLL_S = 0.2
+_AUTH_TIMEOUT_S = 5.0
 
 
 class VoiceTurnHandler(Protocol):
@@ -41,6 +42,7 @@ class VoiceRealtimeConfig:
     asr_api_key: str = ""
     asr_resource_id: str = "volc.seedasr.sauc.duration"
     asr_end_window_ms: int = 800
+    asr_enable_nonstream: bool = True
     allow_barge_in: bool = True
     max_sessions: int = 32
     session_timeout_s: float = 900.0
@@ -74,6 +76,8 @@ class _RealtimeSession:
         self._closed = False
         self._cleaned = False
         self._started_at = time.monotonic()
+        self._turn_user_text: str | None = None
+        self._turn_reply_parts: list[str] | None = None
         self._ctx: dict = {"conn_id": self._conn_id, "user": user}
 
     async def run(self) -> None:
@@ -145,6 +149,7 @@ class _RealtimeSession:
             api_key=self._config.asr_api_key,
             resource_id=self._config.asr_resource_id,
             end_window_ms=self._config.asr_end_window_ms,
+            enable_nonstream=self._config.asr_enable_nonstream,
             uid=f"{self._config.uid_prefix}-{self._conn_id}",
         )
         try:
@@ -215,6 +220,7 @@ class _RealtimeSession:
         return self._turn_task is None or self._turn_task.done()
 
     async def _run_turn(self, user_text: str) -> None:
+        self._turn_user_text = user_text
         await self._send({"type": "thinking", "user": user_text})
         tts: TTSStreamSession | None = None
         if self._config.tts_api_key:
@@ -236,6 +242,7 @@ class _RealtimeSession:
                 tts = None
         speaker_task: asyncio.Task | None = None
         reply_parts: list[str] = []
+        self._turn_reply_parts = reply_parts
         try:
             if tts is not None:
                 speaker_task = asyncio.create_task(self._pump_tts(tts))
@@ -274,6 +281,8 @@ class _RealtimeSession:
                 except Exception as e:
                     logger.warning("handler on_turn_complete failed: %s", e)
             await self._send({"type": "turn_end", "user": user_text, "reply": reply_text})
+            self._turn_user_text = None
+            self._turn_reply_parts = None
         except asyncio.CancelledError:
             raise
         except (VolcArkError, AsrStreamError, Exception) as e:
@@ -285,6 +294,9 @@ class _RealtimeSession:
                 "reply": "".join(reply_parts),
                 "failed": True,
             })
+            await self._notify_turn_interrupted(user_text, "".join(reply_parts))
+            self._turn_user_text = None
+            self._turn_reply_parts = None
         finally:
             if speaker_task is not None and not speaker_task.done():
                 speaker_task.cancel()
@@ -310,9 +322,23 @@ class _RealtimeSession:
                 await self._turn_task
             except (asyncio.CancelledError, Exception):
                 pass
+            user_text = self._turn_user_text or ""
+            partial = "".join(self._turn_reply_parts or [])
+            self._turn_user_text = None
+            self._turn_reply_parts = None
+            if notify:
+                await self._send({"type": "interrupted"})
+            await self._notify_turn_interrupted(user_text, partial)
         self._turn_task = None
-        if notify:
-            await self._send({"type": "interrupted"})
+
+    async def _notify_turn_interrupted(self, user_text: str, partial_reply: str) -> None:
+        hook = getattr(self._handler, "on_turn_interrupted", None)
+        if hook is None or not user_text or not partial_reply.strip():
+            return
+        try:
+            await hook(user_text, partial_reply, dict(self._ctx))
+        except Exception as e:
+            logger.warning("handler on_turn_interrupted failed: %s", e)
 
     @staticmethod
     def _split_sentence(buf: str) -> tuple[str, str]:
@@ -365,13 +391,24 @@ def register_voice_realtime_endpoints(
     authenticator: Callable[[str, dict], Awaitable[dict | None]] | None = None,
     path: str = "/api/v1/voice/realtime",
 ) -> None:
-    """注册 WS {path}?token=&...。authenticator(token, query)->user|None，None 拒绝(4401)。"""
+    """注册 WS {path}。鉴权走首帧 hello {type:"auth",token}（5s 超时），
+    authenticator(token, query)->user|None，None 拒绝(4401)；token 不进 URL 避免访问日志泄漏。"""
     auth = authenticator or _default_authenticator
 
     @app.websocket(path)
     async def voice_realtime_ws(websocket: WebSocket) -> None:
-        token = websocket.query_params.get("token") or ""
         query = dict(websocket.query_params)
+        await websocket.accept()
+        try:
+            hello_raw = await asyncio.wait_for(websocket.receive_text(), timeout=_AUTH_TIMEOUT_S)
+        except (asyncio.TimeoutError, WebSocketDisconnect, Exception):
+            await _reject(websocket, 4401, "auth timeout")
+            return
+        token = ""
+        try:
+            token = str(json.loads(hello_raw).get("token") or "")
+        except ValueError:
+            pass
         try:
             user = await auth(token, query)
         except Exception as e:
@@ -383,7 +420,6 @@ def register_voice_realtime_endpoints(
         if len(_active_sessions) >= config.max_sessions:
             await _reject(websocket, 4429, "too many sessions")
             return
-        await websocket.accept()
         session = _RealtimeSession(websocket, handler, config, dict(user))
         _active_sessions.add(session)
         try:

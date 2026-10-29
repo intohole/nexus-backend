@@ -70,14 +70,22 @@ async def get_moutain_config() -> dict[str, str]:
     return {"base_url": base_url}
 
 
-async def get_volc_speech_config() -> dict[str, str]:
+async def get_volc_speech_config() -> dict[str, object]:
     """火山语音（流式ASR+TTS）配置：Lion infra.volc_speech，业务侧注入长连接客户端。"""
     config = await _get_infra("volc_speech")
+    raw_nonstream = config.get("asr_enable_nonstream")
+    if raw_nonstream is None:
+        enable_nonstream = True
+    elif isinstance(raw_nonstream, bool):
+        enable_nonstream = raw_nonstream
+    else:
+        enable_nonstream = str(raw_nonstream).strip().lower() not in ("0", "false", "no", "off")
     return {
         "tts_api_key": str(config.get("tts_api_key") or ""),
         "tts_voice": str(config.get("tts_voice") or "zh_female_gaolengyujie_uranus_bigtts"),
         "asr_api_key": str(config.get("asr_api_key") or "") or str(config.get("tts_api_key") or ""),
         "asr_resource_id": str(config.get("asr_resource_id") or "volc.seedasr.sauc.duration"),
+        "asr_enable_nonstream": enable_nonstream,
     }
 
 
