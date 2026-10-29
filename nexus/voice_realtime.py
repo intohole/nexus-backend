@@ -70,13 +70,19 @@ class _RealtimeSession:
         self._pending_text = ""
         self._last_partial = ""
         self._last_activity = time.monotonic()
+        self._last_client_interrupt = 0.0
         self._closed = False
+        self._cleaned = False
+        self._started_at = time.monotonic()
         self._ctx: dict = {"conn_id": self._conn_id, "user": user}
 
     async def run(self) -> None:
         await self._send({"type": "ready", "conn_id": self._conn_id, "user_id": self._user.get("user_id")})
         try:
             while not self._closed:
+                if time.monotonic() - self._started_at > self._config.session_timeout_s:
+                    await self._send({"type": "closed", "reason": "session timeout"})
+                    break
                 try:
                     raw = await asyncio.wait_for(self._ws.receive_text(), timeout=_RECV_POLL_S)
                 except asyncio.TimeoutError:
@@ -105,6 +111,7 @@ class _RealtimeSession:
         elif msg_type == "turn_end":
             await self._trigger_turn()
         elif msg_type == "interrupt":
+            self._last_client_interrupt = time.monotonic()
             await self._interrupt(notify=True)
         elif msg_type == "stop":
             self._closed = True
@@ -127,7 +134,7 @@ class _RealtimeSession:
     async def _on_direct_text(self, text: str) -> None:
         text = text.strip()
         if text:
-            self._pending_text = text[: self._config.max_user_chars]
+            self._pending_text = (self._pending_text + text)[: self._config.max_user_chars]
         await self._trigger_turn()
 
     async def _open_asr(self) -> None:
@@ -166,7 +173,13 @@ class _RealtimeSession:
                     definite = str(r.get("definite_text") or "")
                     self._pending_text = (self._pending_text + definite)[: self._config.max_user_chars]
                     await self._send({"type": "asr_final", "text": definite, "full": r.get("full_text")})
-                    if self._config.allow_barge_in and self._turn_task is not None and not self._turn_task.done():
+                    barge_in_window = time.monotonic() - self._last_client_interrupt <= 3.0
+                    if (
+                        self._config.allow_barge_in
+                        and barge_in_window
+                        and self._turn_task is not None
+                        and not self._turn_task.done()
+                    ):
                         await self._interrupt(notify=True)
         except asyncio.CancelledError:
             raise
@@ -225,7 +238,6 @@ class _RealtimeSession:
         reply_parts: list[str] = []
         try:
             if tts is not None:
-                await tts.start()
                 speaker_task = asyncio.create_task(self._pump_tts(tts))
             sentence_buf = ""
             async for delta in self._handler.reply(user_text, dict(self._ctx)):
@@ -267,6 +279,12 @@ class _RealtimeSession:
         except (VolcArkError, AsrStreamError, Exception) as e:
             logger.warning("turn failed conn=%s: %s", self._conn_id, e)
             await self._send({"type": "error", "message": "本轮处理失败，请重试"})
+            await self._send({
+                "type": "turn_end",
+                "user": user_text,
+                "reply": "".join(reply_parts),
+                "failed": True,
+            })
         finally:
             if speaker_task is not None and not speaker_task.done():
                 speaker_task.cancel()
@@ -321,8 +339,9 @@ class _RealtimeSession:
             self._closed = True
 
     async def aclose(self) -> None:
-        if self._closed:
+        if self._cleaned:
             return
+        self._cleaned = True
         self._closed = True
         await self._interrupt(notify=False)
         await self._teardown_asr()
