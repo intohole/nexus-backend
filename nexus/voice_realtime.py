@@ -203,42 +203,65 @@ class _RealtimeSession:
 
     async def _run_turn(self, user_text: str) -> None:
         await self._send({"type": "thinking", "user": user_text})
-        tts = TTSStreamSession(
-            api_key=self._config.tts_api_key,
-            voice=self._config.tts_voice,
-            sample_rate=self._config.tts_sample_rate,
-            audio_format="pcm",
-        )
+        tts: TTSStreamSession | None = None
+        if self._config.tts_api_key:
+            tts = TTSStreamSession(
+                api_key=self._config.tts_api_key,
+                voice=self._config.tts_voice,
+                sample_rate=self._config.tts_sample_rate,
+                audio_format="pcm",
+            )
+            try:
+                await tts.start()
+            except Exception as e:
+                logger.warning("tts start failed, degrade to text-only turn conn=%s: %s", self._conn_id, e)
+                await self._send({"type": "tts_unavailable", "message": "语音合成暂不可用，本轮以文字进行"})
+                try:
+                    await tts.close()
+                except Exception:
+                    pass
+                tts = None
         speaker_task: asyncio.Task | None = None
         reply_parts: list[str] = []
         try:
-            await tts.start()
-            speaker_task = asyncio.create_task(self._pump_tts(tts))
+            if tts is not None:
+                await tts.start()
+                speaker_task = asyncio.create_task(self._pump_tts(tts))
             sentence_buf = ""
             async for delta in self._handler.reply(user_text, dict(self._ctx)):
                 if not delta:
                     continue
                 reply_parts.append(delta)
                 await self._send({"type": "assistant_delta", "text": delta})
-                sentence_buf += delta
-                flush, sentence_buf = self._split_sentence(sentence_buf)
-                if flush:
-                    await tts.push_text(flush)
-            if sentence_buf.strip():
-                await tts.push_text(sentence_buf)
-            await tts.finish()
-            try:
-                await asyncio.wait_for(asyncio.shield(speaker_task), timeout=self._config.turn_timeout_s)
-            except asyncio.TimeoutError:
-                logger.warning("tts drain timeout turn conn=%s", self._conn_id)
+                if tts is not None:
+                    sentence_buf += delta
+                    flush, sentence_buf = self._split_sentence(sentence_buf)
+                    if flush:
+                        try:
+                            await tts.push_text(flush)
+                        except Exception as e:
+                            logger.warning("tts push failed, degrade to text-only conn=%s: %s", self._conn_id, e)
+                            await self._send({"type": "tts_unavailable", "message": "语音合成暂不可用，本轮以文字进行"})
+                            tts = None
+            if tts is not None:
+                if sentence_buf.strip():
+                    try:
+                        await tts.push_text(sentence_buf)
+                    except Exception:
+                        pass
+                await tts.finish()
+                try:
+                    await asyncio.wait_for(asyncio.shield(speaker_task), timeout=self._config.turn_timeout_s)
+                except asyncio.TimeoutError:
+                    logger.warning("tts drain timeout turn conn=%s", self._conn_id)
             reply_text = "".join(reply_parts)
-            await self._send({"type": "turn_end", "user": user_text, "reply": reply_text})
             on_turn = getattr(self._handler, "on_turn_complete", None)
             if on_turn is not None:
                 try:
                     await on_turn(user_text, reply_text, dict(self._ctx))
                 except Exception as e:
                     logger.warning("handler on_turn_complete failed: %s", e)
+            await self._send({"type": "turn_end", "user": user_text, "reply": reply_text})
         except asyncio.CancelledError:
             raise
         except (VolcArkError, AsrStreamError, Exception) as e:
@@ -247,7 +270,8 @@ class _RealtimeSession:
         finally:
             if speaker_task is not None and not speaker_task.done():
                 speaker_task.cancel()
-            await tts.close()
+            if tts is not None:
+                await tts.close()
             await self._teardown_asr()
 
     async def _pump_tts(self, tts: TTSStreamSession) -> None:
