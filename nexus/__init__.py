@@ -151,6 +151,13 @@ from nexus.infra import (
 )
 from nexus.service_client import get_service_client, get_service_token
 from nexus.voice import register_voice_endpoints
+from nexus.voice_realtime import (
+    register_voice_realtime_endpoints,
+    VoiceRealtimeConfig,
+    VoiceTurnHandler,
+)
+from nexus.asr import AsrStreamSession, AsrStreamError, asr_transcribe
+from nexus.volc import TTSStreamSession
 from nexus.user_auth import create_user_auth, get_bearer_token
 from nexus.fastapi_setup import (
     create_app,
@@ -292,7 +299,9 @@ except Exception:  # source-tree import without installed metadata
 
 __all__ = [
     "VolcArkClient", "VolcArkError", "VolcArkUnavailableError",
-    "register_voice_endpoints",
+    "TTSStreamSession", "AsrStreamSession", "AsrStreamError", "asr_transcribe",
+    "register_voice_endpoints", "register_voice_realtime_endpoints",
+    "VoiceRealtimeConfig", "VoiceTurnHandler",
     "NexusConfig", "get_settings", "load_project_config", "deep_merge", "yaml_get",
     "yaml_secret", "yaml_int", "yaml_float", "yaml_bool", "NexusError",
     "DatabaseError", "NotFoundError",

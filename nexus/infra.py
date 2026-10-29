@@ -70,6 +70,17 @@ async def get_moutain_config() -> dict[str, str]:
     return {"base_url": base_url}
 
 
+async def get_volc_speech_config() -> dict[str, str]:
+    """火山语音（流式ASR+TTS）配置：Lion infra.volc_speech，业务侧注入长连接客户端。"""
+    config = await _get_infra("volc_speech")
+    return {
+        "tts_api_key": str(config.get("tts_api_key") or ""),
+        "tts_voice": str(config.get("tts_voice") or "zh_female_gaolengyujie_uranus_bigtts"),
+        "asr_api_key": str(config.get("asr_api_key") or "") or str(config.get("tts_api_key") or ""),
+        "asr_resource_id": str(config.get("asr_resource_id") or "volc.seedasr.sauc.duration"),
+    }
+
+
 async def get_promptmanager_config() -> dict[str, str]:
     config = await _get_infra("promptmanager")
     base_url = await _infra_url("promptmanager", "PM_BASE_URL", "")

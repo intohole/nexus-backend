@@ -13,6 +13,7 @@ import ssl
 import struct
 import time
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -101,6 +102,165 @@ class ArkResult:
     model: str
     cost_cents: int = 0
     meta: dict = field(default_factory=dict)
+
+
+class TTSStreamSession:
+    """seed-tts-2.0 增量文本流式会话：push_text(句子) → frames() 迭代音频块。
+
+    音频格式默认 pcm(s16le) 便于 WS 网关直推浏览器 AudioContext；
+    frames() 在 finish() 之后自然耗尽。会话不可复用，一次一生命周期。
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        voice: str = "zh_female_gaolengyujie_uranus_bigtts",
+        sample_rate: int = 16000,
+        audio_format: str = "pcm",
+        uid: str = "nexus-volc",
+        frame_timeout: float = 30.0,
+    ) -> None:
+        self._api_key = api_key
+        self._voice = voice
+        self._sample_rate = sample_rate
+        self._audio_format = audio_format
+        self._uid = uid
+        self._frame_timeout = frame_timeout
+        self._ws: object | None = None
+        self._session_id = ""
+        self._queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+        self._reader_task: asyncio.Task | None = None
+        self._closed = False
+
+    async def start(self) -> None:
+        if not self._api_key:
+            raise VolcArkUnavailableError("volc.tts_api_key 未配置（Lion 或 env）")
+        try:
+            import websockets
+        except ImportError as exc:
+            raise VolcArkError("websockets 依赖未安装，TTS 不可用") from exc
+        ctx = ssl.create_default_context()
+        self._session_id = uuid.uuid4().hex
+        self._ws = await websockets.connect(
+            _TTS_WS_URL,
+            additional_headers={
+                "X-Api-Key": self._api_key,
+                "X-Api-Resource-Id": _TTS_RESOURCE_ID,
+                "X-Api-Connect-Id": str(uuid.uuid4()),
+            },
+            ssl=ctx,
+            max_size=20 * 1024 * 1024,
+            open_timeout=15,
+            close_timeout=5,
+        )
+        req_params = {
+            "speaker": self._voice,
+            "audio_params": {"format": self._audio_format, "sample_rate": self._sample_rate},
+        }
+        base_payload = {
+            "user": {"uid": self._uid},
+            "namespace": "BidirectionalTTS",
+            "req_params": req_params,
+        }
+        await self._ws.send(build_tts_frame(1, "", b"{}"))
+        await self._expect_event(self._ws, 50)
+        start_payload = dict(base_payload, event=100)
+        await self._ws.send(build_tts_frame(
+            100, self._session_id, json.dumps(start_payload, ensure_ascii=False).encode()
+        ))
+        await self._expect_event(self._ws, 150)
+        self._reader_task = asyncio.create_task(self._reader_loop())
+
+    async def push_text(self, text: str) -> None:
+        if self._ws is None or self._closed:
+            raise VolcArkError("TTS 会话未建立或已关闭")
+        task_payload = {
+            "user": {"uid": self._uid},
+            "namespace": "BidirectionalTTS",
+            "event": 200,
+            "req_params": {
+                "speaker": self._voice,
+                "audio_params": {"format": self._audio_format, "sample_rate": self._sample_rate},
+                "text": text[:2000],
+            },
+        }
+        await self._ws.send(build_tts_frame(
+            200, self._session_id, json.dumps(task_payload, ensure_ascii=False).encode()
+        ))
+
+    async def finish(self) -> None:
+        if self._ws is not None and not self._closed:
+            await self._ws.send(build_tts_frame(102, self._session_id, b"{}"))
+
+    async def frames(self) -> AsyncIterator[bytes]:
+        while True:
+            chunk = await self._queue.get()
+            if chunk is None:
+                return
+            yield chunk
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        if self._reader_task is not None:
+            self._reader_task.cancel()
+            try:
+                await self._reader_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._reader_task = None
+        if self._ws is not None:
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
+            self._ws = None
+
+    async def _reader_loop(self) -> None:
+        try:
+            while True:
+                raw = await asyncio.wait_for(self._ws.recv(), timeout=self._frame_timeout)
+                frame = parse_tts_frame(bytes(raw))
+                if frame.msg_type == 0b1111:
+                    detail = frame.payload.decode(errors="replace")[:300]
+                    raise VolcArkError(f"豆包TTS 错帧 code={frame.error_code}: {detail}")
+                if frame.msg_type == 0b1011:
+                    if frame.payload:
+                        self._queue.put_nowait(frame.payload)
+                    continue
+                if frame.event in (152, 52):
+                    return
+        except asyncio.CancelledError:
+            raise
+        except asyncio.TimeoutError:
+            if not self._closed:
+                logger.warning("tts stream reader frame timeout")
+        except VolcArkError as e:
+            if not self._closed:
+                logger.warning("tts stream reader error: %s", e)
+        except Exception as e:
+            if not self._closed:
+                logger.warning("tts stream reader exit: %s", e)
+        finally:
+            self._queue.put_nowait(None)
+
+    @staticmethod
+    async def _expect_event(ws: object, expected: int) -> None:
+        deadline = asyncio.get_running_loop().time() + 30.0
+        while True:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise VolcArkError(f"豆包TTS 等待事件 {expected} 超时")
+            raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
+            frame = parse_tts_frame(bytes(raw))
+            if frame.msg_type == 0b1111:
+                detail = frame.payload.decode(errors="replace")[:300]
+                raise VolcArkError(f"豆包TTS 错帧 code={frame.error_code}: {detail}")
+            if frame.event == expected:
+                return
+            if frame.event in (51, 153):
+                raise VolcArkError(f"豆包TTS 会话被拒: event={frame.event}")
 
 
 class VolcArkClient:
@@ -220,83 +380,20 @@ class VolcArkClient:
     async def synthesize_speech(self, text: str, out_path: Path) -> ArkResult:
         if not self.tts_api_key:
             raise VolcArkUnavailableError("volc.tts_api_key 未配置（Lion 或 env）")
-        try:
-            import websockets
-        except ImportError as exc:
-            raise VolcArkError("websockets 依赖未安装，TTS 不可用") from exc
-        ctx = ssl.create_default_context()
+        session = TTSStreamSession(
+            api_key=self.tts_api_key, voice=self.tts_voice, sample_rate=self.tts_sample_rate,
+            audio_format="mp3",
+        )
+        await session.start()
         audio: list[bytes] = []
-        async with websockets.connect(
-            _TTS_WS_URL,
-            additional_headers={
-                "X-Api-Key": self.tts_api_key,
-                "X-Api-Resource-Id": _TTS_RESOURCE_ID,
-                "X-Api-Connect-Id": str(uuid.uuid4()),
-            },
-            ssl=ctx,
-            max_size=20 * 1024 * 1024,
-            open_timeout=15,
-            close_timeout=5,
-        ) as ws:
-            session_id = uuid.uuid4().hex
-            req_params = {
-                "speaker": self.tts_voice,
-                "audio_params": {"format": "mp3", "sample_rate": self.tts_sample_rate},
-            }
-            base_payload = {
-                "user": {"uid": "nexus-volc"},
-                "namespace": "BidirectionalTTS",
-                "req_params": req_params,
-            }
-            await ws.send(build_tts_frame(1, "", b"{}"))
-            await self._expect_event(ws, 50)
-            start_payload = dict(base_payload, event=100)
-            await ws.send(build_tts_frame(
-                100, session_id, json.dumps(start_payload, ensure_ascii=False).encode()
-            ))
-            await self._expect_event(ws, 150)
-            task_payload = dict(
-                base_payload, event=200,
-                req_params=dict(req_params, text=text[:2000]),
-            )
-            await ws.send(build_tts_frame(
-                200, session_id, json.dumps(task_payload, ensure_ascii=False).encode()
-            ))
-            await ws.send(build_tts_frame(102, session_id, b"{}"))
-            deadline = asyncio.get_running_loop().time() + _TTS_SESSION_TIMEOUT
-            finished = False
-            while not finished:
-                remaining = deadline - asyncio.get_running_loop().time()
-                if remaining <= 0:
-                    raise VolcArkError("豆包TTS 会话超时")
-                raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
-                frame = parse_tts_frame(bytes(raw))
-                if frame.msg_type == 0b1111:
-                    detail = frame.payload.decode(errors="replace")[:300]
-                    raise VolcArkError(f"豆包TTS 错帧 code={frame.error_code}: {detail}")
-                if frame.msg_type == 0b1011:
-                    if frame.payload:
-                        audio.append(frame.payload)
-                    continue
-                if frame.event in (152, 52):
-                    finished = True
+        try:
+            await session.push_text(text[:2000])
+            await session.finish()
+            async for chunk in session.frames():
+                audio.append(chunk)
+        finally:
+            await session.close()
         if not audio:
             raise VolcArkError("豆包TTS 会话完成但无音频数据")
         out_path.write_bytes(b"".join(audio))
         return ArkResult(provider="doubao", model=_TTS_RESOURCE_ID, cost_cents=1)
-
-    async def _expect_event(self, ws: object, expected: int) -> None:
-        deadline = asyncio.get_running_loop().time() + 30.0
-        while True:
-            remaining = deadline - asyncio.get_running_loop().time()
-            if remaining <= 0:
-                raise VolcArkError(f"豆包TTS 等待事件 {expected} 超时")
-            raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
-            frame = parse_tts_frame(bytes(raw))
-            if frame.msg_type == 0b1111:
-                detail = frame.payload.decode(errors="replace")[:300]
-                raise VolcArkError(f"豆包TTS 错帧 code={frame.error_code}: {detail}")
-            if frame.event == expected:
-                return
-            if frame.event in (51, 153):
-                raise VolcArkError(f"豆包TTS 会话被拒: event={frame.event}")
