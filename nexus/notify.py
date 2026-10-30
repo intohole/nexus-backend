@@ -72,6 +72,7 @@ class NotifyClient:
         channels: Optional[list[str]] = None,
         why_you: str = "",
         audience_check: bool = False,
+        dedup_key: str = "",
     ) -> dict[str, object]:
         if audience_check and await self._audience_blocked(str(user_id)):
             logger.info(
@@ -93,6 +94,9 @@ class NotifyClient:
             "link": link,
             "channels": channels or ["in_app"],
         }
+        if dedup_key:
+            # 调用方幂等键（r24 收归）：同键重发（重启补跑/影子实例）由 notifyCenter 吸收。
+            payload["dedup_key"] = dedup_key[:200]
         try:
             resp: httpx.Response = await self._http.post(
                 "/api/notify/send",
