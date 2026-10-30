@@ -323,7 +323,7 @@ class VolcArkClient:
             b64 = data.get("b64_json") or ""
             if not b64:
                 raise VolcArkError("Seedream 返回空图")
-            out_path.write_bytes(base64.b64decode(b64))
+            await asyncio.to_thread(out_path.write_bytes, base64.b64decode(b64))
         return ArkResult(provider="seedream", model=self.seedream_model, cost_cents=21)
 
     async def generate_video(
@@ -353,7 +353,7 @@ class VolcArkClient:
             video_url = await self._poll_ark_task(client, api_key, task_id)
             downloaded = await client.get(video_url)
             downloaded.raise_for_status()
-            out_path.write_bytes(downloaded.content)
+            await asyncio.to_thread(out_path.write_bytes, downloaded.content)
         return ArkResult(provider="seedance", model=self.seedance_model, cost_cents=500)
 
     async def _poll_ark_task(
@@ -395,5 +395,5 @@ class VolcArkClient:
             await session.close()
         if not audio:
             raise VolcArkError("豆包TTS 会话完成但无音频数据")
-        out_path.write_bytes(b"".join(audio))
+        await asyncio.to_thread(out_path.write_bytes, b"".join(audio))
         return ArkResult(provider="doubao", model=_TTS_RESOURCE_ID, cost_cents=1)

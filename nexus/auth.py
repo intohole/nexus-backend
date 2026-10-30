@@ -297,5 +297,5 @@ def parse_user_id(user_id: str | int) -> int:
         return user_id
     try:
         return int(user_id)
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="Invalid user_id format")
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid user_id format") from exc

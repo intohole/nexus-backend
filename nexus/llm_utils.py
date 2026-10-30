@@ -201,13 +201,13 @@ async def with_llm_retry(
         try:
             async with asyncio.timeout(timeout):
                 return await coro_fn()
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as exc:
             last_error = LLMTimeoutError(
                 f"Attempt {attempt + 1}/{max_retries} timeout after {timeout}s"
             )
             logger.warning("LLM timeout, attempt %d/%d", attempt + 1, max_retries)
             if attempt == max_retries - 1:
-                raise last_error
+                raise last_error from exc
             await asyncio.sleep(2.0 * (attempt + 1))
         except Exception as e:
             last_error = e

@@ -73,12 +73,12 @@ def _extract_pdf(data: bytes) -> str:
     try:
         from pypdf import PdfReader
         reader_cls = PdfReader
-    except ImportError:
+    except ImportError as exc:
         try:
             from PyPDF2 import PdfReader
             reader_cls = PdfReader
-        except ImportError:
-            raise DocExtractError("PDF解析依赖未安装（pdfplumber/pypdf 任一）")
+        except ImportError as exc:
+            raise DocExtractError("PDF解析依赖未安装（pdfplumber/pypdf 任一）") from exc
     try:
         reader = reader_cls(buf)
         for page in reader.pages:
@@ -96,8 +96,8 @@ def _extract_pdf(data: bytes) -> str:
 def _extract_docx(data: bytes) -> str:
     try:
         from docx import Document
-    except ImportError:
-        raise DocExtractError("Word解析依赖未安装（python-docx）")
+    except ImportError as exc:
+        raise DocExtractError("Word解析依赖未安装（python-docx）") from exc
     try:
         document = Document(io.BytesIO(data))
     except Exception as e:
@@ -114,8 +114,8 @@ def _extract_docx(data: bytes) -> str:
 def _extract_pptx(data: bytes) -> str:
     try:
         from pptx import Presentation
-    except ImportError:
-        raise DocExtractError("PPT解析依赖未安装（python-pptx）")
+    except ImportError as exc:
+        raise DocExtractError("PPT解析依赖未安装（python-pptx）") from exc
     try:
         prs = Presentation(io.BytesIO(data))
     except Exception as e:
@@ -138,8 +138,8 @@ def _extract_pptx(data: bytes) -> str:
 def _extract_xlsx(data: bytes, row_cap: int) -> str:
     try:
         from openpyxl import load_workbook
-    except ImportError:
-        raise DocExtractError("Excel解析依赖未安装（openpyxl）")
+    except ImportError as exc:
+        raise DocExtractError("Excel解析依赖未安装（openpyxl）") from exc
     try:
         wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     except Exception as e:

@@ -103,14 +103,14 @@ def create_user_auth(
     ) -> UserT:
         try:
             uc_user_id = int(uc_info.get("user_id"))  # type: ignore[arg-type]
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as exc:
             # 服务身份（app_N 等）拿着有效令牌访问用户端点：不是用户令牌，按未认证处理，
             # 不能让 int() 的 ValueError 漏成 400「invalid literal」噪音（oneNote r15 生产实锤）。
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=unauthorized_detail,
                 headers={"WWW-Authenticate": "Bearer"},
-            )
+            ) from exc
         user = await find_by_uc_id(db, uc_user_id)
         if user is None:
             return await create_from_uc(db, uc_user_id, uc_info)

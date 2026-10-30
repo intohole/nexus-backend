@@ -43,8 +43,8 @@ def _validate_url_scheme(url: str) -> None:
 def _assert_public_ip(ip_text: str, host: str) -> None:
     try:
         ip = ipaddress.ip_address(ip_text)
-    except ValueError:
-        raise WebExtractError(f"域名 {host} 无法解析")
+    except ValueError as exc:
+        raise WebExtractError(f"域名 {host} 无法解析") from exc
     if (
         ip.is_private
         or ip.is_loopback
@@ -63,8 +63,8 @@ async def resolve_and_check(url: str) -> None:
     loop = asyncio.get_running_loop()
     try:
         infos = await loop.getaddrinfo(host, None)
-    except OSError:
-        raise WebExtractError(f"域名 {host} 无法解析")
+    except OSError as exc:
+        raise WebExtractError(f"域名 {host} 无法解析") from exc
     for info in infos:
         _assert_public_ip(info[4][0], host)
 
@@ -126,10 +126,10 @@ async def fetch_page_text(url: str) -> tuple[str, str]:
                 headers={"User-Agent": USER_AGENT},
             ) as client:
                 resp = await client.get(current)
-        except httpx.TimeoutException:
-            raise WebExtractError("网页抓取超时（15 秒），可稍后重试或改用文件导入")
+        except httpx.TimeoutException as exc:
+            raise WebExtractError("网页抓取超时（15 秒），可稍后重试或改用文件导入") from exc
         except httpx.HTTPError as e:
-            raise WebExtractError(f"网页无法访问：{type(e).__name__}")
+            raise WebExtractError(f"网页无法访问：{type(e).__name__}") from e
         if resp.status_code in (301, 302, 303, 307, 308):
             loc = resp.headers.get("location", "")
             if not loc:
