@@ -64,6 +64,18 @@ def test_split_sentence_soft_punct_requires_length() -> None:
     assert rest == "后半句"
 
 
+def test_split_sentence_first_flush_early_at_soft_punct() -> None:
+    buf = "好的，那我们现在进入第一个问题，请回答"
+    flush, rest = _split_sentence(buf, 12)
+    assert flush == "好的，那我们现在进入第一个问题，"
+    assert rest == "请回答"
+
+
+def test_split_sentence_first_flush_below_min_holds() -> None:
+    buf = "好的，请开始"
+    assert _split_sentence(buf, 12) == ("", buf)
+
+
 def test_split_sentence_no_punct_holds() -> None:
     buf = "没有任何标点的长文本"
     assert _split_sentence(buf) == ("", buf)
@@ -198,6 +210,7 @@ async def test_definite_triggers_turn_without_client_turn_end(monkeypatch) -> No
     assert session._handler.turns == ["我叫测试员"]
     end = next(m for m in ws.sent if m["type"] == "turn_end")
     assert "first_audio_ms" in end
+    assert end["llm_ttft_ms"] is not None
 
 
 @pytest.mark.asyncio

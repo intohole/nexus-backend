@@ -2,6 +2,8 @@
 
 判停由 ASR definite 驱动（客户端 VAD turn_end 仅兜底），ASR 会话跨轮复用，
 TTS 连接按轮预热（火山双向流式单连接仅支持单次合成），打断需客户端信号门控。
+TTFA 分段观测（llm_ttft/tts_push/first_flush）；首段 flush 软标点阈值提前到
+12 字加速首包（后续段 30 字保韵律，flush 段恒以标点结尾避开 TTS 等待）。
 """
 from __future__ import annotations
 
@@ -28,6 +30,8 @@ _HARD_PUNCT = "。！？!?；;\n"
 _SOFT_PUNCT = "，,、"
 _DEFINITE_WAIT_S = 1.2
 _ECHO_GUARD_S = 1.5
+_SOFT_FLUSH_CHARS = 30
+_FIRST_FLUSH_SOFT_CHARS = 12
 
 
 class VoiceTurnHandler(Protocol):
@@ -82,6 +86,9 @@ class _RealtimeSession:
         self._turn_reply_parts: list[str] | None = None
         self._turn_started_at = 0.0
         self._first_audio_ms: int | None = None
+        self._llm_ttft_ms: int | None = None
+        self._tts_first_push_ms: int | None = None
+        self._first_flush_chars: int | None = None
         self._last_tts_audio_mono = 0.0
         self._ctx: dict = {"conn_id": self._conn_id, "user": user}
 
@@ -232,6 +239,9 @@ class _RealtimeSession:
     async def _run_turn(self, user_text: str) -> None:
         self._turn_user_text = user_text
         self._first_audio_ms = None
+        self._llm_ttft_ms = None
+        self._tts_first_push_ms = None
+        self._first_flush_chars = None
         self._turn_started_at = time.monotonic()
         await self._send({"type": "thinking", "user": user_text})
         tts = await self._tts.acquire()
@@ -242,15 +252,24 @@ class _RealtimeSession:
         self._turn_reply_parts = reply_parts
         try:
             sentence_buf = ""
+            first_flush_done = False
             async for delta in self._handler.reply(user_text, dict(self._ctx)):
                 if not delta:
                     continue
+                if self._llm_ttft_ms is None:
+                    self._llm_ttft_ms = int((time.monotonic() - self._turn_started_at) * 1000)
                 reply_parts.append(delta)
                 await self._send({"type": "assistant_delta", "text": delta})
                 if tts is not None:
                     sentence_buf += delta
-                    flush, sentence_buf = self._split_sentence(sentence_buf)
+                    soft_min = _SOFT_FLUSH_CHARS if first_flush_done else _FIRST_FLUSH_SOFT_CHARS
+                    flush, sentence_buf = self._split_sentence(sentence_buf, soft_min)
                     if flush:
+                        first_flush_done = True
+                        if self._first_flush_chars is None:
+                            self._first_flush_chars = len(flush)
+                        if self._tts_first_push_ms is None:
+                            self._tts_first_push_ms = int((time.monotonic() - self._turn_started_at) * 1000)
                         tts, speaker_task = await self._push_tts(tts, speaker_task, flush)
                         if tts is None:
                             break
@@ -311,7 +330,7 @@ class _RealtimeSession:
                 logger.warning("handler on_turn_complete failed: %s", e)
         await self._send({
             "type": "turn_end", "user": user_text, "reply": reply_text,
-            "first_audio_ms": self._first_audio_ms,
+            "first_audio_ms": self._first_audio_ms, "llm_ttft_ms": self._llm_ttft_ms,
         })
         self._log_latency(reply_text)
         self._turn_user_text = None
@@ -336,8 +355,10 @@ class _RealtimeSession:
             return
         total_ms = int((time.monotonic() - self._turn_started_at) * 1000)
         logger.info(
-            "voice turn latency conn=%s first_audio_ms=%s total_ms=%s reply_chars=%s",
-            self._conn_id, self._first_audio_ms, total_ms, len(reply_text),
+            "voice turn latency conn=%s first_audio_ms=%s llm_ttft_ms=%s tts_push_ms=%s "
+            "first_flush_chars=%s total_ms=%s reply_chars=%s",
+            self._conn_id, self._first_audio_ms, self._llm_ttft_ms, self._tts_first_push_ms,
+            self._first_flush_chars, total_ms, len(reply_text),
         )
 
     async def _interrupt(self, notify: bool) -> None:
@@ -366,12 +387,12 @@ class _RealtimeSession:
             logger.warning("handler on_turn_interrupted failed: %s", e)
 
     @staticmethod
-    def _split_sentence(buf: str) -> tuple[str, str]:
+    def _split_sentence(buf: str, soft_min_chars: int = _SOFT_FLUSH_CHARS) -> tuple[str, str]:
         for i, ch in enumerate(buf):
             if ch in _HARD_PUNCT:
                 return buf[: i + 1], buf[i + 1:]
         for i, ch in enumerate(buf):
-            if ch in _SOFT_PUNCT and i >= 30:
+            if ch in _SOFT_PUNCT and i >= soft_min_chars:
                 return buf[: i + 1], buf[i + 1:]
         return "", buf
 
