@@ -146,3 +146,95 @@ def test_register_rejects_unauthenticated() -> None:
     routes = [r.path for r in app.routes]
     assert "/api/v1/voice/realtime" in routes
     assert registered["auth"] is deny
+
+
+class FakeAsrSession:
+    def __init__(self, api_key: str, resource_id: str = "", end_window_ms: int = 500,
+                 enable_nonstream: bool = True, uid: str = "") -> None:
+        self.api_key = api_key
+        self.end_window_ms = end_window_ms
+        self.pushed: list[bytes] = []
+        self.closed = False
+        self.q: asyncio.Queue = asyncio.Queue()
+
+    async def start(self) -> None:
+        pass
+
+    async def push_audio(self, pcm: bytes, last: bool = False) -> None:
+        self.pushed.append(pcm)
+
+    async def results(self):
+        while True:
+            item = await self.q.get()
+            if item is None:
+                return
+            yield item
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def _asr_session(ws: FakeWebSocket, monkeypatch) -> tuple[_RealtimeSession, FakeAsrSession]:
+    monkeypatch.setattr("nexus.voice_session.AsrStreamSession", FakeAsrSession)
+    session = _session(ws, VoiceRealtimeConfig(asr_api_key="k", asr_end_window_ms=500))
+    return session, session._asr
+
+
+async def _open_asr_session(ws: FakeWebSocket, monkeypatch) -> tuple[_RealtimeSession, FakeAsrSession]:
+    session, _ = _asr_session(ws, monkeypatch)
+    await session._on_audio("AAAA")
+    return session, session._asr
+
+
+@pytest.mark.asyncio
+async def test_definite_triggers_turn_without_client_turn_end(monkeypatch) -> None:
+    ws = FakeWebSocket()
+    session, asr = await _open_asr_session(ws, monkeypatch)
+    assert session._asr_pump is not None
+    await asr.q.put({"text": "我叫测试员", "definite": True, "definite_text": "我叫测试员", "full_text": "我叫测试员"})
+    await asyncio.sleep(0.2)
+    assert session._turn_task is not None
+    await session._turn_task
+    assert session._handler.turns == ["我叫测试员"]
+    end = next(m for m in ws.sent if m["type"] == "turn_end")
+    assert "first_audio_ms" in end
+
+
+@pytest.mark.asyncio
+async def test_asr_session_survives_turn_completion(monkeypatch) -> None:
+    ws = FakeWebSocket()
+    session, asr = await _open_asr_session(ws, monkeypatch)
+    await asr.q.put({"text": "第一轮回答内容", "definite": True, "definite_text": "第一轮回答内容", "full_text": "x"})
+    await asyncio.sleep(0.2)
+    await session._turn_task
+    assert session._asr is asr
+    assert asr.closed is False
+    await session._on_audio("BBBB")
+    assert len(asr.pushed) == 2
+
+
+@pytest.mark.asyncio
+async def test_definite_and_client_turn_end_double_trigger_single_turn(monkeypatch) -> None:
+    ws = FakeWebSocket()
+    session, asr = await _open_asr_session(ws, monkeypatch)
+    await asr.q.put({"text": "并发触发回归文本", "definite": True, "definite_text": "并发触发回归文本", "full_text": "x"})
+    await session._dispatch({"type": "turn_end"})
+    await asyncio.sleep(0.3)
+    if session._turn_task is not None:
+        await session._turn_task
+    assert session._handler.turns == ["并发触发回归文本"]
+
+
+@pytest.mark.asyncio
+async def test_asr_error_teardown_reopens_on_next_audio(monkeypatch) -> None:
+    ws = FakeWebSocket()
+    session, asr = await _open_asr_session(ws, monkeypatch)
+    await asr.q.put({"error": "stream broken"})
+    await asyncio.sleep(0.2)
+    assert session._asr is None and asr.closed is True
+    await session._on_audio("BBBB")
+    assert session._asr is not None and session._asr is not asr
+
+
+def test_config_default_end_window_500() -> None:
+    assert VoiceRealtimeConfig().asr_end_window_ms == 500
