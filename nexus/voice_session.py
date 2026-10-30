@@ -20,6 +20,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from nexus.asr import AsrStreamError, AsrStreamSession
 from nexus.logging import get_logger
+from nexus.voice_meter import VoiceUsageMeter, collect_turn_metrics
 from nexus.voice_tts import TtsLink
 from nexus.volc import TTSStreamSession, VolcArkError
 
@@ -32,6 +33,7 @@ _DEFINITE_WAIT_S = 1.2
 _ECHO_GUARD_S = 1.5
 _SOFT_FLUSH_CHARS = 30
 _FIRST_FLUSH_SOFT_CHARS = 12
+_HEARTBEAT_S = 15.0
 
 
 class VoiceTurnHandler(Protocol):
@@ -91,9 +93,20 @@ class _RealtimeSession:
         self._first_flush_chars: int | None = None
         self._last_tts_audio_mono = 0.0
         self._ctx: dict = {"conn_id": self._conn_id, "user": user}
+        self._meter = VoiceUsageMeter()
+        self._last_send_mono = time.monotonic()
+        self._turn_tts_chars = 0
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
 
     async def run(self) -> None:
-        await self._send({"type": "ready", "conn_id": self._conn_id, "user_id": self._user.get("user_id")})
+        await self._send({
+            "type": "ready", "conn_id": self._conn_id,
+            "user_id": self._user.get("user_id"),
+            "session_id": str(self._user.get("session_id") or ""),
+        })
         try:
             while not self._closed:
                 if time.monotonic() - self._started_at > self._config.session_timeout_s:
@@ -103,6 +116,7 @@ class _RealtimeSession:
                     raw = await asyncio.wait_for(self._ws.receive_text(), timeout=0.2)
                 except asyncio.TimeoutError:
                     await self._idle_check()
+                    await self._heartbeat()
                     continue
                 try:
                     msg = json.loads(raw)
@@ -129,10 +143,20 @@ class _RealtimeSession:
         elif msg_type == "interrupt":
             self._last_client_interrupt = time.monotonic()
             await self._interrupt(notify=True)
+        elif msg_type == "pong":
+            pass
         elif msg_type == "stop":
             self._closed = True
         else:
             await self._send({"type": "error", "message": f"未知消息类型 {msg_type}"})
+
+    async def _heartbeat(self) -> None:
+        if time.monotonic() - self._last_send_mono >= _HEARTBEAT_S:
+            await self._send({"type": "ping"})
+
+    async def mark_superseded(self) -> None:
+        self._closed = True
+        await self._send({"type": "closed", "reason": "superseded"})
 
     async def _on_audio(self, b64: str) -> None:
         if not b64 or len(b64) > _MAX_AUDIO_B64:
@@ -141,8 +165,10 @@ class _RealtimeSession:
             await self._open_asr()
         if self._asr is None:
             return
+        pcm = base64.b64decode(b64)
         try:
-            await self._asr.push_audio(base64.b64decode(b64))
+            await self._asr.push_audio(pcm)
+            self._meter.note_asr(pcm)
         except (AsrStreamError, Exception) as e:
             logger.warning("asr push failed: %s", e)
             await self._teardown_asr()
@@ -242,6 +268,7 @@ class _RealtimeSession:
         self._llm_ttft_ms = None
         self._tts_first_push_ms = None
         self._first_flush_chars = None
+        self._turn_tts_chars = 0
         self._turn_started_at = time.monotonic()
         await self._send({"type": "thinking", "user": user_text})
         tts = await self._tts.acquire()
@@ -312,6 +339,8 @@ class _RealtimeSession:
         text: str,
     ) -> tuple[TTSStreamSession | None, asyncio.Task | None]:
         replacement, swapped = await self._tts.push_or_recover(tts, text)
+        self._meter.note_tts(text)
+        self._turn_tts_chars += len(text)
         if swapped:
             if speaker_task is not None and not speaker_task.done():
                 speaker_task.cancel()
@@ -322,6 +351,13 @@ class _RealtimeSession:
         return replacement, speaker_task
 
     async def _complete_turn(self, user_text: str, reply_text: str) -> None:
+        metrics = collect_turn_metrics(self, reply_text)
+        on_metrics = getattr(self._handler, "on_turn_metrics", None)
+        if on_metrics is not None:
+            try:
+                await on_metrics(metrics, dict(self._ctx))
+            except Exception as e:
+                logger.warning("handler on_turn_metrics failed: %s", e)
         on_turn = getattr(self._handler, "on_turn_complete", None)
         if on_turn is not None:
             try:
@@ -407,6 +443,7 @@ class _RealtimeSession:
     async def _send(self, payload: dict) -> None:
         try:
             await self._ws.send_text(json.dumps(payload, ensure_ascii=False))
+            self._last_send_mono = time.monotonic()
         except Exception:
             self._closed = True
 
@@ -418,6 +455,7 @@ class _RealtimeSession:
         await self._interrupt(notify=False)
         await self._tts.close_warm()
         await self._teardown_asr()
+        self._meter.report(self._user)
         try:
             await self._ws.close()
         except Exception:
