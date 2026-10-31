@@ -4,7 +4,8 @@ from __future__ import annotations
 import asyncio
 
 from nexus.rag_quality import (
-    extract_citations, judge_support, label_of, run_check, validate_citations,
+    extract_citations, judge_support, label_of, repair_citations, run_check,
+    strip_citations, validate_citations,
 )
 
 
@@ -101,3 +102,52 @@ def test_run_check_pass_matrix_with_judge():
     llm_bad = _FakeLLM({"citations": [{"n": 1, "verdict": "unsupported", "reason": ""}]})
     bad = asyncio.run(run_check("答[来源1]", [{"content": "原文"}], namespace="T", llm=llm_bad))
     assert bad["pass"] is False and bad["score"] == 0.0
+
+
+def test_strip_citations():
+    assert strip_citations("答[来源1]再答[来源2]") == "答再答"
+    assert strip_citations("无引用", label="片段") == "无引用"
+
+
+class _AskLLM:
+    def __init__(self, text):
+        self.text = text
+        self.calls = []
+
+    async def ask(self, prompt, **kwargs):
+        self.calls.append({"prompt": prompt, **kwargs})
+        return self.text
+
+
+def test_repair_citations_success():
+    llm = _AskLLM("平台支持 PDF[来源1]，上限 20MB[来源2]。")
+    out = asyncio.run(repair_citations(
+        "平台支持 PDF，上限 20MB。",
+        [{"content": "支持 PDF", "document_name": "甲"},
+         {"content": "上限 20MB", "document_name": "乙"}],
+        namespace="T", llm=llm))
+    assert out["answer"].startswith("平台支持 PDF")
+    assert out["check"]["used"] == [1, 2] and out["check"]["invalid"] == []
+    assert out["body_changed"] is False
+    assert llm.calls[0]["namespace"] == "T" and llm.calls[0]["temperature"] == 0.0
+
+
+def test_repair_citations_flags_rewrites():
+    llm = _AskLLM("改写过的答案[来源1]。")
+    out = asyncio.run(repair_citations("原答案", [{"content": "原文"}], namespace="T", llm=llm))
+    assert out["body_changed"] is True
+    assert out["check"]["used"] == [1] and out["check"]["invalid"] == []
+
+
+def test_repair_citations_llm_down_returns_empty():
+    class _Down:
+        async def ask(self, *a, **k):
+            raise RuntimeError("gateway down")
+
+    assert asyncio.run(repair_citations("答", [{"content": "原文"}], namespace="T", llm=_Down())) == {}
+
+
+def test_repair_citations_empty_sources_short_circuit():
+    llm = _AskLLM("不应被调用")
+    assert asyncio.run(repair_citations("答", [], namespace="T", llm=llm)) == {}
+    assert llm.calls == []
