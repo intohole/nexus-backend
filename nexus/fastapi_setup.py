@@ -120,7 +120,7 @@ def create_app(
     app.add_middleware(RequestIdMiddleware)
     if enable_logging_middleware:
         app.add_middleware(LoggingMiddleware)
-    if enable_rate_limit:
+    if enable_rate_limit and cfg.rate_limit.enabled:
         app.add_middleware(RateLimitMiddleware, config=cfg)
     app.add_middleware(ErrorHandlerMiddleware)
     app.add_middleware(StaticAssetsCacheMiddleware, path_prefix="/static")
@@ -170,7 +170,7 @@ def setup_middleware(
         app.add_middleware(RequestIdMiddleware)
     if enable_logging:
         app.add_middleware(LoggingMiddleware)
-    if enable_rate_limit:
+    if enable_rate_limit and cfg.rate_limit.enabled:
         app.add_middleware(RateLimitMiddleware, config=cfg)
     if enable_error_handler:
         app.add_middleware(ErrorHandlerMiddleware)
