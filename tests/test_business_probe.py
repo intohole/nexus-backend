@@ -189,17 +189,38 @@ def test_probe_llm_ironman_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_probe_llm_ping_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    """llm 问标准实现=probe_ping 原语（sentinel 轮：推理模型兼容 + no_cache 旁路）。"""
+
     class _Svc:
-        async def ask(self, prompt: str, **kwargs: object) -> str:
-            assert prompt == "ping"
-            assert kwargs.get("max_tokens") == 8
-            return "pong"
+        async def probe_ping(self, timeout: float = 20.0) -> dict:
+            assert timeout > 0
+            return {
+                "ok": True, "reply_head": "pong", "reasoning_only": False,
+                "latency_ms": 812, "model": "glm-4-flash", "error": "",
+            }
 
     monkeypatch.setattr("nexus.ironman.is_ironman_available", lambda: True)
     monkeypatch.setattr("nexus.get_llm_service", lambda: _Svc())
     data = _get(_app(llm=True, notify=False))
     assert data["checks"]["llm"]["status"] == "ok"
     assert data["checks"]["llm"]["evidence"]["reply_head"] == "pong"
+
+
+def test_probe_llm_reasoning_only_reply_is_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    """推理模型（deepseek-flash）content 空 + reasoning 非空 = 链路活着，不再判 fail。"""
+
+    class _Svc:
+        async def probe_ping(self, timeout: float = 20.0) -> dict:
+            return {
+                "ok": True, "reply_head": "我在想", "reasoning_only": True,
+                "latency_ms": 900, "model": "deepseek-flash", "error": "",
+            }
+
+    monkeypatch.setattr("nexus.ironman.is_ironman_available", lambda: True)
+    monkeypatch.setattr("nexus.get_llm_service", lambda: _Svc())
+    data = _get(_app(llm=True, notify=False))
+    assert data["checks"]["llm"]["status"] == "ok"
+    assert "reasoning-only" in data["checks"]["llm"]["detail"]
 
 
 def test_probe_active_scheduler_form() -> None:
@@ -222,8 +243,11 @@ def test_probe_llm_lazy_init_hook(monkeypatch: pytest.MonkeyPatch) -> None:
         calls.append("init")
 
     class _Svc:
-        async def ask(self, prompt: str, **kwargs: object) -> str:
-            return "pong"
+        async def probe_ping(self, timeout: float = 20.0) -> dict:
+            return {
+                "ok": True, "reply_head": "pong", "reasoning_only": False,
+                "latency_ms": 5, "model": "glm-4-flash", "error": "",
+            }
 
     monkeypatch.setattr("nexus.ironman.is_ironman_available", lambda: True)
     monkeypatch.setattr("nexus.get_llm_service", lambda: _Svc())

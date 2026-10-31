@@ -100,25 +100,29 @@ async def _standard_llm_check() -> dict[str, object]:
             "detail": "ironman not available (LLM 未配置或启动失败)",
             "evidence": {"reason": "ironman_unavailable"},
         }
-    started: float = time.monotonic()
-    try:
-        reply: str = await get_llm_service().ask("ping", max_tokens=8, timeout=LLM_TIMEOUT_S)
-        latency: int = int((time.monotonic() - started) * 1000)
-        if not isinstance(reply, str) or not reply.strip():
-            return {
-                "status": "fail",
-                "latency_ms": latency,
-                "detail": "empty llm reply",
-                "evidence": {"reply_type": type(reply).__name__},
-            }
+    reply: dict[str, object] = await get_llm_service().probe_ping(timeout=LLM_TIMEOUT_S)
+    latency: int = int(reply.get("latency_ms") or 0)
+    if not reply.get("ok"):
+        return {
+            "status": "fail",
+            "latency_ms": latency,
+            "detail": str(reply.get("error") or "llm ping failed"),
+            "evidence": {},
+        }
+    head: str = str(reply.get("reply_head") or "")
+    if reply.get("reasoning_only"):
         return {
             "status": "ok",
             "latency_ms": latency,
-            "detail": "chat ping ok",
-            "evidence": {"reply_head": reply.strip()[:16]},
+            "detail": "chat ping ok (reasoning-only reply, 链路活着)",
+            "evidence": {"reply_head": head},
         }
-    except Exception as exc:
-        return _fail(started, exc)
+    return {
+        "status": "ok",
+        "latency_ms": latency,
+        "detail": "chat ping ok",
+        "evidence": {"reply_head": head},
+    }
 
 
 async def _standard_notify_check(app_name: str = "") -> dict[str, object]:

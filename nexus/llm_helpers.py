@@ -99,9 +99,12 @@ def extract_content(response: object, request_id: str = "-") -> str:
     if response.content:
         return response.content
     reasoning = getattr(response, "reasoning", None) or ""
-    raise LLMEmptyContentError(
+    exc = LLMEmptyContentError(
         f"LLM returned empty content (reasoning_chars={len(reasoning)}) [req_id={request_id}]"
     )
+    exc.reasoning_chars = len(reasoning)
+    exc.reasoning_head = reasoning.strip()[:16]
+    raise exc
 
 
 def record_usage(
