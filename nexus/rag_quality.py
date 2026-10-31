@@ -19,12 +19,21 @@ suki r7 citation_service 判例收归（lyra r14 第二消费方达成）。RAG 
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any, Optional
+
+from ironman.prompt import get_shared_prompt_manager
 
 from nexus.llm import LLMService, get_llm_service
 from nexus.logging import get_logger
 
 logger = get_logger(__name__)
+
+_PROMPTS_DIR = str(Path(__file__).resolve().parents[1] / "prompts")
+
+
+def _citation_prompt(kind: str, label: str) -> str:
+    return get_shared_prompt_manager(_PROMPTS_DIR).render(kind, label=label)
 
 __all__ = [
     "extract_citations",
@@ -57,13 +66,8 @@ def validate_citations(answer: str, n_sources: int, label: str = "来源") -> di
     }
 
 
-JUDGE_PROMPT = (
-    "你是引用审查员。给你一段回答和它引用的片段原文。逐个核对：每个 [{label}N] 引用"
-    "所支撑的论述，是否真的能从片段 N 的原文中得到支撑？\n"
-    "判定标准：supported=原文直接支撑该论述；partial=原文相关但论述有超出原文的引申；"
-    "unsupported=原文支撑不了（张冠李戴/编造/引用了无关片段）。\n"
-    '只输出 JSON：{{"citations": [{{"n": 1, "verdict": "supported", "reason": "一句话"}}]}}'
-)
+JUDGE_PROMPT = "rag_citation_judge"
+REPAIR_PROMPT = "rag_citation_repair"
 
 
 def _source_title(s: dict[str, Any]) -> str:
@@ -100,7 +104,7 @@ async def judge_support(
     try:
         data = await llm.chat_json(
             [
-                {"role": "system", "content": JUDGE_PROMPT.format(label=label)},
+                {"role": "system", "content": _citation_prompt(JUDGE_PROMPT, label)},
                 {"role": "user", "content": "\n\n".join(cited) + "\n\n回答：\n" + answer[:3000]},
             ],
             model=model,
@@ -141,15 +145,6 @@ def strip_citations(text: str, label: str = "来源") -> str:
     return citation_pattern(label).sub("", text or "").strip()
 
 
-REPAIR_PROMPT = (
-    "你是引用标注员。给你一段回答和它引用的资料片段。逐句核对：每句论述来自哪个片段，"
-    "在句末补上 [{label}N] 标注（N=片段编号）。\n"
-    "纪律：只补标注，不改动、不增删、不改写任何文字；资料支撑不了的句子保持原样不加标注；"
-    "标注编号必须真实对应支撑该句的片段。\n"
-    "只输出补完标注后的完整回答，不要任何解释。"
-)
-
-
 async def repair_citations(
     answer: str,
     sources: list[dict[str, Any]],
@@ -177,7 +172,7 @@ async def repair_citations(
     try:
         repaired = await llm.ask(
             corpus + "\n\n回答：\n" + (answer or "")[:3000],
-            system=REPAIR_PROMPT.format(label=label),
+            system=_citation_prompt(REPAIR_PROMPT, label),
             model=model, max_tokens=max_tokens, timeout=timeout, temperature=0.0,
             namespace=namespace,
         )
