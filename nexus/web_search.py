@@ -67,6 +67,7 @@ class WebSearchService:
         query: str,
         count: int = 5,
         recency: Optional[str] = None,
+        max_chars: Optional[int] = None,
     ) -> str:
         results = await self.search(query, count, recency=recency)
         if not results:
@@ -75,6 +76,8 @@ class WebSearchService:
         for i, r in enumerate(results, 1):
             title = str(r.get("title", ""))
             content = str(r.get("content", ""))
+            if max_chars is not None and max_chars > 0:
+                content = content[:max_chars]
             media = str(r.get("media", ""))
             link = str(r.get("link", ""))
             if title and content:
