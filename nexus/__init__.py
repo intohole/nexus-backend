@@ -152,6 +152,7 @@ from nexus.infra import (
     get_llm_quota_config,
 )
 from nexus.service_client import get_service_client, get_service_token
+from nexus.discovery import resolve_service, get_registry, ServiceRegistry
 from nexus.voice import register_voice_endpoints
 from nexus.voice_realtime import (
     register_voice_realtime_endpoints,
@@ -350,6 +351,7 @@ __all__ = [
     "get_beememory_base_url", "get_chroma_config", "get_rate_limit_config",
     "get_retry_config", "get_timeout_config", "get_auth_config", "get_llm_quota_config",
     "get_moutain_client", "get_bm_sdk", "BeeMemorySDK", "ensure_app_memory", "sign_jwt", "verify_jwt", "create_app", "setup_middleware",
+    "resolve_service", "get_registry", "ServiceRegistry",
     "setup_static_files", "register_internal_endpoints", "AppLifecycle", "parse_llm_json",
     "parse_llm_json_lenient", "parse_llm_json_or", "parse_json_column", "find_balanced_json", "with_llm_retry",
     "is_llm_json_error", "extract_json_rows",

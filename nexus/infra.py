@@ -1,4 +1,8 @@
-"""基建地址解析：按 Lion/配置解析 UC、基建服务基址。"""
+"""基建地址解析：注册表（discovery）→ env → Lion infra → defaults 引导表。
+
+地址权威在 miniDeploy 注册表（nexus.discovery）；Lion infra 命名空间保留为
+遗留覆盖面与凭证权威（app_key/secret/api_key 类键不受本换核影响）。
+"""
 from __future__ import annotations
 
 import os
@@ -19,13 +23,18 @@ def _compose_url(host: str, port: str, path: str = "") -> str:
 
 
 async def _infra_url(key: str, env_key: str, default: str) -> str:
+    from nexus.discovery import get_registry
+
+    url = await get_registry().resolve(key)
+    if url:
+        return url
     config = await _get_infra(key)
     path = str(config.get("path") or "")
     if config.get("base_url"):
         url = str(config["base_url"])
     else:
         url = _compose_url(str(config.get("host") or ""), str(config.get("port") or ""), path)
-    return url or os.getenv(env_key, default)
+    return os.getenv(env_key, "") or url or default
 
 
 async def _get_infra(key: str) -> dict[str, object]:
@@ -107,10 +116,22 @@ async def get_notify_center_url() -> str:
 
 
 async def get_chroma_config() -> dict[str, str]:
+    from urllib.parse import urlparse
+
+    from nexus.discovery import get_registry
+
     config = await _get_infra("chroma")
+    api_key = str(config.get("api_key") or "") or os.getenv("CHROMA_API_KEY", "")
+    url = await get_registry().resolve("chroma")
+    if url:
+        parsed = urlparse(url)
+        return {
+            "host": parsed.hostname or "",
+            "port": str(parsed.port or ""),
+            "api_key": api_key,
+        }
     host = str(config.get("host") or "") or os.getenv("CHROMA_HOST", "localhost")
     port = str(config.get("port") or "") or os.getenv("CHROMA_PORT", "8999")
-    api_key = str(config.get("api_key") or "") or os.getenv("CHROMA_API_KEY", "")
     return {"host": host, "port": port, "api_key": api_key}
 
 
