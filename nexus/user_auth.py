@@ -3,6 +3,13 @@
 收编各业务仓库重复的「HTTPBearer → validate_token → UC get_current_user →
 影子用户 find-or-create → get_current_user/get_optional_user/get_current_user_id 三件套」样板。
 业务只需提供 ORM 会话依赖与三个小适配器（查用户/建用户/回写更新），鉴权与缓存骨架由本模块统一承担。
+
+服务委托（oneNote r18）：服务身份（app_N）+ X-On-Behalf-Of = 平台代表用户调用，
+与 nexus.auth get_user_id_required 同语义同源（DELEGATION_HEADER/_DELEGATED_ID_RE/
+_is_service_principal 单源自 auth.py）；无委托头的服务凭证保持 fail-closed 401
+（oneNote r15 判例）。此前本模块不消费委托头，与 auth.py 行为漂移——nexus-agent
+晨报/routine 在用户 token 过期后走委托通道，auth.py 形态应用（gezhi）正常、
+本模块形态应用（oneNote 等 5 仓）结构性 401（11-01/11-02 拾光段两连缺席实锤）。
 """
 from __future__ import annotations
 
@@ -12,11 +19,12 @@ from dataclasses import dataclass
 from typing import Generic, Optional, TypeVar
 
 from cachetools import TTLCache
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from nexus.auth import get_auth_deps
+from nexus.auth import DELEGATION_HEADER, AuthDependencies, _DELEGATED_ID_RE, get_auth_deps
+from nexus.context import set_request_context
 
 logger = logging.getLogger("nexus.user_auth")
 
@@ -126,6 +134,7 @@ def create_user_auth(
     async def _resolve(
         credentials: Optional[HTTPAuthorizationCredentials],
         db: AsyncSession,
+        request: Optional[Request] = None,
     ) -> UserT:
         if not credentials or not credentials.credentials:
             raise HTTPException(
@@ -142,30 +151,48 @@ def create_user_auth(
                 if fetched:
                     uc_info = {**uc_info, **fetched}
             _cache[token] = uc_info
+        uc_info = dict(uc_info)
+        # 服务委托解析（与 nexus.auth get_user_id_required 同语义）：验签通过的服务身份
+        # + 合法 X-On-Behalf-Of → 代表该用户；委托改写只发生在本地副本，绝不写回 token
+        # 缓存（同一服务 token 可代表不同用户）。非法委托头显式 403（可诊断）；无委托头
+        # 落到 ensure_local_user 的服务身份守卫=401（oneNote r15 判例 fail-closed 保持）。
+        if request is not None and AuthDependencies._is_service_principal(uc_info):
+            header = (request.headers.get(DELEGATION_HEADER) or "").strip()
+            if header:
+                if not _DELEGATED_ID_RE.fullmatch(header):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="invalid X-On-Behalf-Of",
+                    )
+                uc_info["user_id"] = header
+                set_request_context(user_id=header)
         return await ensure_local_user(db, uc_info)
 
     async def get_current_user(
         credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
         db: AsyncSession = Depends(get_db),
+        request: Request = None,  # 裸 Request 注解：FastAPI 才会自动注入（Optional[Request] 会被当 Pydantic 字段建模，启动即炸）
     ) -> UserT:
-        return await _resolve(credentials, db)
+        return await _resolve(credentials, db, request)
 
     async def get_optional_user(
         credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
         db: AsyncSession = Depends(get_db),
+        request: Request = None,
     ) -> Optional[UserT]:
         if not credentials or not credentials.credentials:
             return None
         try:
-            return await _resolve(credentials, db)
+            return await _resolve(credentials, db, request)
         except HTTPException:
             return None
 
     async def get_current_user_id(
         credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
         db: AsyncSession = Depends(get_db),
+        request: Request = None,
     ) -> int:
-        user = await _resolve(credentials, db)
+        user = await _resolve(credentials, db, request)
         return user.id
 
     return UserAuthDeps(
