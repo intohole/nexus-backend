@@ -63,7 +63,7 @@ def _registry(tmp_path: Path, **kw) -> ServiceRegistry:
 
 @pytest.mark.asyncio
 async def test_normalize_name_insensitive_with_aliases(tmp_path):
-    assert normalize_name("goldenStock") == "goldenstock"
+    assert normalize_name("goldenStock") == "golden"
     assert normalize_name("BEE-memory") == "beememory"
     assert normalize_name("spider") == "moutain"
     assert normalize_name("chroma") == "chromaembeddingserver"
