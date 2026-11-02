@@ -35,7 +35,7 @@ def _mock_transport() -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/apps/":
             return httpx.Response(200, json=APPS)
-        if request.url.path == "/api/nodes":
+        if request.url.path == "/api/cluster/nodes":
             return httpx.Response(200, json=NODES)
         return httpx.Response(404, json={})
     return httpx.MockTransport(handler)

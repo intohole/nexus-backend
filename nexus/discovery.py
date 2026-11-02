@@ -131,7 +131,7 @@ class ServiceRegistry:
                 client = await self._get_client()
                 apps_resp = await client.get("/api/apps/")
                 apps_resp.raise_for_status()
-                nodes_resp = await client.get("/api/nodes")
+                nodes_resp = await client.get("/api/cluster/nodes")
                 nodes_resp.raise_for_status()
                 apps: list[dict] = apps_resp.json()
                 nodes: list[dict] = (nodes_resp.json() or {}).get("nodes", [])
@@ -141,9 +141,8 @@ class ServiceRegistry:
                 self._save_snapshot()
                 return True
             except Exception as exc:
-                if self._state == "ok":
-                    logger.warning("服务注册表拉取失败，降级缓存/引导表: %s", exc)
-                    self._state = "cache" if self._endpoints else "cold"
+                logger.warning("服务注册表拉取失败（%s），降级缓存/引导表: %s", self._state, exc)
+                self._state = "cache" if self._endpoints else "cold"
                 return False
 
     def _apply(self, apps: list[dict], nodes: list[dict]) -> None:
