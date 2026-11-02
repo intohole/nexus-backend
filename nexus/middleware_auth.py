@@ -34,6 +34,7 @@ DEFAULT_STATIC_EXTENSIONS: Tuple[str, ...] = (
 
 _JWKS_TTL_SECONDS: int = 300
 _JWKS_TIMEOUT_SECONDS: float = 5.0
+_JWKS_FORCED_REFRESH_MIN_INTERVAL_S: float = 60.0
 _USER_TOKEN_CACHE_TTL: int = 60
 _USER_TOKEN_CACHE_MAXSIZE: int = 2000
 
@@ -124,8 +125,11 @@ class UserTokenVerifier:
             await self._refresh_jwks()
         jwk_data: Optional[Dict[str, object]] = self._jwks.get(kid)
         if jwk_data is None:
-            await self._refresh_jwks()
-            jwk_data = self._jwks.get(kid)
+            # 未知 kid 的强制刷新限频：垃圾 kid 洪流逐请求打 UC JWKS=放大 DoS；
+            # 60s 内只刷一次，合法轮换的传播延迟上界同步为 60s（TTL 刷新仍在）。
+            if time.time() - self._jwks_fetched_at > _JWKS_FORCED_REFRESH_MIN_INTERVAL_S:
+                await self._refresh_jwks()
+                jwk_data = self._jwks.get(kid)
         if jwk_data is None:
             return None
         try:
@@ -217,10 +221,8 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
         header_token: str = request.headers.get("X-Service-Token", "")
         if header_token:
             return header_token
-        bearer: str = self._bearer_token(request)
-        if bearer:
-            return bearer
-        return request.cookies.get("service_token", "")
+        # cookie 源退役：可被同域子域 cookie tossing 注入，服务凭证只走 header
+        return self._bearer_token(request)
 
     async def dispatch(
         self,
@@ -231,8 +233,22 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
         if self._is_public(path):
             return await call_next(request)
 
+        token: str = self._extract_token(request)
         service_token: str = self._get_service_token()
-        if not service_token:
+
+        # UC 验签主通道不受静态 SERVICE_TOKEN 配置门控：空守卫原挡在验签前，
+        # 按目标架构只配 UC 凭证（无 SERVICE_TOKEN）的服务会被整仓 403。
+        if token and await self._verifier.verify_service(token):
+            return await call_next(request)
+
+        if token and service_token and token.isascii() and hmac.compare_digest(token, service_token):
+            return await call_next(request)
+
+        bearer: str = self._bearer_token(request)
+        if self._allow_user_tokens and bearer and await self._verifier.verify(bearer):
+            return await call_next(request)
+
+        if not service_token and not self._verifier.configured:
             client_ip: str = get_client_ip(request)
             self._logger.warning(
                 "SERVICE_TOKEN not set, denying non-public request: path=%s method=%s ip=%s",
@@ -242,17 +258,6 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
                 status_code=403,
                 content={"detail": "Service auth not configured"},
             )
-
-        token: str = self._extract_token(request)
-        if token and await self._verifier.verify_service(token):
-            return await call_next(request)
-
-        if token and service_token and hmac.compare_digest(token, service_token):
-            return await call_next(request)
-
-        bearer: str = self._bearer_token(request)
-        if self._allow_user_tokens and bearer and await self._verifier.verify(bearer):
-            return await call_next(request)
 
         client_ip = get_client_ip(request)
         self._logger.warning(

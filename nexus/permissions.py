@@ -123,7 +123,9 @@ class ApiKeyDependencies:
             return None
         data = result.get("data", {}) if result.get("success") else {}
         if not data.get("valid"):
-            self._cache[cache_key] = None
+            # 负缓存存 False 哨兵：存 None 会让 TTLCache.get 恒返 None、
+            # 「命中」判定永不成立，垃圾 key 每次都出站打 UC。
+            self._cache[cache_key] = False
             return None
         self._cache[cache_key] = data
         return data

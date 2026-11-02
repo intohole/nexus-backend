@@ -5,7 +5,14 @@ from loguru import logger
 
 from nexus.channels.base import NotificationChannel
 
-_INVALID_USER_IDS = frozenset({"", "default", "none", "null", "unknown", "0"})
+_INVALID_USER_IDS = frozenset({"", "default", "none", "null", "unknown", "0", "guest"})
+
+
+def _is_placeholder_user(user_id: str) -> bool:
+    lowered = user_id.lower()
+    # anon_* 是匿名自报身份（optional 鉴权回落/客户端自造），投递成通知中心
+    # 收件行=永远无人可见的幽灵行+账面 sent（S26 判例 aiPet r13/goldenFish）。
+    return lowered in _INVALID_USER_IDS or lowered.startswith("anon_")
 
 
 class NotifyCenterChannel(NotificationChannel):
@@ -23,7 +30,7 @@ class NotifyCenterChannel(NotificationChannel):
 
     async def send(self, notification: dict[str, object]) -> bool:
         user_id = str(notification.get("user_id") or "").strip()
-        if user_id.lower() in _INVALID_USER_IDS:
+        if _is_placeholder_user(user_id):
             logger.warning(
                 "NotifyCenter notification for placeholder user_id=%r, skipped (app=%s title=%s)",
                 user_id, notification.get("app_id", ""), str(notification.get("title", ""))[:50],
@@ -45,6 +52,7 @@ class NotifyCenterChannel(NotificationChannel):
             app_id=str(notification.get("app_id", "") or "system"),
             link=str(notification.get("link", "")),
             channels=channels,
+            dedup_key=str(notification.get("dedup_key") or ""),
         )
         if not isinstance(result, dict) or result.get("status") != "sent":
             logger.warning("NotifyCenter send failed for user=%s result=%s", user_id, result)

@@ -94,16 +94,23 @@ async def _fetch_statuses(ids: list[str]) -> dict[str, dict[str, object]] | None
         from nexus.trace import outbound_headers
 
         headers = outbound_headers(await client.header())
+        merged: dict[str, dict[str, object]] = {}
         async with httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=3.0)) as http:
-            resp = await http.get(
-                f"{base_url}/api/internal/users/status",
-                params={"ids": ",".join(ids[:200])},
-                headers=headers,
-            )
-            resp.raise_for_status()
-            data = (resp.json() or {}).get("data") or {}
-            users = data.get("users")
-            return dict(users) if isinstance(users, dict) else {}
+            # UC 单次查询上限 200：超限必须分批——请求侧截断会把第 201+ 人
+            # 当权威「全不存在」误滤并写入 TTL 缓存（批量圈定静默丢触达）。
+            for start in range(0, len(ids), 200):
+                batch = ids[start : start + 200]
+                resp = await http.get(
+                    f"{base_url}/api/internal/users/status",
+                    params={"ids": ",".join(batch)},
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                data = (resp.json() or {}).get("data") or {}
+                users = data.get("users")
+                if isinstance(users, dict):
+                    merged.update(users)
+        return merged
     except Exception as e:
         logger.warning(
             "user status fetch failed (%s) — fail-open for %d ids", e, len(ids),

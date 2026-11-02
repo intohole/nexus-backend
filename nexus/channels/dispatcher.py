@@ -74,7 +74,15 @@ class ChannelDispatcher:
             if self._sse_manager is None:
                 logger.warning("SSE manager not set, in_app channel unavailable")
                 return None
-            await self._sse_manager.push(user_id, notification_dict)
+            pushed: int = await self._sse_manager.push(user_id, notification_dict)
+            if pushed <= 0:
+                # 无人在线/队列满=未送达，不得记 sent（账面诚实）：通知既不落库
+                # 也不入收件箱，假 sent 会让补跑与对账永久失明。
+                logger.warning(
+                    "in_app push reached 0 connections, treat as miss: user=%s title=%s",
+                    user_id, str(notification_dict.get("title", ""))[:50],
+                )
+                return None
             return "in_app"
 
         channel: Optional[NotificationChannel] = self._channels.get(channel_name)
@@ -101,7 +109,7 @@ class ChannelDispatcher:
 
         notif_copy: dict[str, object] = dict(notification_dict)
         notif_copy["user_id"] = user_id
-        valid_channels: list[str] = self._filter_channels(channels)
+        valid_channels: list[str] = list(dict.fromkeys(self._filter_channels(channels)))
 
         tasks: list[asyncio.Task[Optional[str]]] = [
             asyncio.create_task(

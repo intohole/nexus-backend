@@ -203,7 +203,7 @@ def setup_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(ValueError)
     async def _value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
         request_id: str = get_request_id() or getattr(request.state, "request_id", "-")
-        logger.info(
+        logger.warning(
             "ValueError [req_id=%s]: %s %s -> 400: %s",
             request_id, request.method, request.url.path, str(exc)[:200],
         )
@@ -211,7 +211,8 @@ def setup_exception_handlers(app: FastAPI) -> None:
             status_code=400,
             content={
                 "code": 400,
-                "message": str(exc),
+                # 异常原文只进日志：服务端解析 bug 不得以 400+内部细节姿态出网
+                "message": "请求参数有误",
                 "error_code": "BAD_REQUEST",
                 "trace_id": request_id,
             },

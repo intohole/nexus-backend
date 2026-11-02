@@ -65,7 +65,8 @@ def _make_handle(wrap_err: ErrWrapper) -> Callable[[Exception], object]:
             return wrap_err("认证服务暂时不可用，请稍后重试", 502)
         if isinstance(exc, httpx.TimeoutException):
             return wrap_err("认证服务响应超时，请稍后重试", 502)
-        return wrap_err(f"认证服务异常: {exc}", 502)
+        logger.error("auth route error: %s", exc, exc_info=True)
+        return wrap_err("认证服务异常，请稍后重试", 502)
     return _handle
 
 

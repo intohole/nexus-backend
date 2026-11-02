@@ -1,4 +1,5 @@
 """UC SDK 令牌验证层：JWKS→本地 HS256→远程 三层验证调度与 jti 黑名单同步。"""
+import time
 from typing import Dict, Any
 
 try:
@@ -52,8 +53,11 @@ class TokenVerifyMixin:
                     options={"verify_exp": False},
                 )
             except JWTError:
-                await self._refresh_jwks()
-                key_jwk = self._jwks_by_kid.get(kid)
+                # 签名错误不即时刷钥：垃圾签名洪流逐请求打 UC JWKS=放大 DoS
+                #（与 middleware_auth 未知 kid 限频同纪律，60s 内只刷一次）
+                if time.time() - getattr(self, "_jwks_fetched_at", 0.0) > 60.0:
+                    await self._refresh_jwks()
+                    key_jwk = self._jwks_by_kid.get(kid)
                 if key_jwk is None:
                     return None
                 try:

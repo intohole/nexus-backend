@@ -97,7 +97,8 @@ def handle_api_errors(operation_name: str = "operation") -> Callable[[Callable[.
                     str(e),
                     exc_info=True,
                 )
-                standard_err(message=f"{operation_name}失败: {e}", status_code=500)
+                # 异常原文只进日志（已带 exc_info），不回显客户端（内网拓扑/SQL 片段泄露面）
+                standard_err(message=f"{operation_name}失败，请稍后重试", status_code=500)
 
         return preserve_resolved_signature(wrapper, func)
 

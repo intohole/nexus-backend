@@ -220,18 +220,22 @@ class NotifyClient:
         html: str | None = None,
     ) -> bool:
         recipients: list[str] = [to] if isinstance(to, str) else list(to)
-        if len(recipients) == 1:
-            sent_center: bool = await self.send_email_via_center(
-                to=recipients[0], subject=subject, body=body, html=html
-            )
-            if sent_center:
-                return True
         sent: bool = False
+        failed: list[str] = []
         for recipient in recipients:
             ok: bool = await self.send_email_via_center(
                 to=recipient, subject=subject, body=body, html=html
             )
-            sent = sent or ok
+            if ok:
+                sent = True
+            else:
+                failed.append(recipient)
+        if failed:
+            # 非幂等 POST 不自动重发（S62）：notifyCenter 可能已投出只是响应
+            # 超时，原样重试=同一人收两封。失败收件人只留日志与返回值。
+            logger.error(
+                "send_email failed recipients=%s subject=%s", failed, str(subject)[:50]
+            )
         return sent
 
     async def send_sms(

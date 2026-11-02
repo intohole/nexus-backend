@@ -126,7 +126,8 @@ async def test_service_token_accepted_in_all_forms() -> None:
     app = build_app()
     assert (await call(app, "/api/v1/namespaces", {"X-Service-Token": SERVICE_TOKEN})).status_code == 200
     assert (await call(app, "/api/v1/namespaces", {"Authorization": f"Bearer {SERVICE_TOKEN}"})).status_code == 200
-    assert (await call(app, "/api/v1/namespaces", cookies={"service_token": SERVICE_TOKEN})).status_code == 200
+    # cookie 源已退役（可被同域子域 cookie tossing 注入）：服务凭证只走 header
+    assert (await call(app, "/api/v1/namespaces", cookies={"service_token": SERVICE_TOKEN})).status_code == 401
 
 
 @pytest.mark.asyncio

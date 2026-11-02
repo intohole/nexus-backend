@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -34,6 +35,7 @@ class MemoryMiddleware(BaseChatMiddleware):
         self._max_chars = max_chars
         self._channel = channel
         self._smart = smart
+        self._bg_tasks: set[asyncio.Task[None]] = set()
 
     async def before(self, context: ChatContext) -> None:
         user_id = str(context.conversation.user_id or "").strip()
@@ -62,12 +64,22 @@ class MemoryMiddleware(BaseChatMiddleware):
             {"role": "user", "content": context.user_message},
             {"role": "assistant", "content": reply},
         ]
+        # 回写后台化：beeMemory 挂起时同步 await 会把 done 帧卡住 10-15s
+        # （每轮对话尾部延迟）。后台任务自带短超时+终态日志（S51 三件套）。
+        task = asyncio.create_task(self._save_history_bg(context, user_id, messages))
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+
+    async def _save_history_bg(self, context: ChatContext, user_id: str, messages: list) -> None:
         try:
-            await self._sdk.save_history(
-                user_id=user_id,
-                messages=messages,
-                session_id=str(context.conversation.id),
-                channel=self._channel,
+            await asyncio.wait_for(
+                self._sdk.save_history(
+                    user_id=user_id,
+                    messages=messages,
+                    session_id=str(context.conversation.id),
+                    channel=self._channel,
+                ),
+                timeout=5.0,
             )
         except Exception as exc:
-            logger.warning("memory save_history failed: %s", exc)
+            logger.warning("memory save_history failed (bg): %s", exc)

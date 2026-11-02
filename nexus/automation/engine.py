@@ -70,12 +70,22 @@ class AutomationEngine:
         action = self.actions.get(getattr(rule, "action_type", None))
         if action is None:
             return RunOutcome(rule.id, "no_action", False, f"动作未注册: {getattr(rule, 'action_type', '')}", now + timedelta(minutes=self.retry_minutes))
-        ctx = ctx_factory(rule, now)
+        try:
+            ctx = ctx_factory(rule, now)
+        except Exception as e:
+            logger.warning("automation ctx error rule=%s: %s", rule.id, e)
+            return RunOutcome(rule.id, "ctx_error", False, f"上下文构造异常: {e}", now + timedelta(minutes=self.retry_minutes))
         condition = self.conditions.get(getattr(rule, "condition_type", None))
         if condition is not None:
             try:
                 if not await condition.apply(ctx):
-                    next_run = trigger.next_run_at(now, rule.trigger_config)
+                    # 排程计算与 action 同级围栏：一条坏 trigger_config 不得炸穿
+                    # scan 批次饿死同轮后续规则。condition_false 未执行动作，可安全重试。
+                    try:
+                        next_run = trigger.next_run_at(now, getattr(rule, "trigger_config", {}) or {})
+                    except Exception as e:
+                        logger.warning("automation schedule error rule=%s: %s", rule.id, e)
+                        return RunOutcome(rule.id, "schedule_error", False, f"排程计算异常: {e}", now + timedelta(minutes=self.retry_minutes))
                     return RunOutcome(rule.id, "condition_false", True, "条件不满足，跳过执行", next_run)
             except Exception as e:
                 next_run = now + timedelta(minutes=self.retry_minutes)
@@ -89,7 +99,13 @@ class AutomationEngine:
         if result.next_run_at is not None:
             next_run = result.next_run_at
         elif result.ok:
-            next_run = trigger.next_run_at(now, rule.trigger_config)
+            # 动作已成功执行，排程失败不能靠 15min 重试补偿（=动作重复触发），
+            # 停排+error 日志让规则可见性挂起而非重复副作用。
+            try:
+                next_run = trigger.next_run_at(now, getattr(rule, "trigger_config", {}) or {})
+            except Exception as e:
+                logger.error("automation schedule calc failed after success rule=%s: %s", rule.id, e)
+                next_run = None
         else:
             next_run = now + timedelta(minutes=self.retry_minutes)
         return RunOutcome(rule.id, "executed", result.ok, result.message, next_run)

@@ -63,7 +63,12 @@ async def test_anon_fallback_strict(monkeypatch):
 async def test_guest_fallback_lax(monkeypatch):
     _patch(monkeypatch)
     assert await get_current_user_or_anon_lax(None, None) == ("guest", None)
-    assert await get_current_user_or_anon_lax(None, "任意!格式") == ("任意!格式", None)
+    # lax 与 strict 共用格式校验（A3）：合法形态放行，纯数字/非法形态 401
+    assert await get_current_user_or_anon_lax(None, "anon-abc_123") == ("anon-abc_123", None)
+    with pytest.raises(HTTPException):
+        await get_current_user_or_anon_lax(None, "任意!格式")
+    with pytest.raises(HTTPException):
+        await get_current_user_or_anon_lax(None, "123456")
 
 
 @pytest.mark.asyncio

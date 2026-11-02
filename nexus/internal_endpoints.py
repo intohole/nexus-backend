@@ -8,7 +8,24 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from nexus.config import NexusConfig
+from nexus.context import get_request_id
+from nexus.logging import get_logger
 from nexus.utils import HealthRegistry
+
+logger = get_logger("nexus.internal")
+
+_default_verifier = None
+
+
+def _get_default_verifier():
+    """verifier 进程级单例：逐请求重建会把 JWKS/验签缓存全打空，内部监控
+    端点反而成为对 UC 的稳定压力源（与 ServiceAuthMiddleware 同生命周期）。"""
+    global _default_verifier
+    if _default_verifier is None:
+        from nexus.middleware_auth import build_default_verifier
+
+        _default_verifier = build_default_verifier()
+    return _default_verifier
 
 
 async def require_service_token(request: Request) -> None:
@@ -23,14 +40,12 @@ async def require_service_token(request: Request) -> None:
     if not supplied:
         raise HTTPException(status_code=401, detail="Invalid service token")
 
-    from nexus.middleware_auth import build_default_verifier
-
-    verifier = build_default_verifier()
+    verifier = _get_default_verifier()
     if verifier.configured and await verifier.verify_service(supplied):
         return
 
     expected: str = os.environ.get("SERVICE_TOKEN", "")
-    if expected and hmac.compare_digest(supplied, expected):
+    if expected and supplied.isascii() and hmac.compare_digest(supplied, expected):
         return
 
     raise HTTPException(status_code=401, detail="Invalid service token")
@@ -56,9 +71,10 @@ def register_internal_endpoints(app: FastAPI) -> None:
                 content={"status": "ok", "message": "ironman Bootstrap reloaded"}
             )
         except Exception as exc:
+            logger.error("ironman reload failed [req_id=%s]: %s", get_request_id() or "-", exc)
             return JSONResponse(
                 status_code=500,
-                content={"status": "error", "message": str(exc)},
+                content={"status": "error", "message": "ironman reload failed，详见服务日志"},
             )
 
     @app.get("/api/_internal/llm-metrics", dependencies=[Depends(require_service_token)])

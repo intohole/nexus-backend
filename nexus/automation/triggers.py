@@ -53,6 +53,9 @@ class ScheduleTrigger(Trigger):
             target = int(day)
             candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
             if candidate.day > target or (candidate.day == target and candidate <= now):
+                # 月份滚动先落锚 1 号：直接 replace(month+1) 在大日跨短月
+                # （1/31→2 月）会 ValueError 且裸穿 scan（engine 围栏前的兜底）。
+                candidate = candidate.replace(day=1)
                 if candidate.month == 12:
                     candidate = candidate.replace(year=candidate.year + 1, month=1)
                 else:

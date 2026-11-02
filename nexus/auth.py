@@ -95,7 +95,9 @@ class AuthDependencies:
             return None
         try:
             result: dict[str, object] = await sdk.verify_token(token)
-            if result and result.get("success", True) is not False:
+            # success 缺失/非 True 一律 fail-closed：UC 响应形状漂移（网关改写/
+            # 升级）不得演变为静默认证绕过。
+            if result and result.get("success") is True:
                 self._apply_request_context(result)
                 self._token_cache.set(token, result)
                 return result
