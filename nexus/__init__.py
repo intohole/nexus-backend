@@ -190,6 +190,7 @@ from nexus.llm_json import (
     parse_json_column,
     find_balanced_json,
     strip_code_fence,
+    extract_json_rows,
 )
 from nexus.llm_helpers import with_tail_context, disciplined_messages
 from nexus.memory import render_memory_context, recall_context, empty_reason_of
@@ -351,7 +352,7 @@ __all__ = [
     "get_moutain_client", "get_bm_sdk", "BeeMemorySDK", "sign_jwt", "verify_jwt", "create_app", "setup_middleware",
     "setup_static_files", "register_internal_endpoints", "AppLifecycle", "parse_llm_json",
     "parse_llm_json_lenient", "parse_llm_json_or", "parse_json_column", "find_balanced_json", "with_llm_retry",
-    "is_llm_json_error",
+    "is_llm_json_error", "extract_json_rows",
     "is_meta_narration",
     "with_tail_context", "disciplined_messages",
     "render_memory_context", "recall_context", "empty_reason_of",

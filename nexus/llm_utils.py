@@ -11,6 +11,7 @@ import re
 from typing import Awaitable, Callable, TypeVar
 
 from nexus.llm_json import (  # noqa: F401
+    extract_json_rows as extract_json_rows,
     find_balanced_json as find_balanced_json,
     is_llm_json_error as is_llm_json_error,
     parse_json_column as parse_json_column,

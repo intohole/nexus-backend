@@ -113,6 +113,34 @@ def is_llm_json_error(result: object) -> bool:
     return isinstance(result, dict) and set(result.keys()) == {"raw_response"}
 
 
+_ENVELOPE_TYPES = ("json_object", "array", "json_array")
+
+
+def extract_json_rows(result: object, key: str) -> list:
+    """从 LLM JSON 返回里提取行列表，数组型 ask 的统一解包单源。
+
+    生产实锤（verseCraft r17，2026-11-02）：json_mode（response_format=
+    json_object）强制顶层对象 × prompt 却要求数组输出——deepseek-flash 新
+    代际把数组包进 {"type":"json_object","value":[...]} 信封，dict 契约解析
+    器原样返回信封，调用方键族消费全部落空 → 静默 0 产出。解包次序：
+    {"key": [...]} 键优先 → 信封兜底（type∈json_object/array 且 value=list）
+    → 裸数组透传 → 单对象包装 [result]；其余形态返回 []。
+    数组型 ask 的根治是改对象形（json_mode 的行业约束），本函数是解析侧
+    兜底，两者按「新链两件套、存量迁移可只做兜底」搭配使用。
+    """
+    if isinstance(result, dict):
+        inner = result.get(key)
+        if isinstance(inner, list):
+            return inner
+        if (str(result.get("type", "")) in _ENVELOPE_TYPES
+                and isinstance(result.get("value"), list)):
+            return result["value"]
+        return [result]
+    if isinstance(result, list):
+        return result
+    return []
+
+
 def _parse_truncated_array(text: str) -> Optional[object]:
     """截断 JSON 数组的确定性修复：按最后完整元素边界闭合回收。
 
