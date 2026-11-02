@@ -34,6 +34,7 @@ _SERVICE_ALIASES: dict[str, str] = {
     "chroma": "chroma-embedding-server",
     "goldenstock": "golden",
     "promptgenius": "prompt",
+    "routine": "nexus-agent",
 }
 
 
