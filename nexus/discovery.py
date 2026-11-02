@@ -28,10 +28,12 @@ _DEFAULT_TTL_S: float = 300.0
 _FAILURE_BACKOFF_S: float = 60.0
 _REQUEST_TIMEOUT: float = httpx.Timeout(5.0, connect=2.0)
 
-# 语义名 → 注册表应用名的别名（应用更名/多身份历史遗留）
+# 语义名 → 注册表应用名的别名（应用更名/多身份历史遗留，生产注册表 2026-11-03 对表）
 _SERVICE_ALIASES: dict[str, str] = {
     "spider": "moutain",
     "chroma": "chroma-embedding-server",
+    "goldenstock": "golden",
+    "promptgenius": "prompt",
 }
 
 
