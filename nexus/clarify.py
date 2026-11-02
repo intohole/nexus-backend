@@ -10,8 +10,6 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
-SKIP_WORDS = ("跳过", "直接生成", "快速生成", "都可以", "随便", "你决定", "就这样", "快速")
-
 
 class ClarifyOption(BaseModel):
     value: str
@@ -48,11 +46,6 @@ class ClarifyQuestion(BaseModel):
         if self.placeholder:
             data["placeholder"] = self.placeholder
         return data
-
-def is_skip(text: Optional[str]) -> bool:
-    if not text:
-        return False
-    return any(word in text for word in SKIP_WORDS)
 
 
 def question(

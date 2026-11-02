@@ -20,6 +20,10 @@ from typing import Optional
 
 import httpx
 
+from nexus.logging import get_logger
+
+logger = get_logger("nexus.volc")
+
 _ARK_POLL_INTERVAL = 5.0
 _ARK_POLL_TIMEOUT = 900.0
 _TTS_WS_URL = "wss://openspeech.bytedance.com/api/v3/tts/bidirection"

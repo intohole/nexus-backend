@@ -73,7 +73,7 @@ def _extract_pdf(data: bytes) -> str:
     try:
         from pypdf import PdfReader
         reader_cls = PdfReader
-    except ImportError as exc:
+    except ImportError:
         try:
             from PyPDF2 import PdfReader
             reader_cls = PdfReader
