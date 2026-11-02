@@ -9,16 +9,20 @@ from typing import Optional
 
 import httpx
 
+from nexus.discovery import get_registry, resolve_cached
 from nexus.logging import get_logger
 from nexus.service_client import get_service_token
 
 logger = get_logger("nexus.wanxiang")
 
-DEFAULT_BASE_URL = "http://10.100.0.4:8001"
-
-
 def get_wanxiang_base_url() -> str:
-    return os.environ.get("WANXIANG_BASE_URL", "").rstrip("/") or DEFAULT_BASE_URL
+    env_url = os.environ.get("WANXIANG_BASE_URL", "").rstrip("/")
+    if env_url:
+        return env_url
+    cached = resolve_cached("wanxiang")
+    if cached:
+        return cached
+    return get_registry().bootstrap("wanxiang")
 
 
 class WanxiangError(RuntimeError):

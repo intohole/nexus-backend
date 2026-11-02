@@ -285,6 +285,27 @@ async def resolve_service(name: str, prefer: str = "internal") -> str:
     return registry.bootstrap(name)
 
 
+def resolve_cached(name: str, prefer: str = "internal") -> str:
+    """同步一行式解析：仅用内存态（磁盘快照/上次成功拉取），不触发网络 refresh。
+
+    同步上下文（模块级默认值/非 async 调用方）专用；未知名/无快照返回空串，
+    调用方自行回落 defaults 引导表。语义与 resolve_service 一致但少网络环节。
+    """
+    registry = get_registry()
+    endpoint = registry.lookup(name)
+    if endpoint is None:
+        return ""
+    if prefer == "public":
+        if endpoint.is_public and endpoint.path_prefix:
+            origin = os.getenv("PUBLIC_WEB_ORIGIN", "https://songguokr.com")
+            return origin.rstrip("/") + endpoint.path_prefix
+        return ""
+    host = registry._host_for(endpoint)
+    if not host:
+        return ""
+    return f"http://{host}:{endpoint.port}"
+
+
 def reset_registry() -> None:
     """测试隔离用：丢弃单例与缓存态。"""
     global _registry

@@ -14,4 +14,5 @@ BOOTSTRAP_SERVICE_URLS: dict[str, str] = {
     "promptmanager": "http://10.100.0.1:8400",
     "usercenter": DEFAULT_UC_BASE_URL,
     "userfeedback": "http://10.100.0.1:8100",
+    "wanxiang": "http://10.100.0.4:8001",
 }

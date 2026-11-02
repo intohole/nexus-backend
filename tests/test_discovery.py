@@ -162,3 +162,23 @@ def test_snapshot_roundtrip(tmp_path):
     assert reg.state == "cache"
     assert reg.lookup("golden-stock").port == 8888
     assert reg.lookup("golden").port == 8888
+
+
+@pytest.mark.asyncio
+async def test_resolve_cached_sync_and_wanxiang_chain(tmp_path, monkeypatch):
+    monkeypatch.delenv("WANXIANG_BASE_URL", raising=False)
+    reg = _registry(tmp_path)
+    await reg.refresh(force=True)
+    monkeypatch.setattr(discovery, "_registry", reg)
+    assert discovery.resolve_cached("no-such-app") == ""
+    assert discovery.resolve_cached("beememory") == "http://10.100.0.1:8700"
+    from nexus import wanxiang
+    assert wanxiang.get_wanxiang_base_url() == defaults.BOOTSTRAP_SERVICE_URLS["wanxiang"]
+    monkeypatch.setenv("WANXIANG_BASE_URL", "http://env-override:9000/")
+    assert wanxiang.get_wanxiang_base_url() == "http://env-override:9000"
+    await reg.close()
+
+
+def test_resolve_cached_cold_registry_returns_empty(tmp_path, monkeypatch):
+    monkeypatch.setattr(discovery, "_registry", ServiceRegistry(cache_path=tmp_path / "none.json"))
+    assert discovery.resolve_cached("beememory") == ""
