@@ -112,6 +112,7 @@ class BeeMemorySDK(BaseAsyncClient):
         app_name: Optional[str] = None,
         top_k: int = 5,
         smart: bool = True,
+        max_chars: Optional[int] = None,
     ) -> Dict:
         payload: Dict = {
             "content": content,
@@ -120,7 +121,25 @@ class BeeMemorySDK(BaseAsyncClient):
             "top_k": top_k,
             "smart": smart,
         }
+        if max_chars is not None:
+            payload["max_chars"] = max_chars
         return await self._request("POST", "/api/memory/v1/recall", data=payload)
+
+    async def snapshot_memories(
+        self,
+        user_id: str,
+        app_name: Optional[str] = None,
+        top_k: int = 10,
+        max_chars: Optional[int] = None,
+    ) -> Dict:
+        payload: Dict = {
+            "user_id": user_id,
+            "app_name": app_name or self.app_name,
+            "top_k": top_k,
+        }
+        if max_chars is not None:
+            payload["max_chars"] = max_chars
+        return await self._request("POST", "/api/memory/v1/snapshot", data=payload)
 
     async def list_memories(
         self,
@@ -146,6 +165,7 @@ class BeeMemorySDK(BaseAsyncClient):
         messages: List[Dict],
         app_name: Optional[str] = None,
         session_id: Optional[str] = None,
+        channel: Optional[str] = None,
     ) -> Dict:
         payload: Dict = {
             "user_id": user_id,
@@ -154,6 +174,8 @@ class BeeMemorySDK(BaseAsyncClient):
         }
         if session_id:
             payload["session_id"] = session_id
+        if channel:
+            payload["channel"] = channel
         return await self._request("POST", "/api/memory/submit", data=payload)
 
     async def ensure_app_config(

@@ -192,6 +192,7 @@ from nexus.llm_json import (
     strip_code_fence,
 )
 from nexus.llm_helpers import with_tail_context, disciplined_messages
+from nexus.memory import render_memory_context, recall_context, empty_reason_of
 from nexus.llm import get_llm_service
 from nexus.sse_manager import (
     SSEManager,
@@ -353,6 +354,7 @@ __all__ = [
     "is_llm_json_error",
     "is_meta_narration",
     "with_tail_context", "disciplined_messages",
+    "render_memory_context", "recall_context", "empty_reason_of",
     "strip_code_fence", "LLMTimeoutError", "get_llm_service", "LLMJsonClient",
     "ask_json_verified", "chat_json_verified",
     "get_image_service", "get_vision_service", "JSON_ONLY_HINT", "estimate_tokens",
