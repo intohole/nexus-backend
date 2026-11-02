@@ -154,10 +154,11 @@ async def test_resolve_service_one_liner(tmp_path, monkeypatch):
 def test_snapshot_roundtrip(tmp_path):
     payload = {"fetched_at": 1.0, "base_url": "http://10.100.0.1:8900",
                "nodes": [{"tag": "edge-02", "host": "10.100.0.2"}],
-               "apps": [{"name": "goldenStock", "port": 8888, "node_tag": "edge-02",
+               "apps": [{"name": "golden", "port": 8888, "node_tag": "edge-02",
                          "status": "running", "path_prefix": "/golden", "is_public": True}]}
     p = tmp_path / "snapshot.json"
     p.write_text(json.dumps(payload), encoding="utf-8")
     reg = ServiceRegistry(cache_path=p)
     assert reg.state == "cache"
     assert reg.lookup("golden-stock").port == 8888
+    assert reg.lookup("golden").port == 8888
