@@ -47,9 +47,19 @@ def test_before_injects_context_part():
     context = build_context()
     asyncio.run(middleware.before(context))
     assert len(context.context_parts) == 1
+    assert "历史记忆" in context.context_parts[0]
     assert "用户对花生过敏" in context.context_parts[0]
     assert sdk.recall_calls[0]["user_id"] == "u1"
     assert sdk.recall_calls[0]["max_chars"] == 2000
+
+
+def test_before_forces_recall_kind_without_envelope_markers():
+    """信封缺 analysis/empty_reason 键也必须渲染召回头（中间件是固定召回路径，不做键嗅探）。"""
+    sdk = FakeSDK(result={"memories": [{"id": "m1", "content": "用户在深圳工作", "created_at": "2026-11-01"}]})
+    middleware = MemoryMiddleware(sdk)
+    context = build_context()
+    asyncio.run(middleware.before(context))
+    assert context.context_parts and context.context_parts[0].startswith("以下是用户的历史记忆")
 
 
 def test_before_guest_and_blank_short_circuit():

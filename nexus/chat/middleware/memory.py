@@ -50,7 +50,7 @@ class MemoryMiddleware(BaseChatMiddleware):
         except Exception as exc:
             logger.warning("memory recall failed, skip injection: %s", exc)
             return
-        block = render_memory_context(result)
+        block = render_memory_context(result, kind="recall")
         if block:
             context.context_parts.append(block)
 
