@@ -212,3 +212,46 @@ def get_bm_sdk(app_name: str = "default", timeout: float = 10.0) -> BeeMemorySDK
     if _bm_sdk is None:
         _bm_sdk = BeeMemorySDK(app_name=app_name, timeout=timeout)
     return _bm_sdk
+
+
+_ensured_apps: Dict[str, bool] = {}
+
+
+async def ensure_app_memory(
+    app_name: str,
+    *,
+    similarity_threshold: float,
+    expiry_days: int,
+    skip_low_value_gate: bool = False,
+    timeout: float = 10.0,
+) -> bool:
+    """beeMemory 应用接入幂等自举：健康检查 + 建应用配置，每进程每 app 一次。
+
+    成功与失败都记忆化且命中返回上次真实结果（失败记忆化=每消息调用形态下
+    不重复打健康探针，r152 六仓自举样板单源收归）。服务缺席/配置被拒/异常均
+    fail-open 返回 False（调用方读空、写跳过或走本地降级），True=配置就绪。
+    """
+    if app_name in _ensured_apps:
+        return _ensured_apps[app_name]
+    sdk = get_bm_sdk(app_name=app_name, timeout=timeout)
+    ok = False
+    try:
+        if await sdk.health_check():
+            extra: Dict = {"skip_low_value_gate": True} if skip_low_value_gate else {}
+            result = await sdk.ensure_app_config(
+                app_name=app_name,
+                similarity_threshold=similarity_threshold,
+                expiry_days=expiry_days,
+                **extra,
+            )
+            if result.get("success") is False:
+                logger.warning("beeMemory 配置确保被拒 (app=%s): %s", app_name, result.get("message"))
+            else:
+                ok = True
+                logger.info("beeMemory config ensured (app=%s)", app_name)
+        else:
+            logger.warning("beeMemory 服务不可用，记忆面降级 (app=%s)", app_name)
+    except Exception as exc:
+        logger.warning("beeMemory config ensure failed (app=%s): %s", app_name, exc)
+    _ensured_apps[app_name] = ok
+    return ok

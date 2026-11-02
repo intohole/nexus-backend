@@ -232,7 +232,7 @@ from nexus.ironman import (
     is_ironman_available,
     reload_ironman,
 )
-from nexus.bm_sdk import BeeMemorySDK, get_bm_sdk
+from nexus.bm_sdk import BeeMemorySDK, ensure_app_memory, get_bm_sdk
 from nexus.moutain import MoutainClient, get_moutain_client
 from nexus.jwt_utils import sign_jwt, verify_jwt
 from nexus.web_search import (
@@ -349,7 +349,7 @@ __all__ = [
     "get_spider_base_url", "get_spider_config", "get_promptmanager_config",
     "get_beememory_base_url", "get_chroma_config", "get_rate_limit_config",
     "get_retry_config", "get_timeout_config", "get_auth_config", "get_llm_quota_config",
-    "get_moutain_client", "get_bm_sdk", "BeeMemorySDK", "sign_jwt", "verify_jwt", "create_app", "setup_middleware",
+    "get_moutain_client", "get_bm_sdk", "BeeMemorySDK", "ensure_app_memory", "sign_jwt", "verify_jwt", "create_app", "setup_middleware",
     "setup_static_files", "register_internal_endpoints", "AppLifecycle", "parse_llm_json",
     "parse_llm_json_lenient", "parse_llm_json_or", "parse_json_column", "find_balanced_json", "with_llm_retry",
     "is_llm_json_error", "extract_json_rows",
