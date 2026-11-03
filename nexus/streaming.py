@@ -305,6 +305,63 @@ async def _drain_after_disconnect(
         _DRAIN_TASKS.discard(asyncio.current_task())
 
 
+def _classify_sse_chunk(
+    chunk: Union[str, dict[str, Any]],
+) -> tuple[str, dict[str, Any], dict[str, Any], Optional[str]]:
+    """归一一条上游 chunk：(事件类型, on_event 载荷, 下发载荷, 待累积增量)。
+
+    dict 事件 on_event 收原始 chunk（含 type 键），下发载荷剥 type；
+    str 增量统一视为 delta，两载荷同形。增量为 None 表示非 delta 事件不累积。
+    """
+    if isinstance(chunk, dict):
+        event_type: str = chunk.get("type", "delta")
+        yield_payload = {k: v for k, v in chunk.items() if k != "type"}
+        delta = str(chunk["content"]) if event_type == "delta" and "content" in chunk else None
+        return event_type, chunk, yield_payload, delta
+    content = str(chunk)
+    return "delta", {"content": content}, {"content": content}, content
+
+
+async def _teardown_pump(
+    pump_task: "asyncio.Task",
+    queue: "asyncio.Queue",
+    accumulated: list[str],
+    on_event: Optional[Callable[[str, dict[str, Any]], Awaitable[None]]],
+    on_complete: Optional[Callable[[str], Awaitable[None]]],
+    drain_on_disconnect: bool,
+) -> None:
+    """生成器关闭时 pump 任务拆卸：客户端断开移交 drain 兜底消费者（业务流
+    含尾部落库跑到自然结束，总闸防上游挂死），否则取消收割防悬死。"""
+    if pump_task.done():
+        return
+    if drain_on_disconnect:
+        async def _guarded_drain() -> None:
+            try:
+                await asyncio.wait_for(
+                    _drain_after_disconnect(queue, accumulated, on_event, on_complete),
+                    timeout=DRAIN_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("SSE drain timed out after %.0fs", DRAIN_TIMEOUT_SECONDS)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("SSE drain failed: %s", exc)
+            finally:
+                if not pump_task.done():
+                    pump_task.cancel()
+
+        drain_task = asyncio.create_task(_guarded_drain())
+        _DRAIN_TASKS.add(drain_task)
+        drain_task.add_done_callback(_DRAIN_TASKS.discard)
+    else:
+        pump_task.cancel()
+        try:
+            await pump_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+
 async def _sse_generator_v2(
     chat_fn: AsyncIterator[Union[str, dict[str, Any]]],
     request: Optional[Any] = None,
@@ -360,56 +417,21 @@ async def _sse_generator_v2(
                     raise chunk
                 if not chunk:
                     continue
-                if isinstance(chunk, dict):
-                    event_type: str = chunk.get("type", "delta")
-                    if event_type == "delta" and "content" in chunk:
-                        accumulated.append(str(chunk["content"]))
-                    if event_type == "done":
-                        done_sent = True
-                    if on_event:
-                        try:
-                            await on_event(event_type, chunk)
-                        except Exception as exc:
-                            logger.warning("on_event callback failed: %s", exc)
-                    yield sse_event_dict(event_type, {k: v for k, v in chunk.items() if k != "type"})
-                else:
-                    accumulated.append(str(chunk))
-                    if on_event:
-                        try:
-                            await on_event("delta", {"content": str(chunk)})
-                        except Exception as exc:
-                            logger.warning("on_event callback failed: %s", exc)
-                    yield sse_event_dict("delta", {"content": str(chunk)})
-        finally:
-            if not pump_task.done():
-                if drain_on_disconnect:
-                    # 客户端断开（生成器被 aclose）：移交 drain 兜底消费者，
-                    # 业务流跑到自然结束（尾部落库照常执行）。总闸防上游挂死。
-                    async def _guarded_drain() -> None:
-                        try:
-                            await asyncio.wait_for(
-                                _drain_after_disconnect(queue, accumulated, on_event, on_complete),
-                                timeout=DRAIN_TIMEOUT_SECONDS,
-                            )
-                        except asyncio.TimeoutError:
-                            logger.warning("SSE drain timed out after %.0fs", DRAIN_TIMEOUT_SECONDS)
-                        except asyncio.CancelledError:
-                            raise
-                        except Exception as exc:
-                            logger.warning("SSE drain failed: %s", exc)
-                        finally:
-                            if not pump_task.done():
-                                pump_task.cancel()
-
-                    drain_task = asyncio.create_task(_guarded_drain())
-                    _DRAIN_TASKS.add(drain_task)
-                    drain_task.add_done_callback(_DRAIN_TASKS.discard)
-                else:
-                    pump_task.cancel()
+                event_type, notify_payload, yield_payload, delta = _classify_sse_chunk(chunk)
+                if delta is not None:
+                    accumulated.append(delta)
+                if event_type == "done":
+                    done_sent = True
+                if on_event:
                     try:
-                        await pump_task
-                    except (asyncio.CancelledError, Exception):
-                        pass
+                        await on_event(event_type, notify_payload)
+                    except Exception as exc:
+                        logger.warning("on_event callback failed: %s", exc)
+                yield sse_event_dict(event_type, yield_payload)
+        finally:
+            await _teardown_pump(
+                pump_task, queue, accumulated, on_event, on_complete, drain_on_disconnect
+            )
         full_content = "".join(accumulated)
         if on_complete:
             try:

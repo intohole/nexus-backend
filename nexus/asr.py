@@ -23,6 +23,7 @@ from collections.abc import AsyncIterator
 
 import httpx
 
+from nexus._ws_stream_base import _WsStreamCloser
 from nexus.infra import get_promptmanager_config
 from nexus.logging import get_logger
 
@@ -41,7 +42,7 @@ class AsrStreamError(Exception):
     pass
 
 
-class AsrStreamSession:
+class AsrStreamSession(_WsStreamCloser):
     """大模型流式语音识别会话（双向流式优化版）。
 
     16kHz mono s16le PCM 分包推送（建议 100~200ms/包），results() 迭代识别
@@ -127,24 +128,6 @@ class AsrStreamSession:
             if item is None:
                 return
             yield item
-
-    async def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        if self._reader_task is not None:
-            self._reader_task.cancel()
-            try:
-                await self._reader_task
-            except (asyncio.CancelledError, Exception):
-                pass
-            self._reader_task = None
-        if self._ws is not None:
-            try:
-                await self._ws.close()
-            except Exception:
-                pass
-            self._ws = None
 
     async def _send_frame(self, msg_type: int, flags: int, payload: bytes, seq: int = 0) -> None:
         header = bytes([0x11, (msg_type << 4) | flags, 0x11, 0x00])

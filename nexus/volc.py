@@ -20,6 +20,7 @@ from typing import Optional
 
 import httpx
 
+from nexus._ws_stream_base import _WsStreamCloser
 from nexus.logging import get_logger
 
 logger = get_logger("nexus.volc")
@@ -108,7 +109,7 @@ class ArkResult:
     meta: dict = field(default_factory=dict)
 
 
-class TTSStreamSession:
+class TTSStreamSession(_WsStreamCloser):
     """seed-tts-2.0 增量文本流式会话：push_text(句子) → frames() 迭代音频块。
 
     音频格式默认 pcm(s16le) 便于 WS 网关直推浏览器 AudioContext；
@@ -202,24 +203,6 @@ class TTSStreamSession:
             if chunk is None:
                 return
             yield chunk
-
-    async def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        if self._reader_task is not None:
-            self._reader_task.cancel()
-            try:
-                await self._reader_task
-            except (asyncio.CancelledError, Exception):
-                pass
-            self._reader_task = None
-        if self._ws is not None:
-            try:
-                await self._ws.close()
-            except Exception:
-                pass
-            self._ws = None
 
     async def _reader_loop(self) -> None:
         try:

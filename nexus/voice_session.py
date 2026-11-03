@@ -134,21 +134,39 @@ class _RealtimeSession:
     async def _dispatch(self, msg: dict) -> None:
         self._last_activity = time.monotonic()
         msg_type = str(msg.get("type") or "")
-        if msg_type == "audio":
-            await self._on_audio(str(msg.get("data") or ""))
-        elif msg_type == "text":
-            await self._on_direct_text(str(msg.get("text") or ""))
-        elif msg_type == "turn_end":
-            await self._trigger_turn(source="client")
-        elif msg_type == "interrupt":
-            self._last_client_interrupt = time.monotonic()
-            await self._interrupt(notify=True)
-        elif msg_type == "pong":
-            pass
-        elif msg_type == "stop":
-            self._closed = True
-        else:
+        handler = self._MESSAGE_HANDLERS.get(msg_type)
+        if handler is None:
             await self._send({"type": "error", "message": f"未知消息类型 {msg_type}"})
+            return
+        await handler(self, msg)
+
+    async def _handle_audio(self, msg: dict) -> None:
+        await self._on_audio(str(msg.get("data") or ""))
+
+    async def _handle_text(self, msg: dict) -> None:
+        await self._on_direct_text(str(msg.get("text") or ""))
+
+    async def _handle_turn_end(self, msg: dict) -> None:
+        await self._trigger_turn(source="client")
+
+    async def _handle_interrupt(self, msg: dict) -> None:
+        self._last_client_interrupt = time.monotonic()
+        await self._interrupt(notify=True)
+
+    async def _handle_pong(self, msg: dict) -> None:
+        return
+
+    async def _handle_stop(self, msg: dict) -> None:
+        self._closed = True
+
+    _MESSAGE_HANDLERS = {
+        "audio": _handle_audio,
+        "text": _handle_text,
+        "turn_end": _handle_turn_end,
+        "interrupt": _handle_interrupt,
+        "pong": _handle_pong,
+        "stop": _handle_stop,
+    }
 
     async def _heartbeat(self) -> None:
         if time.monotonic() - self._last_send_mono >= _HEARTBEAT_S:
