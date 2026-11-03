@@ -332,6 +332,30 @@ def get_notify_client(base_url: str = "") -> NotifyClient:
         _notify_client = NotifyClient(base_url=base_url)
     return _notify_client
 
+
+async def unread_status(notify_id: int) -> Optional[bool]:
+    """回执行号→已读状态三态：True=未读 / False=已读 / None=证据缺失。
+
+    None 语义（教训#373）：旧 nexus 无 read_status 方法、请求失败、行不存在——
+    证据链缺失期间不可当已读也不可当未读。收归自 travelMate is_unread /
+    challengePlanet _is_unread 跨仓克隆（dup_block_scan 簇4，2026-11-04）。
+    """
+    if not notify_id:
+        return None
+    try:
+        client = get_notify_client()
+        method = getattr(client, "read_status", None)
+        if method is None:
+            return None
+        statuses = await method([int(notify_id)])
+    except Exception as exc:
+        logger.warning("read_status check failed: %s", exc)
+        return None
+    if int(notify_id) not in statuses:
+        return None
+    return not statuses[int(notify_id)]
+
+
 from nexus.notify_api import (  # noqa: E402
     DEFAULT_TASK_FAILURE_RULES,
     friendly_task_failure,

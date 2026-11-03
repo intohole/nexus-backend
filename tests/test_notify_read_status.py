@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
 import httpx
 
 from nexus.notify import NotifyClient
@@ -51,3 +52,45 @@ def test_read_status_error_returns_empty_not_reads() -> None:
 
 def test_read_status_empty_ids_short_circuits() -> None:
     assert asyncio.run(_client().read_status([])) == {}
+
+
+class _FakeNotifyClient:
+    def __init__(self, statuses: dict[int, bool] | None = None, exc: Exception | None = None) -> None:
+        self._statuses = statuses or {}
+        self._exc = exc
+
+    async def read_status(self, ids: list[int]) -> dict[int, bool]:
+        if self._exc is not None:
+            raise self._exc
+        return {i: v for i, v in self._statuses.items() if i in ids}
+
+
+def test_unread_status_triple_states(monkeypatch: pytest.MonkeyPatch) -> None:
+    """簇4 收归守底：True=未读 / False=已读 / 缺席=None（教训#373 语义随原语单源）。"""
+    import nexus.notify as notify_mod
+    from nexus.notify import unread_status
+
+    monkeypatch.setattr(
+        notify_mod, "_notify_client",
+        _FakeNotifyClient(statuses={5: False, 6: True}),
+    )
+    assert asyncio.run(unread_status(5)) is True
+    assert asyncio.run(unread_status(6)) is False
+    assert asyncio.run(unread_status(999)) is None
+    assert asyncio.run(unread_status(0)) is None
+
+
+def test_unread_status_client_without_method(monkeypatch: pytest.MonkeyPatch) -> None:
+    import nexus.notify as notify_mod
+    from nexus.notify import unread_status
+
+    monkeypatch.setattr(notify_mod, "_notify_client", object())
+    assert asyncio.run(unread_status(1)) is None
+
+
+def test_unread_status_request_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    import nexus.notify as notify_mod
+    from nexus.notify import unread_status
+
+    monkeypatch.setattr(notify_mod, "_notify_client", _FakeNotifyClient(exc=RuntimeError("boom")))
+    assert asyncio.run(unread_status(1)) is None

@@ -389,3 +389,43 @@ def test_probe_value_check_custom_reports() -> None:
     data = _get(_app(llm=False, notify=False, value_check=_value))
     assert data["checks"]["value"]["status"] == "ok"
     assert data["checks"]["value"]["evidence"]["actions_per_active_user_day"] == 3.2
+
+
+def test_probe_scheduler_gate_refused_returns_skipped() -> None:
+    """簇7 收归守底：not running + gate refused → skipped（原三仓样板语义上移单源）。"""
+    class _Gate:
+        allowed = False
+
+    class _Gated:
+        running = False
+        gate = _Gate()
+
+    result = bp.probe_scheduler(_Gated())
+    assert result["status"] == "skipped"
+    assert result["evidence"] == {"reason": "scheduler_gate_refused"}
+
+
+def test_probe_scheduler_gate_allowed_or_absent_unchanged() -> None:
+    """gate 在场但 allowed=True / gate 缺席时行为与旧版完全一致（其他消费仓零影响）。"""
+    class _Gate:
+        allowed = True
+
+    class _GatedAllowed:
+        running = False
+        gate = _Gate()
+
+        def status(self) -> dict[str, object]:
+            return {"alive": True, "last_tick_at": None, "jobs": {}}
+
+        def ensure_alive(self) -> bool:
+            return False
+
+    assert bp.probe_scheduler(_GatedAllowed())["status"] in {"ok", "fail"}
+
+    class _NoGate:
+        running = False
+
+        def list_jobs(self) -> dict[str, str]:
+            return {}
+
+    assert bp.probe_scheduler(_NoGate())["status"] == "fail"

@@ -177,6 +177,15 @@ def _active_scheduler_check(scheduler: ActiveSchedulerLike) -> dict[str, object]
 
 
 def probe_scheduler(scheduler: Union[SchedulerLike, ActiveSchedulerLike]) -> dict[str, object]:
+    if getattr(scheduler, "running", None) is False:
+        gate = getattr(scheduler, "gate", None)
+        if gate is not None and not getattr(gate, "allowed", True):
+            return {
+                "status": "skipped",
+                "latency_ms": 0,
+                "detail": "scheduler gate refused (SCHEDULER_ENABLED 未开)",
+                "evidence": {"reason": "scheduler_gate_refused"},
+            }
     if hasattr(scheduler, "ensure_alive"):
         return _standard_scheduler_check(scheduler)  # type: ignore[arg-type]
     return _active_scheduler_check(scheduler)  # type: ignore[arg-type]
