@@ -13,7 +13,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncConnection
-from sqlalchemy.schema import Column, MetaData
+from sqlalchemy.schema import Column, CreateIndex, MetaData
 from sqlalchemy.sql.elements import TextClause
 
 logger = logging.getLogger("nexus.sqlite_migrate")
@@ -106,6 +106,39 @@ def ensure_model_columns_sync(
     return added
 
 
+def ensure_model_indexes_sync(
+    conn: Connection, metadata: MetaData, tables: Optional[Iterable[str]] = None
+) -> List[Tuple[str, str]]:
+    """ORM 声明的索引与库内已有索引比对，缺失则补建（幂等）。
+
+    create_all 对已存在的表整表跳过（含其索引），"建表后新加的 index=True 列"
+    因此永不落地——本函数补上这一缺口。比对键=(列集合, unique)：库内已有
+    同列集合的索引即视为满足，不强求名字一致（手工/历史索引的命名差异不重复建）。
+    表不存在时静默跳过（create_all 先行的常见启动序）。
+    """
+    wanted: Optional[set] = set(tables) if tables is not None else None
+    added: List[Tuple[str, str]] = []
+    insp = inspect(conn)
+    for table_name, table_obj in metadata.tables.items():
+        if wanted is not None and table_name not in wanted:
+            continue
+        model_indexes = [i for i in table_obj.indexes if i.columns]
+        if not model_indexes or not insp.has_table(table_name):
+            continue
+        existing = {
+            (frozenset(i["column_names"]), bool(i["unique"]))
+            for i in insp.get_indexes(table_name)
+        }
+        for idx in model_indexes:
+            key = (frozenset(c.name for c in idx.columns), bool(idx.unique))
+            if key in existing:
+                continue
+            conn.execute(text(str(CreateIndex(idx).compile(dialect=conn.dialect))))
+            logger.info("sqlite_migrate: created index %s on %s (from model)", idx.name, table_name)
+            added.append((table_name, str(idx.name)))
+    return added
+
+
 async def ensure_column(conn: AsyncConnection, table: str, column: str, col_ddl: str) -> bool:
     return await conn.run_sync(lambda sc: ensure_column_sync(sc, table, column, col_ddl))
 
@@ -118,3 +151,9 @@ async def ensure_model_columns(
     conn: AsyncConnection, metadata: MetaData, tables: Optional[Iterable[str]] = None
 ) -> List[Tuple[str, str]]:
     return await conn.run_sync(lambda sc: ensure_model_columns_sync(sc, metadata, tables))
+
+
+async def ensure_model_indexes(
+    conn: AsyncConnection, metadata: MetaData, tables: Optional[Iterable[str]] = None
+) -> List[Tuple[str, str]]:
+    return await conn.run_sync(lambda sc: ensure_model_indexes_sync(sc, metadata, tables))

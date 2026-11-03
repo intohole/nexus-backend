@@ -122,9 +122,10 @@ class DatabaseManager:
         if self._engine is None:
             raise DatabaseError("Database engine initialization failed.")
         async with self._engine.begin() as conn:
-            from nexus.sqlite_migrate import ensure_model_columns_sync
+            from nexus.sqlite_migrate import ensure_model_columns_sync, ensure_model_indexes_sync
 
             await conn.run_sync(lambda sc: ensure_model_columns_sync(sc, Base.metadata))
+            await conn.run_sync(lambda sc: ensure_model_indexes_sync(sc, Base.metadata))
 
     @asynccontextmanager
     async def session(self) -> AsyncGenerator[AsyncSession, None]:
