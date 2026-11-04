@@ -7,7 +7,7 @@ probe_ping 三点差异 = 推理兼容 / no_cache / 零重试。
 """
 import pytest
 
-import nexus.llm as llm_mod
+import nexus.llm_probes as llm_mod
 from nexus.llm import LLMService
 
 

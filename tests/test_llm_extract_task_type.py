@@ -9,7 +9,7 @@ import types
 
 import pytest
 
-import nexus.llm as llm_mod
+import nexus.llm_probes as llm_mod
 from ironman.types import LLMOptions
 from nexus.llm import LLMService
 
