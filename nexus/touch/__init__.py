@@ -11,6 +11,10 @@ suki r9 增量判据+revive 续航 / geniusStudent r15 内容指纹聚合 / gold
 - 同内容且不足 revive_days -> SILENCE（没有新话，静默优于重发）
 - 同内容且满 revive_days -> REVIVE（允许重发一次，文案用 revive 变体「门开着」，
   指纹保持内容身份不变——revive 文案不是新内容）
+- 同内容复活有顶（revive_cap，默认 1）：调用方回传同内容身份累计已发行数
+  same_fingerprint_sends，超过 1+revive_cap 后不再复活、改判 SUNSET（诚实退场）。
+  缺口实证：REVIVE 每次重发前移 sunset 锚点（last_sent），纯靠锚点判断同一
+  内容身份可无限复活（aiPet r16 本地封顶补刀上移，#736/#739 周期放水同构）
 - 同内容且 max(last_sent, user_last_active) 距今满 sunset_days -> SUNSET
   （用户长期未回流且无新话，诚实退场；内容变了则不受落日限制，有新话照发）
 - 存在历史触达但无指纹（历史行平滑切进守卫）-> 视为首次放行一条
@@ -33,7 +37,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 
-__all__ = ["TouchAction", "TouchDecision", "fingerprint", "decide_touch", "revive_delta"]
+__all__ = ["TouchAction", "TouchDecision", "decide_touch", "fingerprint", "revive_delta"]
 
 
 class TouchAction(str, Enum):
@@ -76,6 +80,8 @@ def decide_touch(
     user_last_active_at: datetime | None = None,
     unread_streak: int = 0,
     backoff_schedule: tuple[timedelta, ...] | None = None,
+    same_fingerprint_sends: int = 0,
+    revive_cap: int = 1,
 ) -> TouchDecision:
     """触达决策。now 由调用方传入（纯函数，不读墙钟）。
 
@@ -88,6 +94,12 @@ def decide_touch(
     连击取第 min(N, len) 档；频率下限 = max(min_interval, 档位值)，REVIVE
     门槛同步放大——先于内容变化判定（周期选品每期新指纹，不拦新内容则
     退避恒被旁路），读一次即回常态。
+
+    same_fingerprint_sends：同内容身份累计已发行数（含首发；台账无指纹列的
+    证据缺失时不传=宁宽勿冤，封顶不启用，与 unread_streak 同款证据纪律）。
+    revive_cap：同内容身份在首发后允许的复活次数上限；REVIVE 窗口已满且
+    计数超 1+revive_cap 时改判 SUNSET（诚实退场），换内容身份（新指纹）
+    不受封顶影响。
     """
     if not last_sent_at:
         return TouchDecision(TouchAction.SEND, "first_touch")
@@ -108,6 +120,8 @@ def decide_touch(
     if now - anchor > timedelta(days=sunset_days):
         return TouchDecision(TouchAction.SUNSET, f"no_response_over_{sunset_days}d")
     if now - last_sent_at >= max(timedelta(days=revive_days), backoff):
+        if same_fingerprint_sends > revive_cap:
+            return TouchDecision(TouchAction.SUNSET, f"same_content_revive_cap_{revive_cap}")
         return TouchDecision(
             TouchAction.REVIVE,
             f"same_content_over_{revive_days}d" + (f"_unread_backoff_{unread_streak}" if backoff else ""),

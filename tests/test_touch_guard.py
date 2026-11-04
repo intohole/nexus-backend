@@ -128,11 +128,11 @@ def test_unread_backoff_blocks_new_content_within_schedule():
 
 
 def test_unread_backoff_picks_streak_tier_and_caps_at_last():
-    base = dict(
-        new_fingerprint="f2", last_fingerprint="f1",
-        last_sent_at=NOW - timedelta(days=15), min_interval=timedelta(days=6), now=NOW,
-        backoff_schedule=(timedelta(days=14), timedelta(days=21)),
-    )
+    base = {
+        "new_fingerprint": "f2", "last_fingerprint": "f1",
+        "last_sent_at": NOW - timedelta(days=15), "min_interval": timedelta(days=6), "now": NOW,
+        "backoff_schedule": (timedelta(days=14), timedelta(days=21)),
+    }
     streak1 = decide_touch(unread_streak=1, **base)
     streak5 = decide_touch(unread_streak=5, **base)
     assert streak1.action is TouchAction.SEND
@@ -181,3 +181,54 @@ def test_streak_without_schedule_keeps_legacy_behavior():
         unread_streak=3,
     )
     assert d.action is TouchAction.SEND and d.reason == "content_changed"
+
+
+def test_revive_cap_suppresses_third_same_content_send():
+    d = decide_touch(
+        new_fingerprint="f1", last_fingerprint="f1",
+        last_sent_at=NOW - timedelta(days=7), now=NOW,
+        same_fingerprint_sends=2,
+    )
+    assert d.action is TouchAction.SUNSET
+    assert d.reason == "same_content_revive_cap_1" and not d.allowed
+
+
+def test_revive_cap_allows_first_revive():
+    d = decide_touch(
+        new_fingerprint="f1", last_fingerprint="f1",
+        last_sent_at=NOW - timedelta(days=7), now=NOW,
+        same_fingerprint_sends=1,
+    )
+    assert d.action is TouchAction.REVIVE and d.allowed
+
+
+def test_revive_cap_absent_keeps_legacy_behavior():
+    d = decide_touch(
+        new_fingerprint="f1", last_fingerprint="f1",
+        last_sent_at=NOW - timedelta(days=7), now=NOW,
+    )
+    assert d.action is TouchAction.REVIVE and d.allowed
+
+
+def test_revive_cap_ignores_new_content_identity():
+    d = decide_touch(
+        new_fingerprint="f2", last_fingerprint="f1",
+        last_sent_at=NOW - timedelta(days=20), now=NOW,
+        same_fingerprint_sends=9,
+    )
+    assert d.action is TouchAction.SEND and d.reason == "content_changed" and d.allowed
+
+
+def test_revive_cap_respects_expanded_cap():
+    below = decide_touch(
+        new_fingerprint="f1", last_fingerprint="f1",
+        last_sent_at=NOW - timedelta(days=7), now=NOW,
+        same_fingerprint_sends=2, revive_cap=2,
+    )
+    assert below.action is TouchAction.REVIVE and below.allowed
+    over = decide_touch(
+        new_fingerprint="f1", last_fingerprint="f1",
+        last_sent_at=NOW - timedelta(days=7), now=NOW,
+        same_fingerprint_sends=3, revive_cap=2,
+    )
+    assert over.action is TouchAction.SUNSET and not over.allowed
