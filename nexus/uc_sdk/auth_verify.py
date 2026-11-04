@@ -91,6 +91,7 @@ class TokenVerifyMixin:
             "app_id": payload.get("app_id"),
             "role": payload.get("role"),
             "org_id": payload.get("org_id"),
+            "org_role": payload.get("org_role"),
             "vip_level": payload.get("vip_level"),
             "display_name": payload.get("display_name", ""),
             "has_permission": True,
@@ -149,6 +150,7 @@ class TokenVerifyMixin:
             "app_id": payload.get("app_id"),
             "role": payload.get("role"),
             "org_id": payload.get("org_id"),
+            "org_role": payload.get("org_role"),
             "vip_level": payload.get("vip_level"),
             "display_name": payload.get("display_name", ""),
             "has_permission": True
@@ -182,6 +184,7 @@ class TokenVerifyMixin:
                 "app_id": inner.get("app_id"),
                 "role": inner.get("role"),
                 "org_id": inner.get("org_id"),
+                "org_role": inner.get("org_role"),
                 "vip_level": inner.get("vip_level"),
                 "username": inner.get("username", ""),
                 "nickname": inner.get("nickname", ""),

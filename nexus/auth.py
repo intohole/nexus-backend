@@ -272,6 +272,7 @@ def normalize_user_dict(user: dict[str, object]) -> dict[str, object]:
         "user_id": str(user.get("user_id", "")),
         "app_id": user.get("app_id"),
         "org_id": user.get("org_id"),
+        "org_role": user.get("org_role"),
         "role": user.get("role", "user"),
         "vip_level": user.get("vip_level", 0),
         "display_name": user.get("display_name", ""),
