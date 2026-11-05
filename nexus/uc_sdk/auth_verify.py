@@ -1,14 +1,21 @@
-"""UC SDK 令牌验证层：JWKS→本地 HS256→远程 三层验证调度与 jti 黑名单同步。"""
+"""UC SDK 令牌验证层：JWKS→本地 HS256→远程 三层验证调度、jti 黑名单同步与 org 声明复核。"""
+import logging
 import time
 from typing import Dict, Any
+
+from nexus.uc_sdk.resilience import OrgRecheckCache
 
 try:
     from jose import JWTError
 except ImportError:
     JWTError = Exception
 
+logger = logging.getLogger(__name__)
+
 
 class TokenVerifyMixin:
+
+    _ORG_RECHECK_TTL_S: float = 60.0
 
     def _credential_guard(self) -> Dict[str, Any] | None:
         if self.app_key:
@@ -97,6 +104,8 @@ class TokenVerifyMixin:
             "has_permission": True,
         }
 
+        result = await self._apply_org_recheck(token, payload, result)
+
         if permission:
             try:
                 perm_result = await self._request(
@@ -156,6 +165,8 @@ class TokenVerifyMixin:
             "has_permission": True
         }
 
+        result = await self._apply_org_recheck(token, payload, result)
+
         if permission:
             try:
                 perm_result = await self._request(
@@ -169,6 +180,54 @@ class TokenVerifyMixin:
             except Exception:
                 result["has_permission"] = None
 
+        return result
+
+    def _get_org_recheck_cache(self) -> OrgRecheckCache:
+        cache = getattr(self, "_org_recheck_cache", None)
+        if cache is None:
+            cache = OrgRecheckCache(ttl=self._ORG_RECHECK_TTL_S)
+            self._org_recheck_cache = cache
+        return cache
+
+    async def _apply_org_recheck(self, token: str, payload: Dict[str, Any],
+                                 result: Dict[str, Any]) -> Dict[str, Any]:
+        """本地验签路径的 org 声明低频复核（UC r20 遗留①收口）。
+
+        access TTL 内 token 携带的 org_id/org_role 可能已漂移（成员被移出/
+        降级/换组），远程兜底路径已被 UC r20 校正为 DB 实时派生，本地两层
+        仍透传声明。组织态 token（带 org_id）每 _ORG_RECHECK_TTL_S 复核一次
+        权威端点 /token/validate，漂移即覆盖并打观测行；个人态 token 不复核
+        （org 回落由 refresh 从 DB 重派生自愈，r18 设计）。fail-open：UC
+        不可达时保留本地声明并退避，不拖垮认证主链、不打爆 validate 端点。
+        """
+        if not result.get("org_id"):
+            return result
+        jti = payload.get("jti")
+        if not jti:
+            return result
+        jti = str(jti)
+        cache = self._get_org_recheck_cache()
+        if not cache.needs_recheck(jti):
+            return result
+        cache.mark_rechecked(jti)
+        try:
+            remote = await self._verify_token_remote(token)
+        except Exception as exc:
+            logger.warning("org 复核失败(fail-open 保留本地声明): jti=%s err=%s", jti, exc)
+            return result
+        if remote.get("success") is not True:
+            return result
+        new_org = remote.get("org_id")
+        new_role = remote.get("org_role")
+        old_org = result.get("org_id")
+        old_role = result.get("org_role")
+        if (new_org or None) != (old_org or None) or (new_role or None) != (old_role or None):
+            logger.info(
+                "org 本地声明已复核校正: user=%s local_org=(%s,%s) current_org=(%s,%s)",
+                result.get("user_id"), old_org, old_role, new_org, new_role,
+            )
+        result["org_id"] = new_org
+        result["org_role"] = new_role
         return result
 
     async def _verify_token_remote(self, token: str, permission: str = None) -> Dict[str, Any]:
