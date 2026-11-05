@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 class TokenVerifyMixin:
 
     _ORG_RECHECK_TTL_S: float = 60.0
+    _ORG_RECHECK_TIMEOUT_S: float = 3.0
 
     def _credential_guard(self) -> Dict[str, Any] | None:
         if self.app_key:
@@ -196,9 +197,11 @@ class TokenVerifyMixin:
         access TTL 内 token 携带的 org_id/org_role 可能已漂移（成员被移出/
         降级/换组），远程兜底路径已被 UC r20 校正为 DB 实时派生，本地两层
         仍透传声明。组织态 token（带 org_id）每 _ORG_RECHECK_TTL_S 复核一次
-        权威端点 /token/validate，漂移即覆盖并打观测行；个人态 token 不复核
+        权威端点 /token/validate（复核专用短超时 _ORG_RECHECK_TIMEOUT_S，
+        UC 挂起不拖长业务请求），漂移即覆盖并打观测行；个人态 token 不复核
         （org 回落由 refresh 从 DB 重派生自愈，r18 设计）。fail-open：UC
-        不可达时保留本地声明并退避，不拖垮认证主链、不打爆 validate 端点。
+        不可达或应答形状漂移时保留本地声明并退避，不拖垮认证主链、不打爆
+        validate 端点。
         """
         if not result.get("org_id"):
             return result
@@ -211,11 +214,11 @@ class TokenVerifyMixin:
             return result
         cache.mark_rechecked(jti)
         try:
-            remote = await self._verify_token_remote(token)
+            remote = await self._verify_token_remote(token, timeout=self._ORG_RECHECK_TIMEOUT_S)
         except Exception as exc:
             logger.warning("org 复核失败(fail-open 保留本地声明): jti=%s err=%s", jti, exc)
             return result
-        if remote.get("success") is not True:
+        if not isinstance(remote, dict) or remote.get("success") is not True:
             return result
         new_org = remote.get("org_id")
         new_role = remote.get("org_role")
@@ -230,11 +233,15 @@ class TokenVerifyMixin:
         result["org_role"] = new_role
         return result
 
-    async def _verify_token_remote(self, token: str, permission: str = None) -> Dict[str, Any]:
+    async def _verify_token_remote(self, token: str, permission: str = None,
+                                   timeout: float = None) -> Dict[str, Any]:
         data = {"token": token}
         if permission:
             data["permission"] = permission
-        result = await self._request("POST", "/api/auth/token/validate", json=data)
+        kwargs: Dict[str, Any] = {"json": data}
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        result = await self._request("POST", "/api/auth/token/validate", **kwargs)
         if result.get("success") and result.get("data"):
             inner = result["data"]
             return {

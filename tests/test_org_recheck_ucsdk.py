@@ -31,7 +31,7 @@ def _org_token(org_id=66, org_role="member", jti="jti-recheck-1") -> str:
 
 
 def _remote_reply(org_id, org_role=None):
-    async def fake(token, permission=None):
+    async def fake(token, permission=None, timeout=None):
         return {"success": True, "org_id": org_id, "org_role": org_role}
     return fake
 
@@ -45,11 +45,35 @@ def test_drifted_org_corrected_within_recheck():
     assert result["org_role"] is None
 
 
+def test_org_transfer_corrected_to_new_org():
+    sdk = _make_sdk()
+    sdk._verify_token_remote = _remote_reply(77, "admin")
+    result = asyncio.run(sdk.verify_token(_org_token(org_id=66, org_role="member")))
+    assert result["success"] is True
+    assert result["org_id"] == 77
+    assert result["org_role"] == "admin"
+
+
+def test_recheck_uses_bounded_timeout():
+    sdk = _make_sdk()
+    seen = {}
+
+    async def fake_request(method, path, **kwargs):
+        seen.update(kwargs)
+        return {"success": True, "data": {"org_id": None, "org_role": None}}
+
+    sdk._request = fake_request
+    result = asyncio.run(sdk.verify_token(_org_token()))
+    assert seen.get("timeout") == 3.0
+    assert result["success"] is True
+    assert result["org_id"] is None
+
+
 def test_recheck_throttled_within_ttl():
     sdk = _make_sdk()
     calls = []
 
-    async def fake(token, permission=None):
+    async def fake(token, permission=None, timeout=None):
         calls.append(token)
         return {"success": True, "org_id": 66, "org_role": "member"}
 
@@ -66,7 +90,7 @@ def test_recheck_reruns_after_ttl_expiry():
     sdk._org_recheck_cache = OrgRecheckCache(ttl=0.01)
     calls = []
 
-    async def fake(token, permission=None):
+    async def fake(token, permission=None, timeout=None):
         calls.append(token)
         return {"success": True, "org_id": 66, "org_role": "member"}
 
@@ -81,7 +105,7 @@ def test_recheck_reruns_after_ttl_expiry():
 def test_recheck_fail_open_keeps_local_claims():
     sdk = _make_sdk()
 
-    async def boom(token, permission=None):
+    async def boom(token, permission=None, timeout=None):
         raise RuntimeError("uc down")
 
     sdk._verify_token_remote = boom
@@ -95,7 +119,7 @@ def test_recheck_failure_backs_off_same_window():
     sdk = _make_sdk()
     calls = []
 
-    async def boom(token, permission=None):
+    async def boom(token, permission=None, timeout=None):
         calls.append(token)
         raise RuntimeError("uc down")
 
@@ -109,7 +133,7 @@ def test_recheck_failure_backs_off_same_window():
 def test_personal_token_skips_recheck():
     sdk = _make_sdk()
 
-    async def boom(token, permission=None):
+    async def boom(token, permission=None, timeout=None):
         raise AssertionError("个人态 token 不应触发 org 复核出站")
 
     sdk._verify_token_remote = boom
@@ -124,7 +148,7 @@ def test_personal_token_skips_recheck():
 def test_token_without_jti_skips_recheck():
     sdk = _make_sdk()
 
-    async def boom(token, permission=None):
+    async def boom(token, permission=None, timeout=None):
         raise AssertionError("无 jti 的 token 不应触发 org 复核出站")
 
     sdk._verify_token_remote = boom
@@ -162,7 +186,7 @@ def test_jwks_layer_also_applies_recheck():
 def test_remote_invalid_response_fails_open():
     sdk = _make_sdk()
 
-    async def invalid(token, permission=None):
+    async def invalid(token, permission=None, timeout=None):
         return {"success": False, "detail": "Token expired"}
 
     sdk._verify_token_remote = invalid
