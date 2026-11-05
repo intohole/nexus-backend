@@ -196,6 +196,7 @@ class AuthDependencies:
     async def get_user_full(
         self,
         credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
+        request: Optional[Request] = None,
     ) -> dict[str, object]:
         if credentials is None:
             raise HTTPException(status_code=401, detail="Not authenticated")
@@ -207,6 +208,17 @@ class AuthDependencies:
         )
         if result is None:
             raise HTTPException(status_code=401, detail="Invalid or expired token")
+        # 服务委托解析（与 get_user_id_required/optional 同语义，userFeedback r9）：
+        # 服务 JWT + X-On-Behalf-Of = 平台代表用户调用。委托改写只发生在本地副本——
+        # user_id 回填委托用户、role 键删除（服务 principal 的 role 不冒充委托用户，
+        # role-based 校验 fail-closed；ADMIN 白名单型校验按回填后的 user_id 正常工作）。
+        delegated: Optional[str] = await self._resolve_delegation(
+            request, result, required=False
+        )
+        if delegated is not None:
+            result = {k: v for k, v in result.items() if k != "role"}
+            result["user_id"] = delegated
+            set_request_context(user_id=delegated)
         return result
 
 
@@ -261,10 +273,11 @@ async def get_current_user_id_optional(
 
 
 async def get_current_user_full(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
 ) -> dict[str, object]:
     deps: AuthDependencies = get_auth_deps()
-    return await deps.get_user_full(credentials)
+    return await deps.get_user_full(credentials, request)
 
 
 def normalize_user_dict(user: dict[str, object]) -> dict[str, object]:
