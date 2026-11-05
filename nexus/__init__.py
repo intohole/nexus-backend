@@ -181,6 +181,7 @@ from nexus.datacenter import (
 )
 from nexus.llm_utils import (
     ask_json,
+    chat_json,
     is_meta_narration,
     with_llm_retry,
     LLMTimeoutError,
@@ -357,7 +358,7 @@ __all__ = [
     "resolve_service", "get_registry", "ServiceRegistry",
     "setup_static_files", "register_internal_endpoints", "AppLifecycle", "parse_llm_json",
     "parse_llm_json_lenient", "parse_llm_json_or", "parse_json_column", "find_balanced_json", "with_llm_retry",
-    "is_llm_json_error", "extract_json_rows", "ask_json", "json_shape_gate",
+    "is_llm_json_error", "extract_json_rows", "ask_json", "chat_json", "json_shape_gate",
     "is_meta_narration",
     "with_tail_context", "disciplined_messages",
     "render_memory_context", "recall_context", "empty_reason_of",

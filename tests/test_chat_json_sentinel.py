@@ -22,7 +22,7 @@ def svc(monkeypatch):
 
 @pytest.mark.anyio
 async def test_chat_json_default_raises(svc):
-    with pytest.raises(ValueError, match="not valid JSON"):
+    with pytest.raises(ValueError, match="failed JSON shape gate"):
         await svc.chat_json([{"role": "user", "content": "q"}])
 
 

@@ -282,3 +282,46 @@ async def ask_json(
             attempt + 1, total, root_type.__name__, list_key,
         )
     return None
+
+
+async def chat_json(
+    llm: object,
+    messages: list[dict[str, str]],
+    *,
+    system: Optional[str] = None,
+    root_type: type = dict,
+    list_key: Optional[str] = None,
+    attempts: int = 2,
+    **chat_kwargs: object,
+) -> Optional[object]:
+    """结构化 chat 组合原语：ask_json 的 messages 形孪生（harness r66）。
+
+    与 ask_json 同一契约：chat → 解析 → 形状 gate → 失败有界重试
+    （attempt>0 绕缓存自愈），全败返回 None。与 with_llm_retry 分工同
+    ask_json——本原语只管语义层契约失败。消费面经 LLMService.chat_json
+    委托免费升级（suki 5 处+nexus-agent 3 处，r66 census 实测）。
+
+    Args:
+        llm: 提供 ``chat(messages, system=..., **kwargs)`` 的服务实例。
+        messages: chat 形消息列表（稳定 system 前缀置顶，动态内容后置）。
+        root_type / list_key / attempts: 语义同 ask_json。
+        chat_kwargs: 透传 llm.chat（temperature/model/namespace/timeout 等）。
+    """
+    total = max(1, attempts)
+    for attempt in range(total):
+        kwargs = dict(chat_kwargs)
+        if attempt > 0:
+            kwargs.setdefault("no_cache", True)
+        raw = await llm.chat(messages, system=system, **kwargs)  # type: ignore[attr-defined]
+        if root_type is dict:
+            parsed = parse_llm_json(raw, fallback=None)
+        else:
+            parsed = parse_llm_json_lenient(raw)
+        gated = json_shape_gate(parsed, root_type, list_key)
+        if gated is not None:
+            return gated
+        logger.warning(
+            "chat_json shape gate failed, attempt %d/%d (root_type=%s, list_key=%s)",
+            attempt + 1, total, root_type.__name__, list_key,
+        )
+    return None
