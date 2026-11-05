@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
+from nexus.logging import get_logger
+
 
 class OutputMode(str, Enum):
     DEFAULT = "default"
@@ -62,10 +64,50 @@ def resolve_effective_budget(
     return resolved_max, resolved_temp, resolved_mode
 
 
+TASK_ALIASES: dict[str, str] = {
+    "extraction": "extract",
+    "eval": "evaluation",
+}
+
+TASK_NEUTRAL_VALUES: frozenset[str] = frozenset({
+    "counter", "binary", "word", "vision", "promo", "generation", "timer",
+    "checkin", "simple", "qa", "text", "polish", "embedding", "diet",
+    "video_blueprint", "recite", "page", "json_mode", "interview_report",
+    "feedback_triage", "feedback_draft", "daily", "complex",
+    "character_match", "business_custom", "bugfix",
+})
+
+TASK_KNOWN_VALUES: frozenset[str] = (
+    frozenset(TASK_BUDGETS) | frozenset(TASK_ALIASES) | TASK_NEUTRAL_VALUES
+)
+
+_task_type_warned: set[str] = set()
+
+
+def canonicalize_task_type(task_type: Optional[str]) -> Optional[str]:
+    """近义键归一并告警未登记值：extraction→extract/eval→evaluation，白名单外仅告警不拦截。"""
+    logger = get_logger("nexus.llm")
+    if not task_type:
+        return task_type
+    canonical: str = TASK_ALIASES.get(task_type, task_type)
+    if canonical not in TASK_KNOWN_VALUES and canonical not in _task_type_warned:
+        _task_type_warned.add(canonical)
+        logger.warning(
+            "unregistered task_type '%s' (no budget tier, split bucket); "
+            "register alias or neutral value in llm_budget",
+            canonical,
+        )
+    return canonical
+
+
 __all__ = [
     "OutputMode",
     "TaskBudget",
     "PROSE_HINT",
     "TASK_BUDGETS",
+    "TASK_ALIASES",
+    "TASK_NEUTRAL_VALUES",
+    "TASK_KNOWN_VALUES",
     "resolve_effective_budget",
+    "canonicalize_task_type",
 ]

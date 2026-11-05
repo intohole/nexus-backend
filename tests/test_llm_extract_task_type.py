@@ -69,7 +69,15 @@ async def test_extract_task_type_rides_llmoptions_extra(captured_llm):
     assert result == {"ok": True}
     llm: LLMOptions = captured_llm["llm"]
     assert isinstance(llm, LLMOptions)
-    assert llm.extra == {"task_type": "extraction"}
+    assert llm.extra == {"task_type": "extract"}
+
+
+@pytest.mark.anyio
+async def test_extract_task_type_canonical_passes_through(captured_llm):
+    svc = LLMService()
+    await svc.extract("抽取以下字段", task_type="extract")
+    llm: LLMOptions = captured_llm["llm"]
+    assert llm.extra == {"task_type": "extract"}
 
 
 @pytest.mark.anyio

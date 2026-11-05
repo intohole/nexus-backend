@@ -18,7 +18,7 @@ from nexus.llm_helpers import (
     record_usage,
     resolve_namespace,
 )
-from nexus.llm_budget import OutputMode, resolve_effective_budget
+from nexus.llm_budget import OutputMode, canonicalize_task_type, resolve_effective_budget
 from nexus.llm_cache import PromptCache, get_prompt_cache
 from nexus.llm_config import configure_ironman, effective_retries, resolve_app_name
 from nexus.llm_metrics import llm_telemetry
@@ -77,6 +77,7 @@ class LLMCore:
 
         返回 (llm_opts, 生效温度, 生效 max_tokens, output_mode)。
         """
+        task_type = canonicalize_task_type(task_type)
         await configure_ironman()
         try:
             from ironman.tracing.request_scope import set_outbound_request_id
