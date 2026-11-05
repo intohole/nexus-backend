@@ -141,6 +141,28 @@ def extract_json_rows(result: object, key: str) -> list:
     return []
 
 
+def json_shape_gate(
+    parsed: object, root_type: type = dict, list_key: Optional[str] = None
+) -> Optional[object]:
+    """ask_json 的形状 gate：解析结果符合预期形状则返回产出，否则 None。
+
+    与 extract_json_rows 的差异：dict 缺 list_key 且非信封时不做单对象
+    包装（[result] 兜底对重试语义是伪产出——形状失败应触发重试而非把
+    整包 dict 当单行返回），直接判失败。
+    """
+    if root_type is dict:
+        return parsed if isinstance(parsed, dict) else None
+    if isinstance(parsed, list):
+        return parsed
+    if isinstance(parsed, dict):
+        if list_key and isinstance(parsed.get(list_key), list):
+            return parsed[list_key]
+        if (str(parsed.get("type", "")) in _ENVELOPE_TYPES
+                and isinstance(parsed.get("value"), list)):
+            return parsed["value"]
+    return None
+
+
 def _parse_truncated_array(text: str) -> Optional[object]:
     """截断 JSON 数组的确定性修复：按最后完整元素边界闭合回收。
 

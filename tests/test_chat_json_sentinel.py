@@ -34,7 +34,7 @@ async def test_chat_json_sentinel_opt_out(svc):
 
 @pytest.mark.anyio
 async def test_ask_json_default_raises(svc):
-    with pytest.raises(ValueError, match="not valid JSON"):
+    with pytest.raises(ValueError, match="failed JSON shape gate"):
         await svc.ask_json("q")
 
 

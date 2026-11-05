@@ -12,6 +12,7 @@ from nexus.llm_core import DEFAULT_MAX_OUTPUT_TOKENS, LLMCore
 from nexus.llm_json import is_llm_json_error, parse_llm_json
 from nexus.llm_probes import LLMProbesMixin
 from nexus.llm_stream import LLMStreamMixin
+from nexus.llm_utils import ask_json as _ask_json_core
 
 __all__ = ["DEFAULT_MAX_OUTPUT_TOKENS", "LLMService", "get_llm_service"]
 
@@ -22,14 +23,20 @@ class LLMService(LLMCore, LLMProbesMixin, LLMStreamMixin):
         prompt: str,
         system: Optional[str] = None,
         raise_on_error: bool = True,
+        root_type: type = dict,
+        list_key: Optional[str] = None,
         **kwargs,
-    ) -> dict[str, object]:
+    ) -> object:
         kwargs.setdefault("temperature", 0.2)
         kwargs.setdefault("max_tokens", 1500)
-        raw = await self.ask(prompt=prompt, system=system, json_mode=True, **kwargs)
-        parsed = parse_llm_json(raw)
-        if raise_on_error and is_llm_json_error(parsed):
-            raise ValueError(f"ask_json: LLM output is not valid JSON (len={len(raw)})")
+        kwargs.setdefault("json_mode", True)
+        parsed = await _ask_json_core(
+            self, prompt, system=system, root_type=root_type, list_key=list_key, **kwargs
+        )
+        if parsed is None:
+            if raise_on_error:
+                raise ValueError("ask_json: LLM output failed JSON shape gate after retries")
+            return {"raw_response": ""}
         return parsed
 
     async def chat_json(

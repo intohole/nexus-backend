@@ -8,12 +8,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from typing import Awaitable, Callable, TypeVar
+from typing import Awaitable, Callable, Optional, TypeVar
 
 from nexus.llm_json import (  # noqa: F401
     extract_json_rows as extract_json_rows,
     find_balanced_json as find_balanced_json,
     is_llm_json_error as is_llm_json_error,
+    json_shape_gate as json_shape_gate,
     parse_json_column as parse_json_column,
     parse_llm_json as parse_llm_json,
     parse_llm_json_lenient as parse_llm_json_lenient,
@@ -231,3 +232,53 @@ async def with_llm_retry(
     if last_error is not None:
         raise last_error
     raise RuntimeError(f"with_llm_retry exhausted with no attempt made (max_retries={max_retries!r})")
+
+
+async def ask_json(
+    llm: object,
+    prompt: str,
+    *,
+    system: Optional[str] = None,
+    root_type: type = dict,
+    list_key: Optional[str] = None,
+    attempts: int = 2,
+    **ask_kwargs: object,
+) -> Optional[object]:
+    """结构化 ask 组合原语：ask → 解析 → 形状 gate → 失败有界重试（绕缓存自愈）。
+
+    舰队级收敛「LLM 输出→解析→形状检查」手搓序列（harness r64，模式首证于
+    promptGenius r63 仓内 _ask_json）。与 with_llm_retry 分工：后者管传输层
+    瞬时故障（超时/5xx/429），本原语管语义层契约失败（输出非合法 JSON 或
+    形状不符）。gate 语义见 nexus.llm_json.json_shape_gate。
+
+    重试纪律（harness 教训#48）：attempt>0 透传 no_cache=True——temp<=0 的
+    chat 按 prompt 哈希缓存 raw 输出，同 prompt 重试会复读坏输出，绕缓存才
+    自愈投毒。全败返回 None，调用方保留既有兜底语义；成功路径以一次重试的
+    代价（仅失败时付出）换回整段产出。
+
+    Args:
+        llm: 提供 ``ask(prompt, system=..., **kwargs)`` 的服务实例
+            （nexus get_llm_service() 形态）。
+        root_type: dict（默认，parse_llm_json 全梯子）或 list（lenient 解析，
+            支持裸数组与截断修复）。
+        list_key: list 形下优先取的键（如 ``variants``）；信封形态始终兜底。
+        ask_kwargs: 透传 llm.ask（temperature/max_tokens/task_type/timeout 等）。
+    """
+    total = max(1, attempts)
+    for attempt in range(total):
+        kwargs = dict(ask_kwargs)
+        if attempt > 0:
+            kwargs.setdefault("no_cache", True)
+        raw = await llm.ask(prompt, system=system, **kwargs)  # type: ignore[attr-defined]
+        if root_type is dict:
+            parsed = parse_llm_json(raw, fallback=None)
+        else:
+            parsed = parse_llm_json_lenient(raw)
+        gated = json_shape_gate(parsed, root_type, list_key)
+        if gated is not None:
+            return gated
+        logger.warning(
+            "ask_json shape gate failed, attempt %d/%d (root_type=%s, list_key=%s)",
+            attempt + 1, total, root_type.__name__, list_key,
+        )
+    return None

@@ -76,6 +76,8 @@ class LLMCore:
         """公共前置：配置 ironman、预算解析并构造 LLMOptions。
 
         返回 (llm_opts, 生效温度, 生效 max_tokens, output_mode)。
+        no_cache 全层禁用：跳过本地 PromptCache 读写并透传上游——同 prompt
+        契约失败重试（nexus.llm_utils.ask_json）依赖此语义绕开坏缓存复读。
         """
         task_type = canonicalize_task_type(task_type)
         await configure_ironman()
@@ -179,7 +181,7 @@ class LLMCore:
         )
         system, _ = apply_output_discipline(system, "", concise, json_mode, budget_mode)
         ironman_messages = convert_messages(messages, system)
-        cache = get_prompt_cache() if temp <= 0.0 else None
+        cache = None if no_cache else (get_prompt_cache() if temp <= 0.0 else None)
         if cache is not None:
             key: str = PromptCache.make_messages_key(
                 system, messages, temp, eff_max,
