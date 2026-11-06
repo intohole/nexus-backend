@@ -1,26 +1,34 @@
-"""火山引擎供应链客户端：豆包 seed-tts-2.0 双向流式 TTS。
+"""火山引擎供应链客户端：方舟生图/视频 + 豆包 seed-tts-2.0 双向流式 TTS。
 
-seed-tts-2.0 V1 二进制协议（收归自 PiYing 生产验证实现）。配置经
-构造参数注入，应用层负责从 Lion/env 装配；本模块不读任何环境变量。
-方舟生图/视频面（Seedream/Seedance）已随 r169 死码批退役——
-PiYing 使用仓内自有 volc_client，nexus 侧全舰队零消费。
+收归自 PiYing 生产验证实现（Seedream 生图参考图一致性、Seedance
+图生视频、seed-tts-2.0 V1 二进制协议）。配置经构造参数注入，应用层
+负责从 Lion/env 装配；本模块不读任何环境变量。
+（方舟面 2026-11-06 r169 误删当日恢复：PiYing volc_client 为本类薄转发，
+"仓内自有实现"系甄别时被同名文件名误导。）
 """
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import ssl
 import struct
+import time
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
+
+import httpx
 
 from nexus._ws_stream_base import _WsStreamCloser
 from nexus.logging import get_logger
 
 logger = get_logger("nexus.volc")
 
+_ARK_POLL_INTERVAL = 5.0
+_ARK_POLL_TIMEOUT = 900.0
 _TTS_WS_URL = "wss://openspeech.bytedance.com/api/v3/tts/bidirection"
 _TTS_RESOURCE_ID = "seed-tts-2.0"
 _TTS_SESSION_TIMEOUT = 120.0
@@ -95,6 +103,14 @@ def parse_tts_frame(data: bytes) -> TTSFrame:
     return TTSFrame(msg_type=msg_type, event=event, session_id=session_id,
                     error_code=error_code, payload=payload)
 
+
+
+@dataclass
+class ArkResult:
+    provider: str
+    model: str
+    cost_cents: int = 0
+    meta: dict = field(default_factory=dict)
 
 
 class TTSStreamSession(_WsStreamCloser):
@@ -238,3 +254,137 @@ class TTSStreamSession(_WsStreamCloser):
                 raise VolcArkError(f"豆包TTS 会话被拒: event={frame.event}")
 
 
+class VolcArkClient:
+    """方舟生图/视频 + seed-tts-2.0 语音合成。参数全部构造注入。"""
+
+    def __init__(
+        self,
+        ark_api_key: str = "",
+        ark_base_url: str = "https://ark.cn-beijing.volces.com/api/v3",
+        seedream_model: str = "doubao-seedream-4-0-250828",
+        seedance_model: str = "doubao-seedance-1-0-pro-250528",
+        tts_api_key: str = "",
+        tts_voice: str = "zh_female_gaolengyujie_uranus_bigtts",
+        tts_sample_rate: int = 24000,
+    ) -> None:
+        self.ark_api_key = ark_api_key
+        self.ark_base_url = ark_base_url
+        self.seedream_model = seedream_model
+        self.seedance_model = seedance_model
+        self.tts_api_key = tts_api_key
+        self.tts_voice = tts_voice
+        self.tts_sample_rate = tts_sample_rate
+
+    def _require_ark(self) -> str:
+        if not self.ark_api_key:
+            raise VolcArkUnavailableError("volc.ark_api_key 未配置（Lion 或 env）")
+        return self.ark_api_key
+
+    def _to_data_url(self, path: Path) -> str:
+        suffix = path.suffix.lstrip(".") or "png"
+        encoded = base64.b64encode(path.read_bytes()).decode()
+        return f"data:image/{suffix};base64,{encoded}"
+
+    async def generate_image(
+        self,
+        prompt: str,
+        out_path: Path,
+        ref_images: Optional[list[Path]] = None,
+    ) -> ArkResult:
+        api_key = self._require_ark()
+        payload: dict = {
+            "model": self.seedream_model,
+            "prompt": prompt,
+            "size": "2K",
+            "response_format": "b64_json",
+            "watermark": False,
+        }
+        if ref_images:
+            payload["image"] = [self._to_data_url(p) for p in ref_images]
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            response = await client.post(
+                f"{self.ark_base_url}/images/generations",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json=payload,
+            )
+            body = response.json()
+            if response.status_code != 200:
+                raise VolcArkError(f"Seedream 生图失败: {body}")
+            data = (body.get("data") or [{}])[0]
+            b64 = data.get("b64_json") or ""
+            if not b64:
+                raise VolcArkError("Seedream 返回空图")
+            await asyncio.to_thread(out_path.write_bytes, base64.b64decode(b64))
+        return ArkResult(provider="seedream", model=self.seedream_model, cost_cents=21)
+
+    async def generate_video(
+        self, prompt: str, image_path: Path, out_path: Path, duration: int = 5
+    ) -> ArkResult:
+        api_key = self._require_ark()
+        image_url = self._to_data_url(image_path)
+        text = f"{prompt} --ratio adaptive --duration {duration}"
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            submit = await client.post(
+                f"{self.ark_base_url}/contents/generations/tasks",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": self.seedance_model,
+                    "content": [
+                        {"type": "text", "text": text},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ],
+                },
+            )
+            body = submit.json()
+            if submit.status_code != 200:
+                raise VolcArkError(f"Seedance 提交失败: {body}")
+            task_id = body.get("id") or ""
+            if not task_id:
+                raise VolcArkError("Seedance 无任务 id")
+            video_url = await self._poll_ark_task(client, api_key, task_id)
+            downloaded = await client.get(video_url)
+            downloaded.raise_for_status()
+            await asyncio.to_thread(out_path.write_bytes, downloaded.content)
+        return ArkResult(provider="seedance", model=self.seedance_model, cost_cents=500)
+
+    async def _poll_ark_task(
+        self, client: httpx.AsyncClient, api_key: str, task_id: str
+    ) -> str:
+        deadline = time.monotonic() + _ARK_POLL_TIMEOUT
+        while time.monotonic() < deadline:
+            detail = await client.get(
+                f"{self.ark_base_url}/contents/generations/tasks/{task_id}",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            body = detail.json()
+            status = body.get("status") or ""
+            if status == "succeeded":
+                url = ((body.get("content") or {}).get("video_url")) or ""
+                if not url:
+                    raise VolcArkError(f"Seedance 成功但无视频: {body}")
+                return url
+            if status in ("failed", "cancelled"):
+                raise VolcArkError(f"Seedance 任务终止: {body}")
+            await asyncio.sleep(_ARK_POLL_INTERVAL)
+        raise VolcArkError(f"Seedance 轮询超时 task={task_id}")
+
+    async def synthesize_speech(self, text: str, out_path: Path) -> ArkResult:
+        if not self.tts_api_key:
+            raise VolcArkUnavailableError("volc.tts_api_key 未配置（Lion 或 env）")
+        session = TTSStreamSession(
+            api_key=self.tts_api_key, voice=self.tts_voice, sample_rate=self.tts_sample_rate,
+            audio_format="mp3",
+        )
+        await session.start()
+        audio: list[bytes] = []
+        try:
+            await session.push_text(text[:2000])
+            await session.finish()
+            async for chunk in session.frames():
+                audio.append(chunk)
+        finally:
+            await session.close()
+        if not audio:
+            raise VolcArkError("豆包TTS 会话完成但无音频数据")
+        await asyncio.to_thread(out_path.write_bytes, b"".join(audio))
+        return ArkResult(provider="doubao", model=_TTS_RESOURCE_ID, cost_cents=1)
