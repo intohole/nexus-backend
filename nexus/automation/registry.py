@@ -30,8 +30,3 @@ class StrategyRegistry(Generic[T]):
         with self._lock:
             return list(self._items.keys())
 
-    def require(self, name: str) -> T:
-        item = self.get(name)
-        if item is None:
-            raise KeyError(f"{self._kind} '{name}' 未注册，可用: {self.list_names()}")
-        return item

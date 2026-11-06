@@ -48,7 +48,6 @@ class UserCenterSDK(BaseAsyncClient, AuthMixin, UserMixin, AppMixin, VipMixin, I
         self._blacklist_cache = BlacklistCache(ttl=30.0)
         self._circuit_breaker = CircuitBreaker(failure_threshold=5, reset_timeout=60.0)
         self._max_retries: int = 2
-        self._pkce_state: Dict[str, str] = {}
         self._jwks_keys: List[Dict[str, Any]] = []
         self._jwks_by_kid: Dict[str, Dict[str, Any]] = {}
         self._jwks_fetched_at: float = 0
@@ -67,9 +66,6 @@ class UserCenterSDK(BaseAsyncClient, AuthMixin, UserMixin, AppMixin, VipMixin, I
     @property
     def refresh_token(self) -> str | None:
         return self._refresh_token
-
-    def is_authenticated(self) -> bool:
-        return self._access_token is not None
 
     def is_configured(self) -> bool:
         return bool(self.app_key and self.base_url)
@@ -247,7 +243,3 @@ class UserCenterSDK(BaseAsyncClient, AuthMixin, UserMixin, AppMixin, VipMixin, I
                 logger.warning("UC service token refresh error: %s", exc)
                 delay = self._bootstrap_retry_delay
 
-    async def stop_background_refresh(self) -> None:
-        if self._bg_task is not None:
-            self._bg_task.cancel()
-            self._bg_task = None

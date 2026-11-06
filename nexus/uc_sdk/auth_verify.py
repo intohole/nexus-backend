@@ -274,5 +274,3 @@ class TokenVerifyMixin:
             import logging
             logging.getLogger(__name__).warning(f"黑名单同步失败: {e}")
 
-    async def sync_blacklist(self):
-        await self._sync_blacklist()

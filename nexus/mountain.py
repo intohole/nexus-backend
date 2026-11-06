@@ -167,28 +167,6 @@ class MountainClient:
         }
         return await self._post("/api/v1/gather/fetch-rss", payload)
 
-    async def submit_batch_websearch(
-        self,
-        queries: List[str],
-        callback_url: str,
-        source: str = "websearch",
-        count: int = 10,
-        callback_headers: Optional[Dict[str, str]] = None,
-    ) -> List[Dict[str, Any]]:
-        """批量提交网页搜索任务."""
-        results: List[Dict[str, Any]] = []
-        for query in queries:
-            result = await self.submit_websearch_task(
-                query=query,
-                callback_url=callback_url,
-                source=source,
-                count=count,
-                callback_headers=callback_headers,
-            )
-            if result:
-                results.append(result)
-        return results
-
     async def submit_batch_rss(
         self,
         urls: List[str],

@@ -63,10 +63,6 @@ class BlacklistCache:
             if len(self._cache) > self._max_size:
                 self._evict_expired()
 
-    async def mark_valid(self, jti: str):
-        async with self._get_lock():
-            self._cache[jti] = (False, time.time())
-
     def needs_sync(self) -> bool:
         return time.time() - self._last_sync_at > self._sync_interval
 

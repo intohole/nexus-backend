@@ -3,10 +3,14 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from nexus.context import get_request_id
 from nexus.logging import get_logger
+
+if TYPE_CHECKING:
+    from nexus.llm import LLMService
+
 from nexus.circuit_breaker import get_llm_circuit
 from nexus.credits import credits_gateway_handled
 from nexus.llm_meter import charge as _charge, meter as _meter, preflight as _preflight

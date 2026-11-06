@@ -17,37 +17,6 @@ class BillingMixin:
             "ref_id": ref_id, "description": description, "cost_factor": cost_factor,
         }, headers=await self._service_headers())
 
-    async def billing_quote(self, app_key: str, feature: str) -> dict:
-        return await self._request(
-            "GET", f"/api/billing/quote?app={app_key}&feature={feature}",
-            headers=await self._service_headers(),
-        )
-
-    async def billing_catalog(self, token: str = None, app_key: str = None) -> dict:
-        path = "/api/billing/catalog"
-        if app_key:
-            path += f"?app={app_key}"
-        return await self._request("GET", path, token=token)
-
-    async def billing_wallet_summary(self, token: str) -> dict:
-        return await self._request("GET", "/api/points/summary", token=token)
-
-    async def billing_transactions(self, token: str, direction: str = "all",
-                                   page: int = 1, page_size: int = 20) -> dict:
-        return await self._request(
-            "GET",
-            f"/api/points/transactions?direction={direction}&page={page}&page_size={page_size}",
-            token=token,
-        )
-
-    async def billing_consumptions(self, token: str, page: int = 1, page_size: int = 20) -> dict:
-        return await self._request(
-            "GET", f"/api/billing/consumptions?page={page}&page_size={page_size}", token=token,
-        )
-
-    async def billing_meters_summary(self, token: str) -> dict:
-        return await self._request("GET", "/api/billing/meters/summary", token=token)
-
     async def billing_report_meters(self, items: list) -> dict:
         return await self._request("POST", "/api/billing/meters",
                                    json={"items": items}, headers=await self._service_headers())

@@ -51,9 +51,6 @@ class AutomationEngine:
     def register_trigger(self, trigger: Trigger) -> Trigger:
         return self.triggers.register(trigger)
 
-    def register_condition(self, condition: Condition) -> Condition:
-        return self.conditions.register(condition)
-
     def register_action(self, action: Action) -> Action:
         return self.actions.register(action)
 

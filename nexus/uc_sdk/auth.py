@@ -1,8 +1,7 @@
-"""UC SDK 认证流程层：登录/注册/刷新/注销/授权码流程，组合 TokenVerifyMixin 为 AuthMixin。"""
+"""UC SDK 认证流程层：登录/注册/刷新/注销，组合 TokenVerifyMixin 为 AuthMixin。"""
 import time
 from typing import Dict, Any
 
-from .pkce import PKCEHelper
 from .auth_verify import TokenVerifyMixin
 
 
@@ -120,48 +119,6 @@ class AuthFlowMixin:
             "POST", "/api/auth/check-permission",
             json={"token": token, "permission": permission}
         )
-
-    def get_authorization_url(self, redirect_uri: str, state: str = None,
-                               scope: str = None) -> Dict[str, str]:
-        import secrets as _secrets
-        code_verifier, code_challenge = PKCEHelper.generate()
-        state = state or _secrets.token_urlsafe(32)
-        self._pkce_state[state] = code_verifier
-
-        params = {
-            "client_id": self.app_key,
-            "redirect_uri": redirect_uri,
-            "state": state,
-            "code_challenge": code_challenge,
-            "code_challenge_method": "S256",
-        }
-        if scope:
-            params["scope"] = scope
-
-        query = "&".join(f"{k}={v}" for k, v in params.items())
-        return {
-            "url": f"{self.base_url}/api/auth/authorize?{query}",
-            "state": state,
-            "code_verifier": code_verifier,
-        }
-
-    async def exchange_authorization_code(self, code: str, redirect_uri: str,
-                                           code_verifier: str = None) -> Dict[str, Any]:
-        data = {
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "client_id": self.app_key,
-        }
-        if code_verifier:
-            data["code_verifier"] = code_verifier
-        elif self.app_secret:
-            data["client_secret"] = self.app_secret
-
-        result = await self._request("POST", "/api/auth/token/exchange", json=data)
-        if result.get("success") and result.get("data"):
-            self._set_tokens(result["data"])
-        return result
 
 
 class AuthMixin(AuthFlowMixin, TokenVerifyMixin):

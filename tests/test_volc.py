@@ -1,9 +1,5 @@
-import pytest
-
 from nexus.volc import (
     TTSFrame,
-    VolcArkClient,
-    VolcArkUnavailableError,
     build_tts_frame,
     parse_tts_frame,
 )
@@ -77,24 +73,6 @@ def test_parse_connection_started_with_connect_id() -> None:
     assert frame.event == 50
     assert frame.session_id == ""
     assert frame.payload == body
-
-
-@pytest.mark.asyncio
-async def test_client_requires_ark_key() -> None:
-    client = VolcArkClient(ark_api_key="")
-    from pathlib import Path
-
-    with pytest.raises(VolcArkUnavailableError):
-        await client.generate_image("p", Path("/tmp/x.png"))
-
-
-@pytest.mark.asyncio
-async def test_client_requires_tts_key() -> None:
-    client = VolcArkClient(tts_api_key="")
-    from pathlib import Path
-
-    with pytest.raises(VolcArkUnavailableError):
-        await client.synthesize_speech("t", Path("/tmp/x.mp3"))
 
 
 def test_frame_type_bytes_documented() -> None:

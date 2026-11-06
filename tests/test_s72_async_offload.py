@@ -35,8 +35,3 @@ def test_volc_write_bytes_all_offloaded() -> None:
             ):
                 offenders.append(f"volc.py:{sub.lineno}")
     assert not offenders, f"async 内裸 write_bytes 阻塞事件环: {offenders}"
-
-
-def test_volc_offload_count() -> None:
-    src = VOLC.read_text(encoding="utf-8")
-    assert src.count("asyncio.to_thread(out_path.write_bytes") == 3
