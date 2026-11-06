@@ -38,3 +38,11 @@ def test_reexports_listed_in_all() -> None:
         "VolcArkUnavailableError",
     ):
         assert name in nexus.__all__, f"nexus.__all__ 缺 {name}"
+
+
+def test_database_manager_add_missing_columns_alive() -> None:
+    from nexus.database import DatabaseManager
+
+    assert hasattr(DatabaseManager, "add_missing_columns"), (
+        "DatabaseManager.add_missing_columns 被删：truemirror/PiYing/yiwei/adSmart 启动链真消费，删=生产崩溃循环"
+    )
