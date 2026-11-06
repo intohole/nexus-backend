@@ -21,6 +21,25 @@ DEFAULT_SERVICE_AUTH_WHITELIST: tuple[str, ...] = (
 
 HealthCheck = Callable[[], Awaitable[str]]
 
+
+def _scheduler_snapshot() -> dict[str, object]:
+    """调度态一行快照（S112）：gate 决策+运行态+job 清单，生产 health 只读 GET 即可判定
+    gated 仓开闸面（job 断链静默性最强，注册面全绿≠在跑）。调度器未初始化的轻量应用
+    返回 inert，不算 degraded。"""
+    try:
+        from nexus.scheduler import get_scheduler
+
+        sched = get_scheduler()
+        gate = getattr(sched, "gate", None)
+        inner = getattr(sched, "_scheduler", None)
+        return {
+            "mode": getattr(gate, "mode", "auto"),
+            "running": bool(getattr(inner, "running", False)) if inner else False,
+            "jobs": sorted(getattr(sched, "_jobs", {}).keys()),
+        }
+    except Exception:
+        return {"mode": "inert", "running": False, "jobs": []}
+
 def register_service_auth(
     app: FastAPI,
     *,
@@ -75,6 +94,7 @@ def register_health_endpoints(
             "app": app_name,
             "checks": results,
         }
+        body["scheduler"] = _scheduler_snapshot()
         if app_version is not None:
             body["version"] = app_version
         return body
