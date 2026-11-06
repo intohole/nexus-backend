@@ -1,7 +1,8 @@
-"""基建地址解析：注册表（discovery）→ env → Lion infra → defaults 引导表。
+"""基建地址解析：注册表（discovery）→ env 显式覆盖 → defaults 引导表。
 
-地址权威在 miniDeploy 注册表（nexus.discovery）；Lion infra 命名空间保留为
-遗留覆盖面与凭证权威（app_key/secret/api_key 类键不受本换核影响）。
+地址权威在 miniDeploy 注册表（nexus.discovery），投影 env 键由 miniDeploy
+build_env 从注册表生成（r171 投影单源化）；Lion infra 命名空间退役为
+凭证权威（app_key/secret/api_key 类键不受本换核影响）。
 """
 from __future__ import annotations
 
@@ -10,31 +11,13 @@ import os
 from nexus.lion import get_infra_config, get_business_config
 
 
-def _compose_url(host: str, port: str, path: str = "") -> str:
-    host = (host or "").strip()
-    port = (port or "").strip()
-    if not host:
-        return ""
-    url = f"http://{host}" + (f":{port}" if port else "")
-    path = (path or "").strip()
-    if path and not path.startswith("/"):
-        path = "/" + path
-    return url + path if path else url
-
-
 async def _infra_url(key: str, env_key: str, default: str) -> str:
     from nexus.discovery import get_registry
 
     url = await get_registry().resolve(key)
     if url:
         return url
-    config = await _get_infra(key)
-    path = str(config.get("path") or "")
-    if config.get("base_url"):
-        url = str(config["base_url"])
-    else:
-        url = _compose_url(str(config.get("host") or ""), str(config.get("port") or ""), path)
-    return os.getenv(env_key, "") or url or default
+    return os.getenv(env_key, "") or default
 
 
 async def _get_infra(key: str) -> dict[str, object]:

@@ -24,6 +24,12 @@ CREDENTIAL_RECOVERY_INITIAL_DELAY: float = 15.0
 CREDENTIAL_RECOVERY_MAX_DELAY: float = 300.0
 
 
+def _default_uc_base_url() -> str:
+    from nexus.defaults import DEFAULT_UC_BASE_URL
+
+    return DEFAULT_UC_BASE_URL
+
+
 def set_auth_injector(fn: Callable[[object], None]) -> None:
     global _auth_injector
     _auth_injector = fn
@@ -38,7 +44,7 @@ def init_uc_sdk(
     global _sdk
     from nexus.uc_sdk import UserCenterSDK
 
-    base_url = base_url or os.getenv("UC__BASE_URL", "http://${UC__BASE_URL}")
+    base_url = base_url or os.getenv("UC__BASE_URL", "") or _default_uc_base_url()
     app_key = app_key or os.getenv("UC__APP_KEY", "")
     app_secret = app_secret or os.getenv("UC__APP_SECRET", "")
     jwt_secret = jwt_secret or os.getenv("UC__JWT_SECRET", "")

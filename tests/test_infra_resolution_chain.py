@@ -25,7 +25,7 @@ def _isolate(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_registry_wins_over_env_and_lion(monkeypatch):
+async def test_registry_wins_over_env(monkeypatch):
     monkeypatch.setattr(discovery, "get_registry", lambda: FakeRegistry({
         "notifycenter": ServiceEndpoint(name="notifyCenter", port=8910, node_tag="edge-01"),
     }))
@@ -34,24 +34,22 @@ async def test_registry_wins_over_env_and_lion(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_env_beats_lion_when_registry_misses(monkeypatch):
+async def test_env_beats_default_when_registry_misses(monkeypatch):
     monkeypatch.setenv("NOTIFY_CENTER_URL", "http://env-override:1")
-
-    async def fake_infra(key: str) -> dict:
-        return {"base_url": "http://lion-legacy:2"}
-
-    monkeypatch.setattr(infra, "_get_infra", fake_infra)
     assert await infra.get_notify_center_url() == "http://env-override:1"
 
 
 @pytest.mark.asyncio
-async def test_lion_beats_default_when_registry_and_env_miss(monkeypatch):
+async def test_lion_layer_retired_when_registry_and_env_miss(monkeypatch):
+    """r171 投影单源化：Lion infra 地址覆盖层退役，注册表/env 双失直达 defaults。"""
+    from nexus.defaults import DEFAULT_NOTIFY_CENTER_URL
+
     async def fake_infra(key: str) -> dict:
         return {"base_url": "http://lion-legacy:2"}
 
     monkeypatch.delenv("NOTIFY_CENTER_URL", raising=False)
     monkeypatch.setattr(infra, "_get_infra", fake_infra)
-    assert await infra.get_notify_center_url() == "http://lion-legacy:2"
+    assert await infra.get_notify_center_url() == DEFAULT_NOTIFY_CENTER_URL
 
 
 @pytest.mark.asyncio
@@ -64,3 +62,20 @@ async def test_default_survives_all_misses(monkeypatch):
     monkeypatch.delenv("NOTIFY_CENTER_URL", raising=False)
     monkeypatch.setattr(infra, "_get_infra", fake_infra)
     assert await infra.get_notify_center_url() == DEFAULT_NOTIFY_CENTER_URL
+
+
+@pytest.mark.asyncio
+async def test_uc_config_keeps_lion_credentials(monkeypatch):
+    """r171 凭证族判留：_get_infra 仍承载 app_key/app_secret（Lion 凭证权威）。"""
+
+    async def fake_infra(key: str) -> dict:
+        return {"app_key": "ak-lion", "app_secret": "sec-lion"}
+
+    monkeypatch.setattr(infra, "_get_infra", fake_infra)
+    monkeypatch.setattr(discovery, "get_registry", lambda: FakeRegistry({
+        "usercenter": ServiceEndpoint(name="usercenter", port=8901, node_tag="edge-01"),
+    }))
+    config = await infra.get_uc_config()
+    assert config["base_url"] == "http://10.100.0.1:8901"
+    assert config["app_key"] == "ak-lion"
+    assert config["app_secret"] == "sec-lion"
