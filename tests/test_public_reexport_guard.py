@@ -46,3 +46,11 @@ def test_database_manager_add_missing_columns_alive() -> None:
     assert hasattr(DatabaseManager, "add_missing_columns"), (
         "DatabaseManager.add_missing_columns 被删：truemirror/PiYing/yiwei/adSmart 启动链真消费，删=生产崩溃循环"
     )
+
+
+def test_memorycache_public_cache_api_alive() -> None:
+    """moutain search 链真实消费 get_entry（缓存软过期刷新面），peek/cleanup 向后兼容保留。"""
+    from nexus.utils import MemoryCache
+
+    for name in ("get_entry", "peek", "cleanup_expired"):
+        assert hasattr(MemoryCache, name), f"MemoryCache.{name} 被删：moutain search 缓存链 AttributeError（r169 第四枚误删实锤）"

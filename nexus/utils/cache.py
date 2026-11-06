@@ -61,6 +61,40 @@ class MemoryCache:
                 return False
             return True
 
+    async def peek(self, key: str) -> object:
+        async with self._lock:
+            if key not in self._cache:
+                return _MISSING
+            value, expire_at, _created_at, _ttl = self._cache[key]
+            if expire_at > 0 and time.time() > expire_at:
+                del self._cache[key]
+                return _MISSING
+            return value
+
+    async def get_entry(self, key: str) -> Optional[dict[str, object]]:
+        async with self._lock:
+            if key not in self._cache:
+                return None
+            value, expire_at, created_at, ttl = self._cache[key]
+            if expire_at > 0 and time.time() > expire_at:
+                del self._cache[key]
+                return None
+            self._cache.move_to_end(key)
+            return {
+                "value": value,
+                "created_at": created_at,
+                "expires_at": expire_at,
+                "ttl": ttl,
+            }
+
+    async def cleanup_expired(self) -> int:
+        async with self._lock:
+            now: float = time.time()
+            expired: list[str] = [k for k, v in self._cache.items() if v[1] > 0 and now > v[1]]
+            for k in expired:
+                del self._cache[k]
+            return len(expired)
+
     @property
     def size(self) -> int:
         return len(self._cache)
