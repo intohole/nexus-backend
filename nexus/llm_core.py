@@ -22,7 +22,12 @@ from nexus.llm_helpers import (
     record_usage,
     resolve_namespace,
 )
-from nexus.llm_budget import OutputMode, canonicalize_task_type, resolve_effective_budget
+from nexus.llm_budget import (
+    DEFAULT_THINKING_BUDGET,
+    OutputMode,
+    canonicalize_task_type,
+    resolve_effective_budget,
+)
 from nexus.llm_cache import PromptCache, get_prompt_cache
 from nexus.llm_config import configure_ironman, effective_retries, resolve_app_name
 from nexus.llm_metrics import llm_telemetry
@@ -72,14 +77,17 @@ class LLMCore:
         json_mode: bool,
         namespace: Optional[str],
         model: Optional[str],
-        enable_thinking: bool,
-        thinking_budget: int,
+        enable_thinking: Optional[bool],
+        thinking_budget: Optional[int],
         reasoning_effort: Optional[str] = None,
         no_cache: bool = False,
     ) -> tuple[object, float, int, Optional[OutputMode]]:
         """公共前置：配置 ironman、预算解析并构造 LLMOptions。
 
         返回 (llm_opts, 生效温度, 生效 max_tokens, output_mode)。
+        thinking 解析：显式传参恒优先，未传参吃任务档位；档位 True 时按档位
+        thinking_budget 封顶（LLMOptions 层 True=发键生效/False=facade 坍缩为
+        不表态，由网关兜底链决定）。
         no_cache 全层禁用：跳过本地 PromptCache 读写并透传上游——同 prompt
         契约失败重试（nexus.llm_utils.ask_json）依赖此语义绕开坏缓存复读。
         """
@@ -93,19 +101,26 @@ class LLMCore:
             set_outbound_request_id(ensure_request_id())
         except ImportError:
             pass
-        budget_max, budget_temp, budget_mode = resolve_effective_budget(
-            task_type, max_tokens, temperature, output_mode
+        budget_max, budget_temp, budget_mode, budget_thinking, budget_thinking_budget = (
+            resolve_effective_budget(
+                task_type, max_tokens, temperature, output_mode,
+                enable_thinking, thinking_budget,
+            )
         )
         temp = 0.7 if budget_temp is None else budget_temp
         eff_max: int = budget_max if budget_max is not None else DEFAULT_MAX_OUTPUT_TOKENS
+        eff_thinking: bool = budget_thinking if budget_thinking is not None else False
+        eff_thinking_budget: int = (budget_thinking_budget
+                                    if budget_thinking_budget is not None
+                                    else DEFAULT_THINKING_BUDGET)
         from ironman.types import LLMOptions
 
         opts = LLMOptions(
             temperature=temp,
             max_tokens=eff_max,
             model=model,
-            enable_thinking=enable_thinking,
-            thinking_budget=thinking_budget,
+            enable_thinking=eff_thinking,
+            thinking_budget=eff_thinking_budget,
             no_cache=no_cache,
             extra=self._build_extra(json_mode, namespace, task_type, reasoning_effort),
         )
@@ -170,8 +185,8 @@ class LLMCore:
         namespace: Optional[str] = None,
         task_type: Optional[str] = None,
         model: Optional[str] = None,
-        enable_thinking: bool = False,
-        thinking_budget: int = 8192,
+        enable_thinking: Optional[bool] = None,
+        thinking_budget: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
         feature: str = "",
         no_cache: bool = False,
@@ -191,7 +206,7 @@ class LLMCore:
                 system, messages, temp, eff_max,
                 model=str(getattr(opts, "model", "") or ""),
                 namespace=resolve_namespace(namespace),
-                enable_thinking=enable_thinking,
+                enable_thinking=bool(getattr(opts, "enable_thinking", False)),
             )
             hit: Optional[str] = cache.get(key)
             if hit is not None:

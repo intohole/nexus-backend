@@ -23,8 +23,8 @@ class LLMStreamMixin:
         namespace: Optional[str] = None,
         task_type: Optional[str] = None,
         model: Optional[str] = None,
-        enable_thinking: bool = False,
-        thinking_budget: int = 8192,
+        enable_thinking: Optional[bool] = None,
+        thinking_budget: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
         feature: str = "",
     ) -> AsyncGenerator[str, None]:

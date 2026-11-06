@@ -20,6 +20,8 @@ class TaskBudget:
     max_tokens: int
     temperature: Optional[float] = None
     output_mode: OutputMode = OutputMode.CONCISE
+    thinking: Optional[bool] = None
+    thinking_budget: Optional[int] = None
 
 
 PROSE_HINT = (
@@ -27,23 +29,29 @@ PROSE_HINT = (
     "不要截断、不要为节省篇幅而简化内容或草草收尾。"
 )
 
+DEFAULT_THINKING_BUDGET = 8192
+
 TASK_BUDGETS: dict[str, TaskBudget] = {
-    "chat": TaskBudget(max_tokens=512, output_mode=OutputMode.CONCISE),
-    "assistant": TaskBudget(max_tokens=512, output_mode=OutputMode.CONCISE),
-    "goodbye": TaskBudget(max_tokens=128, output_mode=OutputMode.CONCISE),
-    "extract": TaskBudget(max_tokens=300, temperature=0.2, output_mode=OutputMode.JSON),
-    "classify": TaskBudget(max_tokens=200, temperature=0.2, output_mode=OutputMode.JSON),
-    "intent": TaskBudget(max_tokens=200, temperature=0.2, output_mode=OutputMode.JSON),
-    "summarize": TaskBudget(max_tokens=800, temperature=0.3, output_mode=OutputMode.CONCISE),
-    "analyze": TaskBudget(max_tokens=1200, temperature=0.3, output_mode=OutputMode.DEFAULT),
-    "evaluation": TaskBudget(max_tokens=600, temperature=0.2, output_mode=OutputMode.JSON),
-    "code": TaskBudget(max_tokens=1500, temperature=0.3, output_mode=OutputMode.DEFAULT),
-    "creative": TaskBudget(max_tokens=8000, temperature=0.85, output_mode=OutputMode.PROSE),
-    "writing": TaskBudget(max_tokens=8000, temperature=0.8, output_mode=OutputMode.PROSE),
-    "article": TaskBudget(max_tokens=6000, temperature=0.8, output_mode=OutputMode.PROSE),
-    "report": TaskBudget(max_tokens=4000, temperature=0.3, output_mode=OutputMode.DEFAULT),
-    "research": TaskBudget(max_tokens=2000, temperature=0.3, output_mode=OutputMode.DEFAULT),
-    "ppt": TaskBudget(max_tokens=3000, temperature=0.4, output_mode=OutputMode.JSON),
+    "chat": TaskBudget(max_tokens=512, output_mode=OutputMode.CONCISE, thinking=False),
+    "assistant": TaskBudget(max_tokens=512, output_mode=OutputMode.CONCISE, thinking=False),
+    "goodbye": TaskBudget(max_tokens=128, output_mode=OutputMode.CONCISE, thinking=False),
+    "extract": TaskBudget(max_tokens=300, temperature=0.2, output_mode=OutputMode.JSON, thinking=False),
+    "classify": TaskBudget(max_tokens=200, temperature=0.2, output_mode=OutputMode.JSON, thinking=False),
+    "intent": TaskBudget(max_tokens=200, temperature=0.2, output_mode=OutputMode.JSON, thinking=False),
+    "summarize": TaskBudget(max_tokens=800, temperature=0.3, output_mode=OutputMode.CONCISE, thinking=False),
+    "analyze": TaskBudget(max_tokens=1200, temperature=0.3, output_mode=OutputMode.DEFAULT, thinking=False),
+    "evaluation": TaskBudget(max_tokens=600, temperature=0.2, output_mode=OutputMode.JSON, thinking=False),
+    "code": TaskBudget(max_tokens=1500, temperature=0.3, output_mode=OutputMode.DEFAULT, thinking=False),
+    "creative": TaskBudget(max_tokens=8000, temperature=0.85, output_mode=OutputMode.PROSE,
+                           thinking=True, thinking_budget=8192),
+    "writing": TaskBudget(max_tokens=8000, temperature=0.8, output_mode=OutputMode.PROSE,
+                          thinking=True, thinking_budget=8192),
+    "article": TaskBudget(max_tokens=6000, temperature=0.8, output_mode=OutputMode.PROSE,
+                          thinking=True, thinking_budget=8192),
+    "report": TaskBudget(max_tokens=4000, temperature=0.3, output_mode=OutputMode.DEFAULT,
+                         thinking=True, thinking_budget=4096),
+    "research": TaskBudget(max_tokens=2000, temperature=0.3, output_mode=OutputMode.DEFAULT, thinking=False),
+    "ppt": TaskBudget(max_tokens=3000, temperature=0.4, output_mode=OutputMode.JSON, thinking=False),
 }
 
 def resolve_effective_budget(
@@ -51,17 +59,28 @@ def resolve_effective_budget(
     max_tokens: Optional[int],
     temperature: float,
     output_mode: Optional[OutputMode],
-) -> tuple[Optional[int], float, Optional[OutputMode]]:
-    """任务预算与显式参数叠加：显式传参优先，未传参回退任务预算档位。"""
+    enable_thinking: Optional[bool] = None,
+    thinking_budget: Optional[int] = None,
+) -> tuple[Optional[int], float, Optional[OutputMode], Optional[bool], Optional[int]]:
+    """任务预算与显式参数叠加：显式传参优先，未传参回退任务预算档位。
+
+    thinking 档位语义：机械结构化/小预算/危险邻域档显式 False（GLM 思考吃
+    max_tokens，1024~2048 邻域不触发网关 guard 但厂商默认开思考会挤空 content）；
+    大预算创作/报告档显式 True+预算封顶（跨 vendor 一致开思考，qwen/volc
+    vendor 默认关的释放面）。显式传参恒优先；无档位返回 None 透传网关兜底链。
+    """
     if not task_type:
-        return max_tokens, temperature, output_mode
+        return max_tokens, temperature, output_mode, enable_thinking, thinking_budget
     budget = TASK_BUDGETS.get(task_type)
     if budget is None:
-        return max_tokens, temperature, output_mode
+        return max_tokens, temperature, output_mode, enable_thinking, thinking_budget
     resolved_max = max_tokens if max_tokens is not None else budget.max_tokens
     resolved_temp = temperature if temperature is not None else (budget.temperature or 0.7)
     resolved_mode = output_mode if output_mode is not None else budget.output_mode
-    return resolved_max, resolved_temp, resolved_mode
+    resolved_thinking = enable_thinking if enable_thinking is not None else budget.thinking
+    resolved_thinking_budget = (thinking_budget if thinking_budget is not None
+                                else budget.thinking_budget)
+    return resolved_max, resolved_temp, resolved_mode, resolved_thinking, resolved_thinking_budget
 
 
 TASK_ALIASES: dict[str, str] = {
@@ -104,6 +123,7 @@ __all__ = [
     "OutputMode",
     "TaskBudget",
     "PROSE_HINT",
+    "DEFAULT_THINKING_BUDGET",
     "TASK_BUDGETS",
     "TASK_ALIASES",
     "TASK_NEUTRAL_VALUES",

@@ -77,30 +77,32 @@ def test_discipline_default_mode_respects_concise_hint():
 
 
 def test_resolve_budget_writing():
-    max_t, temp, mode = _resolve_budget("writing", None, 0.7, None)
+    max_t, temp, mode, _, _ = _resolve_budget("writing", None, 0.7, None)
     assert max_t == 8000
     assert mode == OutputMode.PROSE
 
 
 def test_resolve_budget_explicit_max_wins():
-    max_t, temp, mode = _resolve_budget("chat", 100, 0.7, None)
+    max_t, temp, mode, _, _ = _resolve_budget("chat", 100, 0.7, None)
     assert max_t == 100
     assert mode == OutputMode.CONCISE
 
 
 def test_resolve_budget_no_task_passthrough():
-    max_t, temp, mode = _resolve_budget(None, None, 0.7, None)
+    max_t, temp, mode, thinking, thinking_budget = _resolve_budget(None, None, 0.7, None)
     assert max_t is None
     assert mode is None
+    assert thinking is None
+    assert thinking_budget is None
 
 
 def test_resolve_budget_ppt():
-    max_t, temp, mode = _resolve_budget("ppt", None, 0.7, None)
+    max_t, temp, mode, _, _ = _resolve_budget("ppt", None, 0.7, None)
     assert max_t == 3000
     assert mode == OutputMode.JSON
 
 
 def test_resolve_budget_assistant():
-    max_t, temp, mode = _resolve_budget("assistant", None, 0.7, None)
+    max_t, temp, mode, _, _ = _resolve_budget("assistant", None, 0.7, None)
     assert max_t == 512
     assert mode == OutputMode.CONCISE

@@ -39,21 +39,21 @@ def test_unregistered_value_passes_through_with_warning(caplog) -> None:
 
 
 def test_alias_unblocks_budget_tier() -> None:
-    max_tokens, temp, mode = resolve_effective_budget(
+    max_tokens, temp, mode, _, _ = resolve_effective_budget(
         canonicalize_task_type("extraction"), None, 0.7, None
     )
     assert max_tokens == 300
     assert temp == 0.7
     assert mode == OutputMode.JSON
 
-    max_tokens2, _, _ = resolve_effective_budget(
+    max_tokens2, _, _, _, _ = resolve_effective_budget(
         canonicalize_task_type("eval"), None, 0.7, None
     )
     assert max_tokens2 == 600
 
 
 def test_alias_raw_value_misses_budget_tier() -> None:
-    max_tokens, _, mode = resolve_effective_budget("extraction", None, 0.7, None)
+    max_tokens, _, mode, _, _ = resolve_effective_budget("extraction", None, 0.7, None)
     assert max_tokens is None
     assert mode is None
 
