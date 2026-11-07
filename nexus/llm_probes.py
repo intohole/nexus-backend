@@ -35,7 +35,8 @@ class LLMProbesMixin:
         request_id: str = get_request_id() or "-"
         app_name: str = resolve_app_name()
         await _preflight("chat")
-        opts = LLMOptions(max_tokens=16, temperature=0.7, no_cache=True)
+        opts = LLMOptions(max_tokens=16, temperature=0.7, no_cache=True,
+                          extra={"task_type": "probe"})
         ironman_messages = convert_messages([{"role": "user", "content": prompt}], None)
         circuit = get_llm_circuit()
         started: float = time.monotonic()

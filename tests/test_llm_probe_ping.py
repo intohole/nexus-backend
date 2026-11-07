@@ -64,6 +64,16 @@ async def test_no_cache_flag_reaches_options(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_task_type_probe_declared(monkeypatch) -> None:
+    """探针自声明 task_type=probe：网关 pop 消费落 harness meta，pm finish_face 按声明面分桶。"""
+    captured: dict = {}
+    _patch_chat(monkeypatch, _Resp(content="pong"), captured)
+    out = await LLMService().probe_ping()
+    assert out["ok"] is True
+    assert captured["llm"].extra == {"task_type": "probe"}
+
+
+@pytest.mark.asyncio
 async def test_both_empty_is_fail(monkeypatch) -> None:
     """content 与 reasoning 双空才是真 fail（canonical 错误向上透传）。"""
     _patch_chat(monkeypatch, _Resp(content="", reasoning=None), {})
