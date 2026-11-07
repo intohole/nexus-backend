@@ -63,6 +63,11 @@ def create_standard_lifespan(
                 except Exception as exc:
                     logger.warning("shutdown hook %s failed: %s", getattr(hook, "__name__", hook), exc)
             try:
+                from nexus.scheduler import get_scheduler
+                get_scheduler().shutdown(wait=False)
+            except Exception as exc:
+                logger.warning("scheduler shutdown on lifespan exit failed: %s", exc)
+            try:
                 from nexus.credits import get_credits_service
                 await get_credits_service().flush_meters()
             except Exception as exc:

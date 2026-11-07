@@ -78,6 +78,11 @@ class AppLifecycle:
                     pass
             except Exception as exc:
                 logger.error("Shutdown hook failed: %s", str(exc))
+        try:
+            from nexus.scheduler import get_scheduler
+            get_scheduler().shutdown(wait=False)
+        except Exception as exc:
+            logger.warning("scheduler shutdown on app exit failed: %s", str(exc))
         await close_db()
         logger.info("Application shutdown complete")
 
