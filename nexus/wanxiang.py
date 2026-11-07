@@ -98,14 +98,22 @@ class WanxiangClient:
             raise WanxiangError("万象别名解析返回异常")
         return body["data"]
 
-    async def sign_urls(self, app_name: str, rels: list[str]) -> dict:
-        """按 rel 批量重签(单次上限 100),返回 {rel: {url, expires_at}}。"""
+    async def sign_urls(self, app_name: str, rels: list[str], days: int | None = None) -> dict:
+        """按 rel 批量重签(单次上限 100),返回 {rel: {url, expires_at}}。
+
+        days=None 走服务端按资产类别的默认租约;显式传入(1~365)覆盖默认——
+        嵌入静态产物(PDF/HTML 导出)的场景必须用长租约,产物寿命与租约对齐,
+        否则产物被再次打开时图片恒 403。
+        """
         if not rels:
             return {}
         token = await get_service_token()
         headers = {"X-Service-Token": token, "X-App-Name": app_name, "Content-Type": "application/json"}
+        payload: dict = {"rels": rels[:100]}
+        if days is not None:
+            payload["days"] = int(days)
         async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
-            resp = await client.post(f"{self._base_url}/api/v1/assets/sign", headers=headers, json={"rels": rels[:100]})
+            resp = await client.post(f"{self._base_url}/api/v1/assets/sign", headers=headers, json=payload)
         if resp.status_code != 200:
             detail = _detail(resp)
             logger.warning("wanxiang sign failed: %s %s", resp.status_code, detail)
