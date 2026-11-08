@@ -80,13 +80,23 @@ class SearchProvider(ABC):
     @abstractmethod
     async def _do_search(self, query: str, config: SearchConfig) -> ProviderSearchResponse: ...
 
+    def _identity_headers(self) -> dict[str, str]:
+        try:
+            from ironman.bootstrap import current_app_name
+
+            app = current_app_name()
+        except Exception:
+            return {}
+        return {"X-App-Id": app} if app else {}
+
     async def _ensure_client(self) -> bool:
         if self._client is not None:
+            self._client.headers.update(self._identity_headers())
             return True
         if not self._api_key:
             logger.warning(f"{self.name}: API key not configured")
             return False
-        self._client = httpx.AsyncClient(timeout=30.0)
+        self._client = httpx.AsyncClient(timeout=30.0, headers=self._identity_headers())
         return True
 
     async def search(self, query: str, config: SearchConfig) -> ProviderSearchResponse:
