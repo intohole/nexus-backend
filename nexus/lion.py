@@ -79,7 +79,10 @@ class LionIntegration:
                 base_url=lion_cfg.base_url,
                 namespace=lion_cfg.namespace,
                 fallback_namespace="default",
-                service_token=os.getenv("LION_SERVICE_TOKEN") or None,
+                # LION_SERVICE_TOKEN 缺位退 SERVICE_TOKEN（同值单源）：UC 短效 JWT
+                # 对 Lion service auth 无效（401→信封降级 unknown error），配置拉取
+                # 整链灭（r28 PiYing 供应链断链实锤）。
+                service_token=os.getenv("LION_SERVICE_TOKEN") or os.getenv("SERVICE_TOKEN") or None,
             )
         return self._lion_sdk
 
