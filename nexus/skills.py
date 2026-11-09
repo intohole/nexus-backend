@@ -1,9 +1,10 @@
 """Agent Skills 开放标准（SKILL.md）兼容原语：发现+规范校验+安检闸+渐进披露注入。
 
 机制依据：agentskills.io 规范（2025-12-18 开放标准化；2026-10-22 捐入 Linux Foundation
-AAIF，70+ 平台采纳）。技能=目录+SKILL.md（YAML frontmatter：name/description 必填，
-license/compatibility/metadata/allowed-tools 可选）+渐进披露三层（元数据 ~100tok 常驻 →
-正文激活时载 → 资源按需），文件引用一层深。
+AAIF，70+ 平台采纳；2026-11 生态规模 ~100 万技能/2.8 亿安装）。技能=目录+SKILL.md
+（YAML frontmatter：name/description 必填，license/compatibility/metadata/
+allowed-tools 可选，allowed-tools=实验字段：空格分隔工具白名单字符串）+渐进披露三层
+（元数据 ~100tok 常驻 → 正文激活时载 → 资源按需），文件引用一层深。
 安检=单源扫描器 nexus.skill_security（S58 语义 parity，critical|high fail-close 拒载、
 medium|low 放行观测；scanner 参数可注入自定义扫描器，契约 {"errors","findings","blocked"}）。
 本原语永不执行 scripts/，执行面不在契约内。
@@ -110,8 +111,11 @@ def _validate_spec(meta: dict, entry_name: str, text: str) -> list[str]:
     elif len(str(desc)) > MAX_DESCRIPTION_CHARS:
         findings.append("V4 description 超 1024 字符上限")
     compat = meta.get("compatibility")
-    if compat is not None and len(str(compat)) > MAX_COMPATIBILITY_CHARS:
-        findings.append("V5 compatibility 超 500 字符上限")
+    if compat is not None:
+        if not isinstance(compat, str) or not compat.strip():
+            findings.append("V10 compatibility 提供时须为 1-500 字符非空字符串")
+        elif len(compat) > MAX_COMPATIBILITY_CHARS:
+            findings.append("V5 compatibility 超 500 字符上限")
     md = meta.get("metadata")
     if md is not None and not (
         isinstance(md, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in md.items())
@@ -120,6 +124,9 @@ def _validate_spec(meta: dict, entry_name: str, text: str) -> list[str]:
     body_lines = text.count("\n")
     if body_lines > RECOMMENDED_BODY_LINES:
         findings.append(f"V7 正文 {body_lines} 行超推荐 500 行（详料应下沉 references/）")
+    allowed = meta.get("allowed-tools")
+    if allowed is not None and not isinstance(allowed, str):
+        findings.append("V9 allowed-tools 须为空格分隔工具白名单字符串（实验字段）")
     return findings
 
 

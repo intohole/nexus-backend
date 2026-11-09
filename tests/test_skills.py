@@ -84,6 +84,26 @@ class TestSpecFindings:
         reg = _registry(tmp_path, {"meta-bad": md})
         assert any("V6" in f for f in reg.get("meta-bad").spec_findings)
 
+    def test_allowed_tools_string_ok_list_violation(self, tmp_path):
+        """V9 规范对齐（2026-11）：allowed-tools 提供时须为空格分隔字符串（实验字段），列表形态判违规不阻断。"""
+        reg = _registry(tmp_path, {
+            "tools-str": "---\nname: tools-str\ndescription: 有描述。\nallowed-tools: Bash(git:*) Read\n---\n\n正文\n",
+            "tools-list": "---\nname: tools-list\ndescription: 有描述。\nallowed-tools:\n  - Read\n  - Bash\n---\n\n正文\n",
+        })
+        assert reg.get("tools-str").spec_findings == []
+        assert any("V9" in f for f in reg.get("tools-list").spec_findings)
+
+    def test_compatibility_empty_and_nonstring_violation(self, tmp_path):
+        """V10 规范对齐（2026-11）：compatibility 提供时须 1-500 非空字符串；缺席=未提供不判。"""
+        reg = _registry(tmp_path, {
+            "compat-absent": GOOD.format(name="compat-absent"),
+            "compat-empty": "---\nname: compat-empty\ndescription: 有描述。\ncompatibility: \"\"\n---\n\n正文\n",
+            "compat-num": "---\nname: compat-num\ndescription: 有描述。\ncompatibility: 123\n---\n\n正文\n",
+        })
+        assert reg.get("compat-absent").spec_findings == []
+        assert any("V10" in f for f in reg.get("compat-empty").spec_findings)
+        assert any("V10" in f for f in reg.get("compat-num").spec_findings)
+
     def test_body_over_500_lines_recommended_finding(self, tmp_path):
         body = "\n".join(f"第{i}行" for i in range(520))
         md = f"---\nname: long-body\ndescription: 长正文。\n---\n\n{body}\n"
