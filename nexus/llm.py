@@ -17,6 +17,17 @@ from nexus.llm_utils import chat_json as _chat_json_core
 __all__ = ["DEFAULT_MAX_OUTPUT_TOKENS", "LLMService", "get_llm_service"]
 
 
+def _apply_json_primitive_fallback(kwargs: dict) -> None:
+    """JSON 原语参数兜底单源（r94，#207 族）：无 task_type 时保持 r64 时代
+    兜底（temperature 0.2/max_tokens 1500）；调用方声明 task_type 则温度/预算
+    不表态，交档位解析（TASK_BUDGETS）——遗产默认值不得遮蔽档位列。
+    """
+    kwargs.setdefault("json_mode", True)
+    if kwargs.get("task_type") is None:
+        kwargs.setdefault("temperature", 0.2)
+        kwargs.setdefault("max_tokens", 1500)
+
+
 class LLMService(LLMCore, LLMProbesMixin, LLMStreamMixin):
     async def ask_json(
         self,
@@ -27,9 +38,7 @@ class LLMService(LLMCore, LLMProbesMixin, LLMStreamMixin):
         list_key: Optional[str] = None,
         **kwargs,
     ) -> object:
-        kwargs.setdefault("temperature", 0.2)
-        kwargs.setdefault("max_tokens", 1500)
-        kwargs.setdefault("json_mode", True)
+        _apply_json_primitive_fallback(kwargs)
         parsed = await _ask_json_core(
             self, prompt, system=system, root_type=root_type, list_key=list_key, **kwargs
         )
@@ -48,9 +57,7 @@ class LLMService(LLMCore, LLMProbesMixin, LLMStreamMixin):
         list_key: Optional[str] = None,
         **kwargs,
     ) -> dict[str, object]:
-        kwargs.setdefault("temperature", 0.2)
-        kwargs.setdefault("max_tokens", 1500)
-        kwargs.setdefault("json_mode", True)
+        _apply_json_primitive_fallback(kwargs)
         parsed = await _chat_json_core(
             self, messages, system=system, root_type=root_type, list_key=list_key, **kwargs
         )

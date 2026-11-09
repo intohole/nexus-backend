@@ -23,13 +23,17 @@ class LLMJsonClient:
         model: Optional[str] = None,
         enable_thinking: Optional[bool] = None,
         thinking_budget: Optional[int] = None,
-        temperature: float = 0.3,
-        max_tokens: int = 3000,
-        task_type: str = "default",
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        task_type: Optional[str] = None,
         timeout: float = 90.0,
         budget_retry: bool = True,
         reasoning_effort: Optional[str] = None,
     ) -> None:
+        """档位兼容（r94，#207 族）：温度/预算/task_type 缺省 None=未表态，交档位
+        解析（TASK_BUDGETS）与核心兜底链决定；构造期具体值=显式表态恒优先。
+        此前 0.3/3000/"default" 具体默认会把显式声明档位的消费面遮蔽成无档位。
+        """
         self._svc = get_llm_service()
         self._last_error = ""
         self._model = model
@@ -137,8 +141,11 @@ class LLMJsonClient:
                 max_tokens=budget, task_type=eff_task_type, timeout=eff_timeout, call=call,
             )
             if self._is_parse_failed(result) and self._budget_retry:
-                bigger = min(_BUDGET_RETRY_MAX, max(budget * 3, _BUDGET_RETRY_MIN))
-                if bigger > budget:
+                if budget is None:
+                    bigger = _BUDGET_RETRY_MAX
+                else:
+                    bigger = min(_BUDGET_RETRY_MAX, max(budget * 3, _BUDGET_RETRY_MIN))
+                if budget is None or bigger > budget:
                     logger.warning("JSON 解析失败，放大输出预算重试：%s -> %s", budget, bigger)
                     result = await self._ask_json_once(
                         prompt, system,

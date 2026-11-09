@@ -58,7 +58,7 @@ TASK_BUDGETS: dict[str, TaskBudget] = {
 def resolve_effective_budget(
     task_type: Optional[str],
     max_tokens: Optional[int],
-    temperature: float,
+    temperature: Optional[float],
     output_mode: Optional[OutputMode],
     enable_thinking: Optional[bool] = None,
     thinking_budget: Optional[int] = None,
@@ -76,7 +76,9 @@ def resolve_effective_budget(
     if budget is None:
         return max_tokens, temperature, output_mode, enable_thinking, thinking_budget
     resolved_max = max_tokens if max_tokens is not None else budget.max_tokens
-    resolved_temp = temperature if temperature is not None else (budget.temperature or 0.7)
+    resolved_temp = temperature if temperature is not None else (
+        budget.temperature if budget.temperature is not None else 0.7
+    )
     resolved_mode = output_mode if output_mode is not None else budget.output_mode
     resolved_thinking = enable_thinking if enable_thinking is not None else budget.thinking
     resolved_thinking_budget = (thinking_budget if thinking_budget is not None
@@ -104,7 +106,8 @@ _task_type_warned: set[str] = set()
 
 
 def canonicalize_task_type(task_type: Optional[str]) -> Optional[str]:
-    """近义键归一并告警未登记值：extraction→extract/eval→evaluation，白名单外仅告警不拦截。"""
+    """近义键归一并告警未登记值：eval→evaluation（extraction 自 r92 起为独立档，
+    不再归并 extract），白名单外仅告警不拦截。"""
     logger = get_logger("nexus.llm")
     if not task_type:
         return task_type
