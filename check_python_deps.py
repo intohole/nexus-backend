@@ -113,24 +113,28 @@ def check_pyproject(path: str, deps: dict) -> list:
             data = tomllib.load(f)
     except Exception:
         return []
-    dep_list = (data.get("project") or {}).get("dependencies") or []
+    project = data.get("project") or {}
+    dep_groups = [("", project.get("dependencies") or [])]
+    for extra, items in (project.get("optional-dependencies") or {}).items():
+        dep_groups.append((f"[{extra}] ", items or []))
     problems = []
-    for raw in dep_list:
-        m = re.match(r"^([A-Za-z0-9_.\-\[\]]+)\s*(.*)$", raw.strip())
-        if not m:
-            continue
-        name = m.group(1).lower()
-        rest = m.group(2).strip().replace(" ", "")
-        for key, spec in deps.items():
-            base = spec.get("base", key)
-            if name == key.lower() or name == base.lower():
-                actual = target_version(rest)
-                expected = spec["version"]
-                if not actual:
-                    problems.append(f"  {name}: 未锁定版本({rest or '无版本'}),规范 {expected}")
-                elif actual != expected:
-                    problems.append(f"  {name}: 声明 {actual}, 规范 {expected}")
-                break
+    for extra_tag, dep_list in dep_groups:
+        for raw in dep_list:
+            m = re.match(r"^([A-Za-z0-9_.\-\[\]]+)\s*(.*)$", raw.strip())
+            if not m:
+                continue
+            name = m.group(1).lower()
+            rest = m.group(2).strip().replace(" ", "")
+            for key, spec in deps.items():
+                base = spec.get("base", key)
+                if name == key.lower() or name == base.lower():
+                    actual = target_version(rest)
+                    expected = spec["version"]
+                    if not actual:
+                        problems.append(f"  {extra_tag}{name}: 未锁定版本({rest or '无版本'}),规范 {expected}")
+                    elif actual != expected:
+                        problems.append(f"  {extra_tag}{name}: 声明 {actual}, 规范 {expected}")
+                    break
     return problems
 
 
