@@ -60,10 +60,18 @@ class ScheduleTrigger(Trigger):
                     candidate = candidate.replace(year=candidate.year + 1, month=1)
                 else:
                     candidate = candidate.replace(month=candidate.month + 1)
-            try:
-                return candidate.replace(day=target)
-            except ValueError:
-                return candidate + timedelta(days=1)
+            # 短月无此日（如 2 月无 30/31）：滚下月同日直到落位。此前「+1 天」
+            # 会让月任务在短月天天触发（nexus-agent r32 迁移映射表对表实锤：
+            # 旧仓 _next_monthly 语义=跳到下月同日，双重副作用不可接受）。
+            while True:
+                try:
+                    return candidate.replace(day=target)
+                except ValueError:
+                    candidate = candidate.replace(day=1)
+                    if candidate.month == 12:
+                        candidate = candidate.replace(year=candidate.year + 1, month=1)
+                    else:
+                        candidate = candidate.replace(month=candidate.month + 1)
         candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         if candidate <= now:
             candidate += timedelta(days=1)
