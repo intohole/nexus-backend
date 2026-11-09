@@ -70,7 +70,7 @@ class LLMCore:
     async def _prepare_call(
         self,
         *,
-        temperature: float,
+        temperature: Optional[float],
         max_tokens: Optional[int],
         task_type: Optional[str],
         output_mode: Optional[OutputMode],
@@ -175,7 +175,7 @@ class LLMCore:
         self,
         messages: list[dict[str, str]],
         system: Optional[str] = None,
-        temperature: float = 0.7,
+        temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         timeout: float = 60.0,
         max_retries: int = 3,

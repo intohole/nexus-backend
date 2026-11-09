@@ -17,7 +17,7 @@ class LLMStreamMixin:
         self,
         messages: list[dict[str, str]],
         system: Optional[str] = None,
-        temperature: float = 0.7,
+        temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         output_mode: Optional[OutputMode] = None,
         namespace: Optional[str] = None,
