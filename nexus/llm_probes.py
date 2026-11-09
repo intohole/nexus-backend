@@ -12,7 +12,7 @@ from nexus.llm_meter import charge as _charge, meter as _meter, preflight as _pr
 from nexus.llm_utils import with_llm_retry
 from nexus.llm_helpers import convert_messages, extract_content, record_usage
 from nexus.llm_config import configure_ironman, effective_retries, resolve_app_name
-from nexus.llm_budget import canonicalize_task_type
+from nexus.llm_budget import canonicalize_task_type, resolve_effective_budget
 from nexus.llm_metrics import llm_telemetry
 
 logger = get_logger("nexus.llm")
@@ -95,6 +95,9 @@ class LLMProbesMixin:
         from ironman.types import LLMOptions
 
         canonical_task_type: Optional[str] = canonicalize_task_type(task_type)
+        budget_max, budget_temp, _, _, _ = resolve_effective_budget(
+            canonical_task_type, None, None, None
+        )
 
         request_id: str = get_request_id() or "-"
         app_name: str = resolve_app_name()
@@ -106,7 +109,11 @@ class LLMProbesMixin:
                 return await _extract(
                     prompt=prompt,
                     schema=schema,
-                    llm=LLMOptions(extra={"task_type": canonical_task_type} if canonical_task_type else None),
+                    llm=LLMOptions(
+                        temperature=budget_temp,
+                        max_tokens=budget_max,
+                        extra={"task_type": canonical_task_type} if canonical_task_type else None,
+                    ),
                 )
 
         try:

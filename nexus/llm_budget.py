@@ -36,6 +36,7 @@ TASK_BUDGETS: dict[str, TaskBudget] = {
     "assistant": TaskBudget(max_tokens=512, output_mode=OutputMode.CONCISE, thinking=False),
     "goodbye": TaskBudget(max_tokens=128, output_mode=OutputMode.CONCISE, thinking=False),
     "extract": TaskBudget(max_tokens=300, temperature=0.2, output_mode=OutputMode.JSON, thinking=False),
+    "extraction": TaskBudget(max_tokens=3000, temperature=0.2, output_mode=OutputMode.JSON, thinking=False),
     "classify": TaskBudget(max_tokens=200, temperature=0.2, output_mode=OutputMode.JSON, thinking=False),
     "intent": TaskBudget(max_tokens=200, temperature=0.2, output_mode=OutputMode.JSON, thinking=False),
     "summarize": TaskBudget(max_tokens=800, temperature=0.3, output_mode=OutputMode.CONCISE, thinking=False),
@@ -84,7 +85,6 @@ def resolve_effective_budget(
 
 
 TASK_ALIASES: dict[str, str] = {
-    "extraction": "extract",
     "eval": "evaluation",
 }
 

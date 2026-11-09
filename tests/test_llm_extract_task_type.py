@@ -64,12 +64,16 @@ def captured_llm(monkeypatch):
 
 @pytest.mark.anyio
 async def test_extract_task_type_rides_llmoptions_extra(captured_llm):
+    """r92 起 extraction 为独立档位键：extra 保留原值，温度/预算吃档位单源
+    （此前 S105 别名归一只改标注不吃档=伪命中，pm 生产 14 天实证翻案）。"""
     svc = LLMService()
     result = await svc.extract("抽取以下字段", task_type="extraction")
     assert result == {"ok": True}
     llm: LLMOptions = captured_llm["llm"]
     assert isinstance(llm, LLMOptions)
-    assert llm.extra == {"task_type": "extract"}
+    assert llm.extra == {"task_type": "extraction"}
+    assert llm.temperature == 0.2
+    assert llm.max_tokens == 3000
 
 
 @pytest.mark.anyio

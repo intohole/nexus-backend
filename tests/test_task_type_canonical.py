@@ -17,8 +17,13 @@ from nexus.llm_budget import (
 
 
 def test_alias_values_canonicalize() -> None:
-    assert canonicalize_task_type("extraction") == "extract"
     assert canonicalize_task_type("eval") == "evaluation"
+
+
+def test_extraction_is_own_tier_not_alias() -> None:
+    """r92 翻案：pm 生产 14 天实证 extraction 输出 p99=2327，extract 档 300 帽
+    不适配——升格独立档位键（预算语义分叉），S105 的别名归一撤除。"""
+    assert canonicalize_task_type("extraction") == "extraction"
 
 
 def test_canonical_values_pass_through_idempotent() -> None:
@@ -38,14 +43,17 @@ def test_unregistered_value_passes_through_with_warning(caplog) -> None:
     assert any("brand_new_task" in r.message for r in caplog.records)
 
 
-def test_alias_unblocks_budget_tier() -> None:
+def test_extraction_tier_direct_hit() -> None:
+    """extraction 独立档直接命中（3000/0.2/JSON），无需经别名。"""
     max_tokens, temp, mode, _, _ = resolve_effective_budget(
         canonicalize_task_type("extraction"), None, 0.7, None
     )
-    assert max_tokens == 300
+    assert max_tokens == 3000
     assert temp == 0.7
     assert mode == OutputMode.JSON
 
+
+def test_alias_unblocks_budget_tier() -> None:
     max_tokens2, _, _, _, _ = resolve_effective_budget(
         canonicalize_task_type("eval"), None, 0.7, None
     )
@@ -53,7 +61,7 @@ def test_alias_unblocks_budget_tier() -> None:
 
 
 def test_alias_raw_value_misses_budget_tier() -> None:
-    max_tokens, _, mode, _, _ = resolve_effective_budget("extraction", None, 0.7, None)
+    max_tokens, _, mode, _, _ = resolve_effective_budget("brand_new_task", None, 0.7, None)
     assert max_tokens is None
     assert mode is None
 
