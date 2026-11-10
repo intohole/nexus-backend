@@ -177,6 +177,7 @@ def register_backup_job(
     verify_tables: Union[str, list[str]],
     keep: int = DEFAULT_KEEP,
     interval_hours: int = DEFAULT_INTERVAL_HOURS,
+    job_id: str = JOB_ID,
 ):
     from nexus.scheduler import get_scheduler
 
@@ -188,7 +189,7 @@ def register_backup_job(
         except Exception:
             logger.exception("continuous backup job crashed")
 
-    get_scheduler().add_interval_job(_job, job_id=JOB_ID, hours=interval_hours)
+    get_scheduler().add_interval_job(_job, job_id=job_id, hours=interval_hours)
     return get_scheduler()
 
 

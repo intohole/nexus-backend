@@ -141,6 +141,21 @@ def test_register_backup_job_wires_scheduler(src_db: Path, tmp_path: Path, monke
     captured["job"]()
 
 
+def test_register_backup_job_custom_job_id(src_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict = {}
+
+    class FakeScheduler:
+        def add_interval_job(self, job, job_id: str, hours: int) -> None:
+            captured["job_id"] = job_id
+
+    import nexus.scheduler as scheduler_module
+    monkeypatch.setattr(scheduler_module, "get_scheduler", lambda: FakeScheduler())
+    backup.register_backup_job(
+        src_db, tmp_path / "backups", "mb", ["activities"], keep=5, interval_hours=6, job_id="memoria_backup"
+    )
+    assert captured["job_id"] == "memoria_backup"
+
+
 def test_backup_cli_dry_run_and_execute(src_db: Path, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     rc = backup.backup_cli(
         lambda: src_db, lambda: tmp_path / "backups", lambda: "gz",
