@@ -429,3 +429,59 @@ def test_probe_scheduler_gate_allowed_or_absent_unchanged() -> None:
             return {}
 
     assert bp.probe_scheduler(_NoGate())["status"] == "fail"
+
+
+def _make_corrupt_sqlite(tmp_path: "object") -> str:
+    import sqlite3 as _sq
+
+    db_path = os.path.join(str(tmp_path), "corrupt.db")
+    conn = _sq.connect(db_path)
+    conn.execute("CREATE TABLE t (x INTEGER)")
+    conn.executemany("INSERT INTO t VALUES (?)", [(i,) for i in range(2000)])
+    conn.commit()
+    conn.close()
+    raw = bytearray(open(db_path, "rb").read())
+    raw[2 * 4096 : 2 * 4096 + 200] = b"\xab" * 200
+    open(db_path, "wb").write(bytes(raw))
+    return db_path
+
+
+def test_probe_integrity_auto_with_factory(sqlite_factory: async_sessionmaker) -> None:
+    data = _get(_app(llm=False, notify=False, db_session_factory=sqlite_factory))
+    assert data["checks"]["integrity"]["status"] == "ok"
+    assert "quick_check" in str(data["checks"]["integrity"]["evidence"].get("mode", ""))
+
+
+def test_probe_integrity_fail_on_corrupt_db(tmp_path: object) -> None:
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    db_path = _make_corrupt_sqlite(tmp_path)
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", echo=False)
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        data = _get(_app(llm=False, notify=False, db_session_factory=maker))
+        assert data["checks"]["integrity"]["status"] == "fail"
+        assert data["overall"] == "fail"
+        assert data["checks"]["db"]["status"] == "ok"
+    finally:
+        engine.sync_engine.dispose()
+
+
+def test_probe_integrity_explicit_off(sqlite_factory: async_sessionmaker) -> None:
+    data = _get(_app(llm=False, notify=False, db_session_factory=sqlite_factory, integrity=False))
+    assert data["checks"]["integrity"]["status"] == "skipped"
+    assert data["checks"]["integrity"]["evidence"]["reason"] == "no_integrity_consumer"
+
+
+def test_probe_integrity_custom_check() -> None:
+    async def _ig() -> dict:
+        return {"status": "fail", "latency_ms": 1, "detail": "manual", "evidence": {}}
+
+    data = _get(_app(llm=False, notify=False, integrity=_ig))
+    assert data["checks"]["integrity"]["status"] == "fail"
+
+
+def test_probe_integrity_no_consumer_skipped() -> None:
+    data = _get(_app(llm=False, notify=False))
+    assert data["checks"]["integrity"]["status"] == "skipped"
+    assert data["checks"]["integrity"]["evidence"]["reason"] == "no_integrity_consumer"

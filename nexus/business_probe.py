@@ -29,6 +29,7 @@ NOTIFY_TIMEOUT_S: float = 10.0
 PROBE_TABLE: str = "sentinel_probe_ping"
 
 ProbeCheck = Callable[[], Awaitable[dict[str, object]]]
+IntegritySetting = Union[bool, ProbeCheck, None]
 ProbeFactory = Callable[
     [],
     Union[AbstractAsyncContextManager[object], Awaitable[AbstractAsyncContextManager[object]]],
@@ -87,6 +88,38 @@ async def _standard_db_check(factory: ProbeFactory) -> dict[str, object]:
         }
     except Exception as exc:
         return _fail(started, exc)
+
+
+def make_integrity_check(factory: ProbeFactory) -> ProbeCheck:
+    """SQLite 完整性巡检检查项（PRAGMA quick_check，O(N) 例行档）。
+
+    与 db 问共用业务仓 session factory 但独立成检查名：库腐化（索引损坏类）
+    读写探针照常通过，只有完整性扫描能发现（r191 goldenStock 实录）。
+    full integrity_check 由 backup 原语在每次备份时执行，此处为 5min 级轻巡检。
+    """
+
+    async def _check() -> dict[str, object]:
+        from sqlalchemy import text
+
+        started: float = time.monotonic()
+        try:
+            cm = factory()
+            if not isinstance(cm, AbstractAsyncContextManager):
+                cm = await cm
+            async with cm as db:
+                rows = (await db.execute(text("PRAGMA quick_check"))).fetchall()
+            result: str = " ".join(str(row[0]) for row in rows)[:160]
+            ok: bool = result.startswith("ok")
+            return {
+                "status": "ok" if ok else "fail",
+                "latency_ms": int((time.monotonic() - started) * 1000),
+                "detail": "quick_check ok" if ok else f"quick_check: {result}",
+                "evidence": {"mode": "quick_check"},
+            }
+        except Exception as exc:
+            return _fail(started, exc)
+
+    return _check
 
 
 async def _standard_llm_check() -> dict[str, object]:
@@ -286,11 +319,16 @@ def build_probe_runner(
     scheduler_check: Optional[ProbeCheck] = None,
     watermark_check: Optional[ProbeCheck] = None,
     value_check: Optional[ProbeCheck] = None,
+    integrity: IntegritySetting = None,
 ) -> Callable[[bool], Awaitable[dict[str, object]]]:
     _prefix: str = f"{app_name}:"
 
     async def _db_via_factory() -> dict[str, object]:
         return await _standard_db_check(db_session_factory)
+
+    def _integrity_via_factory() -> ProbeCheck:
+        assert db_session_factory is not None
+        return make_integrity_check(db_session_factory)
 
     def _sched_via_obj() -> dict[str, object]:
         return _dispatch_scheduler_check(scheduler)
@@ -321,6 +359,12 @@ def build_probe_runner(
         sched_fn: Optional[ProbeCheck] = scheduler_check or (_sched_via_obj if scheduler else None)
         wm_fn: Optional[ProbeCheck] = watermark_check
         val_fn: Optional[ProbeCheck] = value_check
+        if integrity is None:
+            ig_fn: Optional[ProbeCheck] = _integrity_via_factory() if db_session_factory else None
+        elif integrity is False:
+            ig_fn = None
+        else:
+            ig_fn = integrity
 
         for name, fn in (
             ("db", db_fn),
@@ -328,6 +372,7 @@ def build_probe_runner(
             ("scheduler", sched_fn),
             ("watermark", wm_fn),
             ("value", val_fn),
+            ("integrity", ig_fn),
         ):
             if fn is None:
                 checks[name] = _skip(f"no_{name}_consumer")
@@ -373,6 +418,7 @@ def register_probe_endpoints(
     scheduler_check: Optional[ProbeCheck] = None,
     watermark_check: Optional[ProbeCheck] = None,
     value_check: Optional[ProbeCheck] = None,
+    integrity: IntegritySetting = None,
 ) -> None:
     run_probe: Callable[[bool], Awaitable[dict[str, object]]] = build_probe_runner(
         app_name=app_name,
@@ -385,6 +431,7 @@ def register_probe_endpoints(
         scheduler_check=scheduler_check,
         watermark_check=watermark_check,
         value_check=value_check,
+        integrity=integrity,
     )
     router: APIRouter = APIRouter(
         prefix="/api/_internal", tags=["internal-probe"], dependencies=[Depends(require_service_token)]
