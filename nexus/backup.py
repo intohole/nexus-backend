@@ -32,7 +32,18 @@ def _vacuum_into(source: Path, target: Path) -> None:
     conn = sqlite3.connect(str(source))
     try:
         escaped = str(target).replace("'", "''")
-        conn.execute(f"VACUUM INTO '{escaped}'")
+        try:
+            conn.execute(f"VACUUM INTO '{escaped}'")
+        except sqlite3.OperationalError as exc:
+            if sqlite3.sqlite_version_info >= (3, 27, 0) or "INTO" not in str(exc):
+                raise
+            logger.warning("VACUUM INTO unsupported (sqlite %s), falling back to backup API", sqlite3.sqlite_version)
+            dst = sqlite3.connect(str(target))
+            try:
+                with dst:
+                    conn.backup(dst)
+            finally:
+                dst.close()
     finally:
         conn.close()
 

@@ -164,3 +164,64 @@ def test_backup_cli_execute_failure_exit_one(tmp_path: Path) -> None:
         ["t"], keep=10, interval_hours=6, argv=["--execute", "--json"],
     )
     assert rc == 1
+
+
+def test_vacuum_falls_back_to_backup_api_on_old_sqlite(src_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = tmp_path / "backups" / "gz_x.db"
+    target.parent.mkdir()
+    monkeypatch.setattr(backup.sqlite3, "sqlite_version_info", (3, 26, 0))
+    calls: dict = {}
+
+    class SrcConn:
+        def execute(self, sql: str):
+            calls["sql"] = sql
+            raise sqlite3.OperationalError('near "INTO": syntax error')
+
+        def backup(self, dst, **kw):
+            calls["backup_api"] = True
+            target.write_bytes(src_db.read_bytes())
+            dst.commit()
+
+        def close(self) -> None:
+            pass
+
+    class DstConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc) -> None:
+            self.commit()
+
+        def commit(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    def fake_connect(path, *a, **kw):
+        if str(path) == str(src_db):
+            return SrcConn()
+        return DstConn()
+
+    monkeypatch.setattr(backup.sqlite3, "connect", fake_connect)
+    backup._vacuum_into(src_db, target)
+    assert calls.get("backup_api") is True
+    assert target.stat().st_size > 0
+
+
+def test_vacuum_raises_through_on_new_sqlite_syntax_error(src_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(backup.sqlite3, "sqlite_version_info", (3, 40, 0))
+    called: dict = {}
+
+    class SrcConn:
+        def execute(self, sql: str):
+            called["executed"] = True
+            raise sqlite3.OperationalError("near INTO: syntax error")
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(backup.sqlite3, "connect", lambda path, *a, **kw: SrcConn())
+    with pytest.raises(sqlite3.OperationalError):
+        backup._vacuum_into(src_db, tmp_path / "backups" / "gz_x.db")
+    assert called.get("executed") is True
