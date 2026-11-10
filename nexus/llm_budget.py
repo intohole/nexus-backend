@@ -96,6 +96,9 @@ TASK_NEUTRAL_VALUES: frozenset[str] = frozenset({
     "video_blueprint", "recite", "page", "json_mode", "interview_report",
     "feedback_triage", "feedback_draft", "daily", "complex",
     "character_match", "business_custom", "bugfix",
+    # yiwei 内容链结构化任务：全链显式传参（temp/max_tokens），只求归桶消告警；
+    # 不挂 creative 档——PROSE+thinking 会挤空小预算 JSON 输出（llm_budget 雷区注释）。
+    "creation",
 })
 
 TASK_KNOWN_VALUES: frozenset[str] = (
