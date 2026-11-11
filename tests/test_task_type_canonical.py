@@ -18,6 +18,8 @@ from nexus.llm_budget import (
 
 def test_alias_values_canonicalize() -> None:
     assert canonicalize_task_type("eval") == "evaluation"
+    assert canonicalize_task_type("rerank") == "extraction"
+    assert canonicalize_task_type("eval_batch") == "evaluation"
 
 
 def test_extraction_is_own_tier_not_alias() -> None:

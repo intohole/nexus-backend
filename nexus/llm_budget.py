@@ -88,6 +88,10 @@ def resolve_effective_budget(
 
 TASK_ALIASES: dict[str, str] = {
     "eval": "evaluation",
+    # lyra 检索判定族（r199 意图路由贯通）：rerank=相关度排序抽取、eval_batch=
+    # entailment 批量判定——归 canonical 档后网关 THINKING_DISABLED/意图守卫全链生效
+    "rerank": "extraction",
+    "eval_batch": "evaluation",
 }
 
 TASK_NEUTRAL_VALUES: frozenset[str] = frozenset({
