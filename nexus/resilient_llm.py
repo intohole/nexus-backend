@@ -49,12 +49,16 @@ async def resilient_ask(
     on_fallback: Optional[Callable[[str], None]] = None,
     namespace: Optional[str] = None,
     task_type: Optional[str] = None,
+    enable_thinking: Optional[bool] = None,
+    thinking_budget: Optional[int] = None,
 ) -> str:
     """带成本守卫/熔断/重试/降级的 LLM 调用。
 
     alias 用于熔断器隔离与成本归集（同一 alias 共享熔断状态）。
     fallback 非 None 时，任何失败都返回 fallback 而不是抛异常。
     system 为可选的系统提示词，max_tokens 限制输出长度，透传底层 LLMService.ask。
+    enable_thinking/thinking_budget 显式传入时直达 llm_core.chat（覆盖档位默认，
+    判断型对话/推演链开思考的透传面——显式传参恒优先语义与 chat 层一致）。
     重试唯一样板：retry_count+1 次调用，内层 LLMService 已禁用重试（max_retries=0），不再叠加放大。
     """
     cb = get_circuit_breaker(f"llm_{alias}", config=_CB_CONFIG)
@@ -77,6 +81,7 @@ async def resilient_ask(
                     prompt, system=system, temperature=temperature,
                     max_tokens=max_tokens, timeout=timeout,
                     namespace=namespace, task_type=task_type,
+                    enable_thinking=enable_thinking, thinking_budget=thinking_budget,
                 )
 
             result = await cb.call(_guarded, timeout=timeout)
@@ -112,9 +117,9 @@ async def resilient_ask(
     raise last_error or RuntimeError("LLM call failed")
 
 
-async def _call_llm(prompt: str, system: str, temperature: float, max_tokens: Optional[int], timeout: float, namespace: Optional[str] = None, task_type: Optional[str] = None) -> str:
+async def _call_llm(prompt: str, system: str, temperature: float, max_tokens: Optional[int], timeout: float, namespace: Optional[str] = None, task_type: Optional[str] = None, enable_thinking: Optional[bool] = None, thinking_budget: Optional[int] = None) -> str:
     svc = get_llm_service()
-    return await svc.ask(prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout, max_retries=0, namespace=namespace, task_type=task_type)
+    return await svc.ask(prompt, system=system, temperature=temperature, max_tokens=max_tokens, timeout=timeout, max_retries=0, namespace=namespace, task_type=task_type, enable_thinking=enable_thinking, thinking_budget=thinking_budget)
 
 
 async def resilient_extract(
@@ -131,6 +136,8 @@ async def resilient_extract(
     retry_delay: float = 1.0,
     namespace: Optional[str] = None,
     task_type: Optional[str] = None,
+    enable_thinking: Optional[bool] = None,
+    thinking_budget: Optional[int] = None,
 ) -> dict[str, object]:
     """带成本守卫/熔断/重试/降级的 LLM JSON 抽取。
 
@@ -150,6 +157,8 @@ async def resilient_extract(
         retry_delay=retry_delay,
         namespace=namespace,
         task_type=task_type,
+        enable_thinking=enable_thinking,
+        thinking_budget=thinking_budget,
     )
     if not raw:
         return {}
@@ -169,6 +178,8 @@ async def resilient_stream(
     alias: str = "default",
     namespace: Optional[str] = None,
     task_type: Optional[str] = None,
+    enable_thinking: Optional[bool] = None,
+    thinking_budget: Optional[int] = None,
 ) -> AsyncGenerator[str, None]:
     """韧性流式 LLM 调用。异常 re-raise，供调用方感知中断并发送错误事件。"""
     svc = get_llm_service()
@@ -180,6 +191,8 @@ async def resilient_stream(
             max_tokens=max_tokens,
             namespace=namespace,
             task_type=task_type,
+            enable_thinking=enable_thinking,
+            thinking_budget=thinking_budget,
         ):
             yield token
     except Exception as e:
