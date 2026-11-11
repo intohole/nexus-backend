@@ -132,4 +132,86 @@ def empty_reason_of(payload: dict) -> str:
     return _as_str(payload.get("empty_reason"))
 
 
-__all__ = ["render_memory_context", "recall_context", "empty_reason_of"]
+_HISTORY_HEADER = "以下是用户近期对话的记录（{count} 条），延续语境用："
+
+
+def render_working_context(payload: dict, *, self_app: str = "") -> str:
+    """beeMemory v1/context 信封（对话窗口+热记忆快照）→ 单个注入文本块；空/错误信封返回空串。
+
+    对话窗口段在前（延续语境），长期记忆段在后（背景画像）；两段都空返回空串
+    由调用方静默。块内不含分数/时变值，逐字节稳定纪律与 render_memory_context 一致。
+    """
+    if payload.get("unavailable") or payload.get("success") is False or payload.get("error"):
+        return ""
+    sections: list[str] = []
+
+    history = payload.get("history_window")
+    if isinstance(history, list) and history:
+        lines = [
+            f"- {m.get('role') or 'user'}: {_as_str(m.get('content'))}"
+            for m in history
+            if isinstance(m, dict) and _as_str(m.get("content"))
+        ]
+        if lines:
+            sections.append(_HISTORY_HEADER.format(count=len(lines)) + "\n" + "\n".join(lines))
+
+    memories = _extract_memories(payload)
+    if memories:
+        self_app = self_app or _as_str(payload.get("app_name"))
+        lines = []
+        for m in memories:
+            content = _as_str(m.get("content"))
+            if not content:
+                continue
+            source_app = _as_str(m.get("source_app"))
+            if source_app == self_app:
+                source_app = ""
+            note = _item_note(source_app, _as_date(m.get("created_at")), False, False)
+            lines.append(f"- {content}{note}")
+        if lines:
+            sections.append(_SNAPSHOT_HEADER.format(count=len(lines)) + "\n" + "\n".join(lines))
+
+    if not sections:
+        return ""
+    return "\n\n".join(sections) + "\n" + _FOOTER
+
+
+async def working_context(
+    user_id: str,
+    *,
+    sdk: object,
+    app_name: str = "",
+    session_id: str = "",
+    history_turns: int = 12,
+    self_app: str = "",
+) -> str:
+    """工作上下文一行式（r27）：get_context + render_working_context，任何失败返回空串。
+
+    业务方一次调用拿到「近窗对话+长期画像」注入块，替代自行拼装
+    recall_context + 历史拉取的双轨样板。
+    """
+    uid = str(user_id or "").strip()
+    if uid.lower() in _GUEST_IDS:
+        return ""
+    get_ctx = getattr(sdk, "get_context", None)
+    if get_ctx is None:
+        return ""
+    try:
+        payload = await get_ctx(
+            user_id=uid,
+            app_name=app_name or None,
+            session_id=session_id or None,
+            history_turns=history_turns,
+        )
+    except Exception as exc:
+        logger.warning("memory working_context failed, skip injection: %s", exc)
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    if payload.get("unavailable") or payload.get("success") is False:
+        logger.warning("beeMemory unavailable: %s", payload.get("message", ""))
+        return ""
+    return render_working_context(payload, self_app=self_app)
+
+
+__all__ = ["render_memory_context", "recall_context", "empty_reason_of", "render_working_context", "working_context"]

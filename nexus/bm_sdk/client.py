@@ -141,6 +141,31 @@ class BeeMemorySDK(BaseAsyncClient):
             payload["max_chars"] = max_chars
         return await self._request("POST", "/api/memory/v1/snapshot", data=payload)
 
+    async def get_context(
+        self,
+        user_id: str,
+        app_name: Optional[str] = None,
+        session_id: Optional[str] = None,
+        history_turns: int = 12,
+        history_max_chars: Optional[int] = None,
+        top_k: int = 10,
+        max_chars: Optional[int] = None,
+    ) -> Dict:
+        """工作上下文聚合（r27）：近 N 条对话窗口 + 热记忆快照一次装填（确定性 0 LLM）。"""
+        payload: Dict = {
+            "user_id": user_id,
+            "app_name": app_name or self.app_name,
+            "history_turns": history_turns,
+            "top_k": top_k,
+        }
+        if session_id:
+            payload["session_id"] = session_id
+        if history_max_chars is not None:
+            payload["history_max_chars"] = history_max_chars
+        if max_chars is not None:
+            payload["max_chars"] = max_chars
+        return await self._request("POST", "/api/memory/v1/context", data=payload)
+
     async def list_memories(
         self,
         user_id: str,
