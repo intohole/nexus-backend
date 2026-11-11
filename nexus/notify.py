@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import inspect
 import os
+import time
 from typing import Optional
 
 import httpx
@@ -10,6 +11,9 @@ import httpx
 from nexus.defaults import DEFAULT_NOTIFY_CENTER_URL
 from nexus.infra import get_notify_center_url
 from nexus.logging import get_logger
+from nexus.notify_breaker import (
+    BreakerOpenError, ConnectBreaker, note_exception,
+)
 from nexus.service_client import get_service_token
 from nexus.utils import HttpClient
 
@@ -22,6 +26,7 @@ class NotifyClient:
         base_url: str = "",
         service_token: str = "",
         timeout: float = 10.0,
+        connect_timeout: float = 2.0,
     ) -> None:
         self._base_url: str = (
             base_url
@@ -31,8 +36,21 @@ class NotifyClient:
         self._timeout: float = timeout
         self._http: HttpClient = HttpClient(
             base_url=self._base_url,
-            timeout=self._timeout,
+            timeout=httpx.Timeout(timeout, connect=connect_timeout),
         )
+        self._breaker = ConnectBreaker()
+
+    async def _call(self, method: str, path: str, **kwargs: object) -> httpx.Response:
+        """统一出网闸：open 期零网络快速失败；连接级失败喂断路器。"""
+        if not self._breaker.allow(time.monotonic()):
+            raise BreakerOpenError("notify_center_breaker_open")
+        try:
+            resp: httpx.Response = await getattr(self._http, method.lower())(path, **kwargs)
+        except Exception as exc:
+            note_exception(self._breaker, exc)
+            raise
+        self._breaker.on_success()
+        return resp
 
     @property
     def base_url(self) -> str:
@@ -98,13 +116,14 @@ class NotifyClient:
             # 调用方幂等键（r24 收归）：同键重发（重启补跑/影子实例）由 notifyCenter 吸收。
             payload["dedup_key"] = dedup_key[:200]
         try:
-            resp: httpx.Response = await self._http.post(
-                "/api/notify/send",
+            resp: httpx.Response = await self._call("POST", "/api/notify/send",
                 json=payload,
                 headers=await self._headers(),
             )
             resp.raise_for_status()
             body: dict[str, object] = resp.json()
+        except BreakerOpenError:
+            return {"status": "failed", "id": 0, "reason": "notify_center_breaker_open"}
         except httpx.HTTPStatusError as exc:
             logger.error(
                 "Notify send failed: status=%s body=%s",
@@ -196,8 +215,7 @@ class NotifyClient:
         html: str | None = None,
     ) -> bool:
         try:
-            resp: httpx.Response = await self._http.post(
-                "/api/notify/email",
+            resp: httpx.Response = await self._call("POST", "/api/notify/email",
                 json={
                     "to": to,
                     "subject": subject,
@@ -246,8 +264,7 @@ class NotifyClient:
         sign_name: str = "",
     ) -> bool:
         try:
-            resp: httpx.Response = await self._http.post(
-                "/api/notify/sms",
+            resp: httpx.Response = await self._call("POST", "/api/notify/sms",
                 json={
                     "phone": phone,
                     "template_code": template_code,
@@ -264,8 +281,7 @@ class NotifyClient:
 
     async def stats(self, days: int = 14) -> dict[str, object]:
         try:
-            resp: httpx.Response = await self._http.get(
-                "/api/notify/stats",
+            resp: httpx.Response = await self._call("GET", "/api/notify/stats",
                 params={"days": days},
                 headers=await self._headers(),
             )
@@ -285,8 +301,7 @@ class NotifyClient:
         if not ids:
             return {}
         try:
-            resp: httpx.Response = await self._http.get(
-                "/api/notify/read-status",
+            resp: httpx.Response = await self._call("GET", "/api/notify/read-status",
                 params={"ids": ",".join(str(i) for i in ids[:100])},
                 headers=await self._headers(),
             )

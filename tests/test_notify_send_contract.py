@@ -121,8 +121,11 @@ def test_send_merges_why_you_into_data() -> None:
 
             return _Resp()
 
+    from nexus.notify_breaker import ConnectBreaker
+
     object.__setattr__(client, "_http", _Http())
     object.__setattr__(client, "_service_token", "tok")
+    object.__setattr__(client, "_breaker", ConnectBreaker())
     resp = asyncio.run(client.send(user_id="2", title="t", why_you="因为你上次的推演卡到了对账日", data={"k": 1}))
     assert resp["status"] == "sent"
     assert captured["data"]["why_you"] == "因为你上次的推演卡到了对账日"
@@ -152,8 +155,11 @@ def test_send_existing_why_you_not_overwritten() -> None:
 
             return _Resp()
 
+    from nexus.notify_breaker import ConnectBreaker
+
     object.__setattr__(client, "_http", _Http())
     object.__setattr__(client, "_service_token", "tok")
+    object.__setattr__(client, "_breaker", ConnectBreaker())
     asyncio.run(client.send(user_id="2", title="t", data={"why_you": "既有"}, why_you="kwarg 版"))
     assert captured["data"]["why_you"] == "既有"
 
@@ -181,8 +187,11 @@ def test_send_without_why_you_keeps_data_empty() -> None:
 
             return _Resp()
 
+    from nexus.notify_breaker import ConnectBreaker
+
     object.__setattr__(client, "_http", _Http())
     object.__setattr__(client, "_service_token", "tok")
+    object.__setattr__(client, "_breaker", ConnectBreaker())
     asyncio.run(client.send(user_id="2", title="t"))
     assert captured["data"] == {}
 
