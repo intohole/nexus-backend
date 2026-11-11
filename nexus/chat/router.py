@@ -109,6 +109,15 @@ def chat_router(engine: ChatEngine, app_name: str) -> APIRouter:
         events = engine.stream_message(user_id, app_name, conversation_id, payload.content)
         return await engine.transport.stream(events, request=request)
 
+    @router.post("/conversations/{conversation_id}/messages/regenerate")
+    async def regenerate_message(
+        conversation_id: str,
+        request: Request,
+        user_id: str = Depends(get_current_user_id_required),
+    ) -> Any:
+        events = engine.regenerate(user_id, app_name, conversation_id)
+        return await engine.transport.stream(events, request=request)
+
     @router.get("/conversations/{conversation_id}/messages")
     async def list_messages(
         conversation_id: str,

@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, AsyncGenerator, Protocol
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from nexus.chat.models import ChatBase, ChatConversation, ChatMessage, _utcnow
@@ -37,6 +37,7 @@ class ChatStore(Protocol):
         self, conversation_id: str, page: int, page_size: int
     ) -> dict[str, Any]: ...
     async def recent_messages(self, conversation_id: str, limit: int) -> list[ChatMessage]: ...
+    async def truncate_from(self, conversation_id: str, message_id: str) -> int | None: ...
     async def count_messages(self, conversation_id: str) -> int: ...
     async def count_messages_since(self, conversation_id: str, since: datetime) -> int: ...
 
@@ -184,6 +185,22 @@ class LocalChatStore:
             messages = list(result.scalars().all())
             messages.reverse()
             return messages
+
+    async def truncate_from(self, conversation_id: str, message_id: str) -> int | None:
+        async with self._session() as session:
+            anchor = await session.get(ChatMessage, message_id)
+            if anchor is None or anchor.conversation_id != conversation_id:
+                return None
+            result = await session.execute(
+                delete(ChatMessage).where(
+                    ChatMessage.conversation_id == conversation_id,
+                    or_(
+                        ChatMessage.created_at > anchor.created_at,
+                        ChatMessage.id == message_id,
+                    ),
+                )
+            )
+            return int(result.rowcount or 0)
 
     async def count_messages(self, conversation_id: str) -> int:
         async with self._session() as session:

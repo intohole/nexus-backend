@@ -119,6 +119,23 @@ class ChatEngine:
         await self.get_conversation(user_id, conversation_id)
         return await self._store.list_messages(conversation_id, page, page_size)
 
+    async def regenerate(
+        self, user_id: str, app_name: str, conversation_id: str
+    ) -> AsyncIterator[str | dict]:
+        await self.get_conversation(user_id, conversation_id)
+        result = await self._store.list_messages(conversation_id, page=1, page_size=100)
+        anchor = None
+        for message in reversed(result["items"]):
+            if message.role == "user":
+                anchor = message
+                break
+        if anchor is None:
+            yield {"type": "error", "code": 404, "message": "会话暂无用户消息可重新生成"}
+            return
+        await self._store.truncate_from(conversation_id, anchor.id)
+        async for event in self.stream_message(user_id, app_name, conversation_id, anchor.content):
+            yield event
+
     async def stream_message(
         self, user_id: str, app_name: str, conversation_id: str, content: str
     ) -> AsyncIterator[str | dict]:
