@@ -30,7 +30,8 @@ class NotifyClient:
     ) -> None:
         self._base_url: str = (
             base_url
-            or os.environ.get("NOTIFY_CENTER_URL", DEFAULT_NOTIFY_CENTER_URL)
+            or os.environ.get("NOTIFY_CENTER_URL")
+            or DEFAULT_NOTIFY_CENTER_URL
         )
         self._service_token: str = service_token
         self._timeout: float = timeout

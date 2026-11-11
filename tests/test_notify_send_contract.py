@@ -363,3 +363,20 @@ def test_send_without_audience_check_skips_guard() -> None:
         audience_mod.sendable = orig
     assert result["status"] == "sent"
     assert calls == []
+
+
+def test_notify_client_empty_env_url_falls_back(monkeypatch) -> None:
+    """r200 纵深：NOTIFY_CENTER_URL 键存在值空串时三级兜底仍生效。
+
+    冷启动投影污染窗曾把空串写进进程 env——`os.environ.get(key, default)`
+    对「键存在值空串」返回空串绕过 default，base_url="" 直接炸 httpx
+    UnsupportedProtocol（usercenter/userFeedback probe notify 每轮 fail
+    生产实锤）。改 `or` 链后空串视同未配置。"""
+    from nexus.defaults import DEFAULT_NOTIFY_CENTER_URL
+
+    monkeypatch.setenv("NOTIFY_CENTER_URL", "")
+    client = NotifyClient()
+    assert client.base_url == DEFAULT_NOTIFY_CENTER_URL
+    monkeypatch.delenv("NOTIFY_CENTER_URL", raising=False)
+    client = NotifyClient()
+    assert client.base_url == DEFAULT_NOTIFY_CENTER_URL
