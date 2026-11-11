@@ -136,7 +136,9 @@ def test_stats_returns_degraded_when_open() -> None:
     asyncio.run(client.send(user_id="2", title="t"))
     asyncio.run(client.send(user_id="2", title="t"))
     stats = asyncio.run(client.stats(days=7))
-    assert stats == {"apps": []}
+    # r33 失败自显：降级态附 stats_error 键（消费方不再把请求失败误读成「无行」）
+    assert stats["apps"] == []
+    assert "breaker_open" in stats.get("stats_error", "")
 
 
 def test_read_status_returns_empty_when_open() -> None:

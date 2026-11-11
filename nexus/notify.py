@@ -288,9 +288,14 @@ class NotifyClient:
             resp.raise_for_status()
             body: dict[str, object] = resp.json()
         except Exception as exc:
+            # r33：失败必须自显——裸 {"apps":[]} 会让消费方把「请求失败」
+            # 误读成「无行」（灵犀 brief_reach no_self_row 假象 11-11 生产实锤，
+            # 7 天 9 发在场却恒报无行）。error 键 additive，存量消费方零破坏。
             logger.error("Notify stats error: %s", str(exc))
-            return {"apps": []}
-        return body if isinstance(body, dict) else {"apps": []}
+            return {"apps": [], "stats_error": str(exc)[:200]}
+        if not isinstance(body, dict):
+            return {"apps": [], "stats_error": "malformed_body"}
+        return body
 
     async def read_status(self, ids: list[int]) -> dict[int, bool]:
         """批量查询通知已读状态（notifyCenter ≥2026-10 read-status 端点）。
