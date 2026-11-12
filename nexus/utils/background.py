@@ -51,6 +51,11 @@ def pending_background_tasks() -> int:
     return len(_TASKS)
 
 
+def running_background_tasks() -> list:
+    """仍在飞的任务句柄（关停时主动 cancel 收尾用；只读快照）。"""
+    return [t for t in _TASKS if not t.done()]
+
+
 async def drain_background_tasks(timeout: float = 5.0) -> int:
     """等待在飞任务收尾（关闭钩子/测试用），返回超时后仍未完成的数量。"""
     pending = [t for t in _TASKS if not t.done()]

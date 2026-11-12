@@ -46,7 +46,6 @@ from nexus._streaming_primitives import (  # noqa: F401
 from nexus._streaming_sse import (  # noqa: F401
     DEFAULT_SSE_QUEUE_SIZE,
     DRAIN_TIMEOUT_SECONDS,
-    _DRAIN_TASKS,
     _STREAM_SENTINEL,
     _drain_after_disconnect,
     _sse_generator_v2,

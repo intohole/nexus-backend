@@ -63,3 +63,15 @@ async def test_drain_waits_for_pending():
         await asyncio.sleep(0.05)
     spawn_background(slow())
     assert await drain_background_tasks(timeout=1.0) == 0
+
+
+@pytest.mark.asyncio
+async def test_running_tasks_snapshot_and_drain_clears_registry():
+    async def quick():
+        await asyncio.sleep(0.02)
+    from nexus.utils.background import running_background_tasks
+    spawn_background(quick())
+    handles = running_background_tasks()
+    assert len(handles) >= 1, "running_background_tasks 必须返回在飞任务句柄（关停 cancel 收尾用）"
+    assert await drain_background_tasks(timeout=2.0) == 0
+    assert running_background_tasks() == []

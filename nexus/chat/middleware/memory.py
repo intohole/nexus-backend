@@ -11,6 +11,8 @@ import logging
 from typing import Optional
 
 from nexus.bm_sdk import BeeMemorySDK
+
+from nexus.utils.background import spawn_background
 from nexus.chat.context import ChatContext
 from nexus.chat.middleware.base import BaseChatMiddleware
 from nexus.memory import render_memory_context
@@ -35,7 +37,6 @@ class MemoryMiddleware(BaseChatMiddleware):
         self._max_chars = max_chars
         self._channel = channel
         self._smart = smart
-        self._bg_tasks: set[asyncio.Task[None]] = set()
 
     async def before(self, context: ChatContext) -> None:
         user_id = str(context.conversation.user_id or "").strip()
@@ -66,9 +67,7 @@ class MemoryMiddleware(BaseChatMiddleware):
         ]
         # 回写后台化：beeMemory 挂起时同步 await 会把 done 帧卡住 10-15s
         # （每轮对话尾部延迟）。后台任务自带短超时+终态日志（S51 三件套）。
-        task = asyncio.create_task(self._save_history_bg(context, user_id, messages))
-        self._bg_tasks.add(task)
-        task.add_done_callback(self._bg_tasks.discard)
+        spawn_background(self._save_history_bg(context, user_id, messages))
 
     async def _save_history_bg(self, context: ChatContext, user_id: str, messages: list) -> None:
         try:

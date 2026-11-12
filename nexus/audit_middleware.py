@@ -10,6 +10,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from nexus.audit import log_audit
+
+from nexus.utils.background import spawn_background
 from nexus.config import NexusConfig, get_settings
 from nexus.logging import get_logger
 from nexus.utils import get_client_ip
@@ -29,7 +31,6 @@ class AuditMiddleware(BaseHTTPMiddleware):
             if source:
                 self._app_code = str(source)
                 break
-        self._background_tasks: Set[asyncio.Task] = set()
 
     def _is_excluded(self, path: str) -> bool:
         for exclude in self._exclude_paths:
@@ -71,7 +72,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
         detail: dict[str, object] = {"method": method, "path": path}
         if query:
             detail["query"] = query
-        task = asyncio.create_task(
+        spawn_background(
             log_audit(
                 action="request",
                 user_id=user_id,
@@ -84,8 +85,6 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 status_code=status_code,
             )
         )
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
 
     async def dispatch(
         self,

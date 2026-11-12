@@ -10,6 +10,7 @@ import asyncio
 from typing import Any, AsyncIterator, Awaitable, Callable, Optional, Union
 
 from nexus._streaming_primitives import sse_event_dict, sse_response
+from nexus.utils.background import spawn_background
 from nexus.logging import get_logger
 
 logger = get_logger("nexus.streaming")
@@ -27,7 +28,6 @@ DRAIN_TIMEOUT_SECONDS = 300.0
 # drain task 的模块级强引用：asyncio 只持弱引用，无引用的运行中 task 会被 GC
 # 中途回收（官方文档 asyncio.create_task 警告），drain 又恰在客户端断开后运行，
 # 没人 await 它——必须自持引用，结束（含异常/取消）后自摘。
-_DRAIN_TASKS: set[asyncio.Task] = set()
 
 
 async def with_disconnect_check(
@@ -101,7 +101,6 @@ async def _drain_after_disconnect(
                 await on_complete("".join(accumulated))
             except Exception:
                 pass
-        _DRAIN_TASKS.discard(asyncio.current_task())
 
 
 def _classify_sse_chunk(
@@ -150,9 +149,7 @@ async def _teardown_pump(
                 if not pump_task.done():
                     pump_task.cancel()
 
-        drain_task = asyncio.create_task(_guarded_drain())
-        _DRAIN_TASKS.add(drain_task)
-        drain_task.add_done_callback(_DRAIN_TASKS.discard)
+        spawn_background(_guarded_drain())
     else:
         pump_task.cancel()
         try:

@@ -57,6 +57,7 @@ from nexus.utils import (
     spawn_background,
     pending_background_tasks,
     drain_background_tasks,
+    running_background_tasks,
 )
 from nexus.rag_quality import (
     extract_citations,

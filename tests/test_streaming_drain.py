@@ -9,9 +9,9 @@ import asyncio
 
 from nexus.streaming import (
     DRAIN_TIMEOUT_SECONDS,
-    _DRAIN_TASKS,
     _sse_generator_v2,
 )
+from nexus.utils.background import drain_background_tasks, pending_background_tasks
 
 
 def _run(coro):
@@ -59,15 +59,14 @@ def test_drain_runs_business_stream_to_completion():
             if finished:
                 break
             await asyncio.sleep(0.05)
-        if _DRAIN_TASKS:
-            await asyncio.gather(*[asyncio.shield(t) for t in list(_DRAIN_TASKS)])
+        await drain_background_tasks(timeout=5)
 
     _run(scenario())
     assert finished == [True], "drain 开启：断开后业务流必须跑到自然结束（尾部落库语义）"
     assert completed_with == ["".join(f"chunk{i}" for i in range(5))], (
         "on_complete 必须收到完整内容（断开前已消费的 + drain 补齐的）"
     )
-    assert not _DRAIN_TASKS, "drain 结束后必须自摘引用，防 task 泄漏"
+    assert pending_background_tasks() == 0, "drain 结束后必须自摘引用，防 task 泄漏"
 
 
 def test_drain_survives_slow_upstream():
@@ -91,7 +90,7 @@ def test_drain_survives_slow_upstream():
 
     _run(scenario())
     assert finished == [True]
-    assert not _DRAIN_TASKS
+    assert pending_background_tasks() == 0
 
 
 def test_drain_timeout_is_positive_budget():
