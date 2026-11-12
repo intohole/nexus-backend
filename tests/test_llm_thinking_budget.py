@@ -1,17 +1,26 @@
-"""thinking 档位守底：任务语义→思考策略解析叠加（r73）——撤档位/撤叠加必红。"""
+"""thinking 档位守底：任务语义→思考策略解析叠加（r73）——撤档位/撤叠加必红；r102b 增表内容量账自洽守卫（教训 #225）。"""
 from __future__ import annotations
 
 import pytest
 
 from nexus.llm import LLMService
-from nexus.llm_budget import DEFAULT_THINKING_BUDGET, OutputMode, resolve_effective_budget
+from nexus.llm_budget import DEFAULT_THINKING_BUDGET, TASK_BUDGETS, OutputMode, resolve_effective_budget
 
 
 def test_thinking_on_tiers_resolve_true_with_budget_cap():
-    for task, budget in (("creative", 8192), ("writing", 8192), ("article", 8192), ("report", 4096)):
+    for task, budget in (("creative", 6000), ("writing", 6000), ("article", 4000), ("report", 2500)):
         *_, thinking, thinking_budget = resolve_effective_budget(task, None, 0.7, None)
         assert thinking is True, task
         assert thinking_budget == budget, task
+
+
+def test_tier_table_capacity_self_consistency():
+    for task, tb in TASK_BUDGETS.items():
+        if tb.thinking and tb.thinking_budget is not None:
+            assert tb.thinking_budget < tb.max_tokens, (
+                f"{task}: thinking_budget {tb.thinking_budget} >= max_tokens "
+                f"{tb.max_tokens}（deepseek 系 reasoning 计入帽内，思考吃满正文零空间，教训 #225）"
+            )
 
 
 def test_thinking_off_tiers_resolve_false():
@@ -68,7 +77,7 @@ async def test_prepare_call_resolves_tier_thinking(monkeypatch):
         enable_thinking=None, thinking_budget=None,
     )
     assert opts.enable_thinking is True
-    assert opts.thinking_budget == 8192
+    assert opts.thinking_budget == 6000
 
 
 @pytest.mark.asyncio

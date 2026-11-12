@@ -182,7 +182,7 @@ async def test_stream_chat_columns_converge_same_tier(captured_chat):
     assert llm.temperature == 0.85
     assert llm.max_tokens == 8000
     assert llm.enable_thinking is True
-    assert llm.thinking_budget == 8192
+    assert llm.thinking_budget == 6000
 
 
 # ---------------------------------------------------------------------------
