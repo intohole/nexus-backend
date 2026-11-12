@@ -103,6 +103,10 @@ TASK_NEUTRAL_VALUES: frozenset[str] = frozenset({
     # yiwei 内容链结构化任务：全链显式传参（temp/max_tokens），只求归桶消告警；
     # 不挂 creative 档——PROSE+thinking 会挤空小预算 JSON 输出（llm_budget 雷区注释）。
     "creation",
+    # smartCode agent 规划族（planner/architect/spec_writer，r104）：归桶消告警；
+    # 不挂档（调用面显式 max_tokens 自管），网关 TASK_TYPE_PREFERRED_PROVIDERS["reasoning"]
+    # 意图路由键保留生效。
+    "reasoning",
 })
 
 TASK_KNOWN_VALUES: frozenset[str] = (
