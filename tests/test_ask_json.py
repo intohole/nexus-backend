@@ -169,3 +169,88 @@ async def test_method_sentinel_opt_out(svc, monkeypatch):
     monkeypatch.setattr(service, "ask", always_garbage)
     result = await service.ask_json("q", raise_on_error=False)
     assert result == {"raw_response": ""}
+
+
+class BillingLLM:
+    """模拟支持 _want_usage 的服务：每次 wire 调用返回账单 dict（r109）。"""
+
+    def __init__(self, contents, cached_final=False):
+        self.contents = list(contents)
+        self.calls = []
+        self.cached_final = cached_final
+
+    async def ask(self, prompt, system=None, **kwargs):
+        self.calls.append(kwargs)
+        if not kwargs.get("_want_usage"):
+            return self.contents.pop(0)
+        content = self.contents.pop(0)
+        return {
+            "content": content,
+            "model": "deepseek-flash",
+            "input_tokens": 10 + len(self.calls),
+            "output_tokens": 5,
+            "total_tokens": 15 + len(self.calls),
+            "cached_tokens": 0,
+            "cost_usd": 0.001,
+            "latency_ms": 100,
+            "cached": self.cached_final and not self.contents,
+        }
+
+
+@pytest.mark.anyio
+async def test_collect_usage_success_single_bill():
+    llm = BillingLLM([json.dumps({"a": 1})])
+    data, usage = await ask_json(llm, "p", system="s", collect_usage=True)
+    assert data == {"a": 1}
+    assert usage["calls"] == 1
+    assert usage["input_tokens"] == 11
+    assert usage["output_tokens"] == 5
+    assert usage["model"] == "deepseek-flash"
+    assert usage["cost_usd"] == 0.001
+    assert "content" not in usage["bills"][0]
+    assert llm.calls[0]["_want_usage"] is True
+
+
+@pytest.mark.anyio
+async def test_collect_usage_retry_aggregates_bills_with_no_cache():
+    llm = BillingLLM(["not json", json.dumps({"ok": 1})])
+    data, usage = await ask_json(llm, "p", system="s", collect_usage=True)
+    assert data == {"ok": 1}
+    assert usage["calls"] == 2
+    assert usage["input_tokens"] == 11 + 12
+    assert len(usage["bills"]) == 2
+    assert llm.calls[1]["no_cache"] is True
+
+
+@pytest.mark.anyio
+async def test_collect_usage_total_failure_returns_none_with_usage():
+    llm = BillingLLM(["bad1", "bad2"])
+    data, usage = await ask_json(llm, "p", system="s", collect_usage=True)
+    assert data is None
+    assert usage["calls"] == 2
+
+
+@pytest.mark.anyio
+async def test_collect_usage_plain_str_service_tolerated():
+    class LegacyLLM:
+        async def ask(self, prompt, system=None, **kwargs):
+            return json.dumps({"b": 2})
+
+    data, usage = await ask_json(LegacyLLM(), "p", system="s", collect_usage=True)
+    assert data == {"b": 2}
+    assert usage["calls"] == 1
+    assert usage["input_tokens"] == 0
+
+
+@pytest.mark.anyio
+async def test_collect_usage_list_root_shape():
+    llm = BillingLLM([json.dumps([{"k": "events"}, {"k": "v2"}])])
+    data, usage = await ask_json(llm, "p", system="s", collect_usage=True, root_type=list, list_key="events")
+    assert data == [{"k": "events"}, {"k": "v2"}]
+    assert usage["calls"] == 1
+
+
+@pytest.mark.anyio
+async def test_without_collect_usage_return_unchanged():
+    llm = BillingLLM([json.dumps({"c": 3})])
+    assert await ask_json(llm, "p", system="s") == {"c": 3}

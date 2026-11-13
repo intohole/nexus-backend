@@ -234,6 +234,29 @@ async def with_llm_retry(
     raise RuntimeError(f"with_llm_retry exhausted with no attempt made (max_retries={max_retries!r})")
 
 
+def usage_summary(bills: list[dict[str, object]]) -> dict[str, object]:
+    """wire 账单聚合单源（harness r109）：per-call bills（去 content 防大串驻留）+汇总列。
+
+    cached 语义=全部 wire 调用均缓存命中；model 取末次调用。调用方（业务
+    ledger/meter）逐笔消费 bills，聚合列供一步读数。
+    """
+    def _sum_int(key: str) -> int:
+        return sum(int(b.get(key) or 0) for b in bills)
+
+    return {
+        "calls": len(bills),
+        "input_tokens": _sum_int("input_tokens"),
+        "output_tokens": _sum_int("output_tokens"),
+        "total_tokens": _sum_int("total_tokens"),
+        "cached_tokens": _sum_int("cached_tokens"),
+        "cost_usd": round(sum(float(b.get("cost_usd") or 0.0) for b in bills), 6),
+        "latency_ms": _sum_int("latency_ms"),
+        "cached": bool(bills) and all(bool(b.get("cached")) for b in bills),
+        "model": str(bills[-1].get("model") or "") if bills else "",
+        "bills": bills,
+    }
+
+
 async def ask_json(
     llm: object,
     prompt: str,
@@ -242,8 +265,9 @@ async def ask_json(
     root_type: type = dict,
     list_key: Optional[str] = None,
     attempts: int = 2,
+    collect_usage: bool = False,
     **ask_kwargs: object,
-) -> Optional[object]:
+) -> Optional[object] | tuple[Optional[object], dict[str, object]]:
     """结构化 ask 组合原语：ask → 解析 → 形状 gate → 失败有界重试（绕缓存自愈）。
 
     舰队级收敛「LLM 输出→解析→形状检查」手搓序列（harness r64，模式首证于
@@ -256,32 +280,52 @@ async def ask_json(
     自愈投毒。全败返回 None，调用方保留既有兜底语义；成功路径以一次重试的
     代价（仅失败时付出）换回整段产出。
 
+    collect_usage=True（harness r109）：每次 wire 调用带 _want_usage=True 记账，
+    返回 (数据, usage_summary) 二元组；全败同样返回 (None, usage)——失败调用
+    不丢账单。服务不支持 _want_usage（返回裸 str）时按零账单容忍，解析链不变。
+
     Args:
         llm: 提供 ``ask(prompt, system=..., **kwargs)`` 的服务实例
             （nexus get_llm_service() 形态）。
         root_type: dict（默认，parse_llm_json 全梯子）或 list（lenient 解析，
             支持裸数组与截断修复）。
         list_key: list 形下优先取的键（如 ``variants``）；信封形态始终兜底。
+        collect_usage: True=返回 (数据, usage) 二元组，False=仅数据（默认）。
         ask_kwargs: 透传 llm.ask（temperature/max_tokens/task_type/timeout 等）。
     """
     total = max(1, attempts)
+    bills: list[dict[str, object]] = []
     for attempt in range(total):
         kwargs = dict(ask_kwargs)
         if attempt > 0:
             kwargs.setdefault("no_cache", True)
+        if collect_usage:
+            kwargs["_want_usage"] = True
         raw = await llm.ask(prompt, system=system, **kwargs)  # type: ignore[attr-defined]
+        raw_text: object = raw
+        if collect_usage:
+            if isinstance(raw, dict):
+                bills.append({k: v for k, v in raw.items() if k != "content"})
+                raw_text = str(raw.get("content") or "")
+            else:
+                # 服务不支持 _want_usage（裸 str）：记零值账单桩，保持
+                # bills 数==wire 调用数不变量（逐笔记账消费方依赖），零 token 非捏造。
+                bills.append({"input_tokens": 0, "output_tokens": 0, "total_tokens": 0,
+                              "cached_tokens": 0, "cost_usd": 0.0, "latency_ms": 0,
+                              "cached": False, "model": ""})
+                raw_text = str(raw)
         if root_type is dict:
-            parsed = parse_llm_json(raw, fallback=None)
+            parsed = parse_llm_json(raw_text, fallback=None)
         else:
-            parsed = parse_llm_json_lenient(raw)
+            parsed = parse_llm_json_lenient(raw_text)
         gated = json_shape_gate(parsed, root_type, list_key)
         if gated is not None:
-            return gated
+            return (gated, usage_summary(bills)) if collect_usage else gated
         logger.warning(
             "ask_json shape gate failed, attempt %d/%d (root_type=%s, list_key=%s)",
             attempt + 1, total, root_type.__name__, list_key,
         )
-    return None
+    return (None, usage_summary(bills)) if collect_usage else None
 
 
 async def chat_json(
