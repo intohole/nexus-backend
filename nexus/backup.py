@@ -109,22 +109,86 @@ def _backup_one(db_path: Path, target: Path, verify_tables: list[str], skip_miss
     return part
 
 
-def prune_backups(backup_dir: Path, prefix: str, keep: int) -> list[str]:
-    if not backup_dir.exists():
+def _safe_mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def prune_files(
+    directory: Path,
+    patterns: list[str],
+    keep: int = 0,
+    max_age_days: Optional[int] = None,
+    max_total_bytes: Optional[int] = None,
+    dry_run: bool = False,
+) -> list[str]:
+    if not directory.exists():
         return []
-    glob_prefix = f"{prefix}_"
-    backups = sorted(
-        (b for b in backup_dir.glob(f"{glob_prefix}*.db") if b.is_file()),
-        reverse=True,
-    )
-    pruned = []
-    for old in backups[keep:]:
+    candidates: list[tuple[float, Path]] = []
+    for pattern in patterns:
+        for path in directory.glob(pattern):
+            if not path.is_file():
+                continue
+            try:
+                candidates.append((path.stat().st_mtime, path))
+            except OSError:
+                continue
+    candidates.sort(key=lambda item: (item[0], item[1].name), reverse=True)
+    total = 0
+    for _, path in candidates:
         try:
-            old.unlink()
-            pruned.append(old.name)
+            total += path.stat().st_size
         except OSError:
             pass
+    protected_count = min(keep, len(candidates))
+    remainder = [path for _, path in candidates[protected_count:]]
+    cutoff = (datetime.now().timestamp() - max_age_days * 86400) if max_age_days else None
+    pruned: list[str] = []
+
+    def remove(path: Path) -> None:
+        nonlocal total
+        try:
+            size = path.stat().st_size
+            if not dry_run:
+                path.unlink()
+        except OSError:
+            return
+        total -= size
+        pruned.append(path.name)
+
+    if cutoff is None and max_total_bytes is None:
+        for path in remainder:
+            remove(path)
+        return pruned
+    if cutoff is not None:
+        for path in list(remainder):
+            try:
+                if path.stat().st_mtime < cutoff:
+                    remove(path)
+                    remainder.remove(path)
+            except OSError:
+                continue
+    if max_total_bytes is not None and total > max_total_bytes:
+        for path in sorted(remainder, key=_safe_mtime):
+            if total <= max_total_bytes:
+                break
+            remove(path)
     return pruned
+
+
+def prune_backups(
+    backup_dir: Path,
+    prefix: str,
+    keep: int,
+    max_age_days: Optional[int] = None,
+    max_total_bytes: Optional[int] = None,
+    dry_run: bool = False,
+) -> list[str]:
+    return prune_files(
+        backup_dir, [f"{prefix}_*.db"], keep, max_age_days, max_total_bytes, dry_run
+    )
 
 
 def run_backup(
@@ -133,6 +197,8 @@ def run_backup(
     prefix: PrefixLike,
     verify_tables: Union[str, list[str]],
     keep: int = DEFAULT_KEEP,
+    max_age_days: Optional[int] = None,
+    max_total_bytes: Optional[int] = None,
 ) -> dict[str, object]:
     if isinstance(verify_tables, str):
         verify_tables = [verify_tables]
@@ -155,7 +221,9 @@ def run_backup(
             "parts": parts,
         }
         if report["ok"]:
-            report["pruned"] = prune_backups(backup_dir, str(prefix), keep)
+            report["pruned"] = prune_backups(
+                backup_dir, str(prefix), keep, max_age_days, max_total_bytes
+            )
         return report
     backup_dir.mkdir(parents=True, exist_ok=True)
     stamp = _stamp()
@@ -166,7 +234,7 @@ def run_backup(
     report["ts"] = datetime.now().isoformat(timespec="seconds")
     if not report.get("ok"):
         return report
-    report["pruned"] = prune_backups(backup_dir, str(prefix), keep)
+    report["pruned"] = prune_backups(backup_dir, str(prefix), keep, max_age_days, max_total_bytes)
     return report
 
 
@@ -178,12 +246,16 @@ def register_backup_job(
     keep: int = DEFAULT_KEEP,
     interval_hours: int = DEFAULT_INTERVAL_HOURS,
     job_id: str = JOB_ID,
+    max_age_days: Optional[int] = None,
+    max_total_bytes: Optional[int] = None,
 ):
     from nexus.scheduler import get_scheduler
 
     def _job() -> None:
         try:
-            report = run_backup(db_paths, backup_dir, prefix, verify_tables, keep)
+            report = run_backup(
+                db_paths, backup_dir, prefix, verify_tables, keep, max_age_days, max_total_bytes
+            )
             if not report.get("ok"):
                 logger.error("backup failed: %s", report)
         except Exception:
@@ -201,6 +273,8 @@ def backup_cli(
     keep: int = DEFAULT_KEEP,
     interval_hours: int = DEFAULT_INTERVAL_HOURS,
     argv: Optional[list[str]] = None,
+    max_age_days: Optional[int] = None,
+    max_total_bytes: Optional[int] = None,
 ) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
@@ -217,9 +291,13 @@ def backup_cli(
             "keep": keep,
             "interval_hours": interval_hours,
             "verify_tables": verify_tables,
+            "max_age_days": max_age_days,
+            "max_total_bytes": max_total_bytes,
         }
         print(json.dumps(plan, ensure_ascii=False, indent=1) if args.json else plan)
         return 0
-    report = run_backup(db_path_fn(), backup_dir_fn(), prefix_fn(), verify_tables, keep)
+    report = run_backup(
+        db_path_fn(), backup_dir_fn(), prefix_fn(), verify_tables, keep, max_age_days, max_total_bytes
+    )
     print(json.dumps(report, ensure_ascii=False, indent=1) if args.json else report)
     return 0 if report.get("ok") else 1
