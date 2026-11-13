@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -118,6 +119,16 @@ class ChatEngine:
     ) -> dict[str, Any]:
         await self.get_conversation(user_id, conversation_id)
         return await self._store.list_messages(conversation_id, page, page_size)
+
+    async def messages_window(
+        self,
+        user_id: str,
+        conversation_id: str,
+        page_size: int = 20,
+        before: tuple[datetime, str] | None = None,
+    ) -> dict[str, Any]:
+        await self.get_conversation(user_id, conversation_id)
+        return await self._store.messages_window(conversation_id, page_size, before)
 
     async def regenerate(
         self, user_id: str, app_name: str, conversation_id: str

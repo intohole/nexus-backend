@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from nexus.auth import get_current_user_id_required
 from nexus.chat.engine import ChatEngine
@@ -31,6 +32,19 @@ def _msg_out(message: Any) -> dict[str, Any]:
         "meta": message.meta or {},
         "created_at": message.created_at.isoformat() if message.created_at else None,
     }
+
+
+def _encode_cursor(message: Any) -> str:
+    created_at = message.created_at.isoformat() if message.created_at else ""
+    return f"{created_at}|{message.id}"
+
+
+def _decode_cursor(raw: str) -> tuple[datetime, str]:
+    try:
+        cursor_created_at, cursor_id = raw.rsplit("|", 1)
+        return datetime.fromisoformat(cursor_created_at), cursor_id
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="invalid cursor") from exc
 
 
 def chat_router(engine: ChatEngine, app_name: str) -> APIRouter:
@@ -123,8 +137,27 @@ def chat_router(engine: ChatEngine, app_name: str) -> APIRouter:
         conversation_id: str,
         page: int = Query(1, ge=1),
         page_size: int = Query(20, ge=1, le=100),
+        tail: bool = Query(False, description="只取最新一页，升序返回"),
+        before: str | None = Query(None, description="复合游标 created_at|id，取更早一页"),
         user_id: str = Depends(get_current_user_id_required),
     ) -> dict[str, Any]:
+        if tail or before:
+            result = await engine.messages_window(
+                user_id,
+                conversation_id,
+                page_size,
+                _decode_cursor(before) if before else None,
+            )
+            items = [_msg_out(m) for m in result["items"]]
+            payload = paginate_response(items, result["total"], 1, page_size)
+            pagination: dict[str, Any] = payload["pagination"]  # type: ignore[assignment]
+            pagination["has_more"] = result["has_more"]
+            pagination["next_cursor"] = (
+                _encode_cursor(result["items"][0])
+                if result["has_more"] and result["items"]
+                else None
+            )
+            return payload
         result = await engine.list_messages(user_id, conversation_id, page, page_size)
         items = [_msg_out(m) for m in result["items"]]
         return paginate_response(items, result["total"], page, page_size)

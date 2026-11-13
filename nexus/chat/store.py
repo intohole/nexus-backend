@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, AsyncGenerator, Protocol
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from nexus.chat.models import ChatBase, ChatConversation, ChatMessage, _utcnow
@@ -35,6 +35,12 @@ class ChatStore(Protocol):
     ) -> ChatMessage: ...
     async def list_messages(
         self, conversation_id: str, page: int, page_size: int
+    ) -> dict[str, Any]: ...
+    async def messages_window(
+        self,
+        conversation_id: str,
+        limit: int,
+        before: tuple[datetime, str] | None = None,
     ) -> dict[str, Any]: ...
     async def recent_messages(self, conversation_id: str, limit: int) -> list[ChatMessage]: ...
     async def truncate_from(self, conversation_id: str, message_id: str) -> int | None: ...
@@ -173,6 +179,35 @@ class LocalChatStore:
                 .limit(page_size)
             )
             return {"items": list(result.scalars().all()), "total": int(total or 0)}
+
+    async def messages_window(
+        self,
+        conversation_id: str,
+        limit: int,
+        before: tuple[datetime, str] | None = None,
+    ) -> dict[str, Any]:
+        async with self._session() as session:
+            query = select(ChatMessage).where(ChatMessage.conversation_id == conversation_id)
+            total = await session.scalar(select(func.count()).select_from(query.subquery()))
+            if before is not None:
+                anchor_created_at, anchor_id = before
+                query = query.where(
+                    or_(
+                        ChatMessage.created_at < anchor_created_at,
+                        and_(
+                            ChatMessage.created_at == anchor_created_at,
+                            ChatMessage.id < anchor_id,
+                        ),
+                    )
+                )
+            result = await session.execute(
+                query.order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc()).limit(limit + 1)
+            )
+            rows = list(result.scalars().all())
+            has_more = len(rows) > limit
+            rows = rows[:limit]
+            rows.reverse()
+            return {"items": rows, "total": int(total or 0), "has_more": has_more}
 
     async def recent_messages(self, conversation_id: str, limit: int) -> list[ChatMessage]:
         async with self._session() as session:

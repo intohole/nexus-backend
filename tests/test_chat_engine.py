@@ -127,6 +127,83 @@ async def test_count_messages_since(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_messages_window_tail_and_cursor(tmp_path):
+    import asyncio
+
+    db_engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'window.db'}")
+    store = LocalChatStore(db_engine)
+    conv = await store.create_conversation(
+        ChatConversation(user_id="u1", app_name="app", title="window")
+    )
+    for i in range(7):
+        await store.add_message(conv.id, "user" if i % 2 == 0 else "assistant", f"m{i}")
+        await asyncio.sleep(0.002)
+
+    latest = await store.messages_window(conv.id, 3)
+    assert [m.content for m in latest["items"]] == ["m4", "m5", "m6"]
+    assert latest["total"] == 7
+    assert latest["has_more"] is True
+
+    oldest_returned = latest["items"][0]
+    older = await store.messages_window(conv.id, 3, (oldest_returned.created_at, oldest_returned.id))
+    assert [m.content for m in older["items"]] == ["m1", "m2", "m3"]
+    assert older["has_more"] is True
+
+    oldest_returned = older["items"][0]
+    rest = await store.messages_window(conv.id, 3, (oldest_returned.created_at, oldest_returned.id))
+    assert [m.content for m in rest["items"]] == ["m0"]
+    assert rest["has_more"] is False
+    await db_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_router_messages_window(engine):
+    from datetime import datetime
+
+    app = FastAPI()
+    app.include_router(chat_router(engine, app_name="testapp"))
+    app.dependency_overrides[get_current_user_id_required] = lambda: "user1"
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/chat/conversations", json={})
+        conv_id = resp.json()["data"]["id"]
+        for text in ["第一轮", "第二轮", "第三轮"]:
+            await client.post(
+                f"/api/chat/conversations/{conv_id}/messages", json={"content": text}
+            )
+
+        resp = await client.get(
+            f"/api/chat/conversations/{conv_id}/messages", params={"tail": "true", "page_size": 2}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert [m["content"] for m in data["data"]] == ["第三轮", "你好，世界"]
+        assert data["pagination"]["has_more"] is True
+        cursor = data["pagination"]["next_cursor"]
+        cursor_created_at, cursor_id = cursor.rsplit("|", 1)
+        datetime.fromisoformat(cursor_created_at)
+
+        resp = await client.get(
+            f"/api/chat/conversations/{conv_id}/messages",
+            params={"before": cursor, "page_size": 2},
+        )
+        assert resp.status_code == 200
+        assert [m["content"] for m in resp.json()["data"]] == ["第二轮", "你好，世界"]
+        assert resp.json()["pagination"]["has_more"] is True
+
+        resp = await client.get(
+            f"/api/chat/conversations/{conv_id}/messages", params={"before": "bad-cursor"}
+        )
+        assert resp.status_code == 422
+
+        resp = await client.get(f"/api/chat/conversations/{conv_id}/messages")
+        assert [m["content"] for m in resp.json()["data"]] == [
+            "第一轮", "你好，世界", "第二轮", "你好，世界", "第三轮", "你好，世界",
+        ]
+
+
+@pytest.mark.asyncio
 async def test_router(engine):
     app = FastAPI()
     app.include_router(chat_router(engine, app_name="testapp"))
