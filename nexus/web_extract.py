@@ -98,8 +98,8 @@ def extract_content(html: str, url: str) -> tuple[str, str]:
             title = metadata.title.strip()[:300]
         if downloaded and len(downloaded.strip()) >= 100:
             return _sanitize(title), _sanitize(downloaded.strip())
-    except ImportError:
-        logger.warning("trafilatura 未安装，使用降级正文提取")
+    except ImportError as e:
+        logger.warning("trafilatura 不可用（import 失败: %s），使用降级正文提取", e)
     except Exception as e:
         logger.warning("trafilatura extract failed: %s", e)
     if not title:
