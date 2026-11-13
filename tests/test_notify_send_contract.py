@@ -5,7 +5,7 @@ import asyncio
 import httpx
 import pytest
 
-from nexus.notify import NotifyClient
+from nexus.notify import NotifyClient, is_sent
 
 
 def _client() -> NotifyClient:
@@ -256,7 +256,8 @@ def test_send_many_unknown_key_lands_in_data_payload() -> None:
     assert captured["data"]["challenge_id"] == 4
 
 
-def test_send_many_non_type_error_still_returns_empty_dict() -> None:
+def test_send_many_non_type_error_returns_failed_envelope() -> None:
+    """1.149.0 契约升格：失败项从 {} 换成 failed 信封（status/reason 在案）。"""
     client = NotifyClient.__new__(NotifyClient)
 
     class _BoomClient:
@@ -265,7 +266,44 @@ def test_send_many_non_type_error_still_returns_empty_dict() -> None:
 
     object.__setattr__(client, "send", _BoomClient().send)
     results = asyncio.run(client.send_many([{"user_id": "2", "title": "t"}]))
-    assert results == [{}]
+    assert len(results) == 1
+    assert results[0].get("status") == "failed"
+    assert "network down" in str(results[0].get("reason"))
+
+
+def test_is_sent_judges_terminal_contract() -> None:
+    """is_sent() 判定原语五态：仅 status=="sent" 为真，None/非 dict/suppressed/failed 全假。"""
+    assert is_sent({"status": "sent", "id": 7}) is True
+    assert is_sent({"status": "failed", "id": 0, "reason": "network"}) is False
+    assert is_sent({"status": "suppressed", "id": 0}) is False
+    assert is_sent(None) is False
+    assert is_sent("sent") is False
+    assert is_sent({}) is False
+
+
+def test_send_many_bad_arguments_returns_failed_envelope() -> None:
+    """bad_arguments 案（user_id 缺失）同样信封化，reason 点名缺失键。"""
+    client = NotifyClient.__new__(NotifyClient)
+    object.__setattr__(client, "send", NotifyClient.send.__get__(client))
+    results = asyncio.run(client.send_many([{"title": "only-title"}]))
+    assert results[0].get("status") == "failed"
+    assert "bad_arguments" in str(results[0].get("reason"))
+
+
+def test_send_admin_email_missing_config_returns_failed_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = NotifyClient(base_url="http://notify.test", service_token="t")
+    monkeypatch.delenv("ADMIN_NOTIFY_EMAIL", raising=False)
+    result = asyncio.run(client.send_admin_email("subj", "body"))
+    assert result.get("status") == "failed"
+    assert result.get("reason") == "admin_email_not_configured"
+
+
+def test_is_sent_exported_from_notify_package() -> None:
+    import nexus.notify as pkg
+
+    assert pkg.is_sent is not None
 
 
 def test_send_many_mixed_batch_keeps_order() -> None:

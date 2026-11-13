@@ -149,6 +149,14 @@ class NotifyClient:
         self,
         items: list[dict[str, object]],
     ) -> list[dict[str, object]]:
+        """批量发送：逐项复用 send 终态信封，失败项也带 status/reason（1.149.0 起）。
+
+        旧形态失败项返回 {}（无 status 无 reason），业务仓逐项对账
+        （status=="sent" 才推进状态机）时拿不到失败原因，还被倒逼写
+        isinstance(result, dict) 防御；对齐 SQS SendMessageBatch per-item
+        契约（整体 200、每项 Failed 带 Code/Message），失败项统一
+        {"status": "failed", "id": 0, "reason": ...} 信封。
+        """
         results: list[dict[str, object]] = []
         for item in items:
             try:
@@ -160,7 +168,10 @@ class NotifyClient:
                 unknown = {k: v for k, v in item.items() if k not in known}
                 if not unknown:
                     logger.error("Batch notify item failed: bad arguments %s", sorted(item))
-                    result = {}
+                    result = {
+                        "status": "failed", "id": 0,
+                        "reason": f"bad_arguments:{sorted(item)}"[:120],
+                    }
                 else:
                     demoted: dict[str, object] = {
                         k: v for k, v in item.items() if k in known
@@ -177,10 +188,10 @@ class NotifyClient:
                         )
                     except Exception as exc:
                         logger.error("Batch notify item failed: %s", str(exc))
-                        result = {}
+                        result = {"status": "failed", "id": 0, "reason": f"item_error:{str(exc)[:80]}"}
             except Exception as exc:
                 logger.error("Batch notify item failed: %s", str(exc))
-                result = {}
+                result = {"status": "failed", "id": 0, "reason": f"item_error:{str(exc)[:80]}"}
             results.append(result)
         return results
 
@@ -196,7 +207,7 @@ class NotifyClient:
         admin_email: str = email or os.environ.get("ADMIN_NOTIFY_EMAIL", "")
         if not admin_email:
             logger.warning("ADMIN_NOTIFY_EMAIL未配置，跳过管理员邮件通知")
-            return {}
+            return {"status": "failed", "id": 0, "reason": "admin_email_not_configured"}
         return await self.send(
             user_id="admin",
             title=subject,
@@ -386,6 +397,7 @@ from nexus.notify_api import (  # noqa: E402
     send_notification,
     send_sms,
     send_webhook_robot,
+    is_sent,
     try_send,
 )
 from nexus.notify_proxy import register_notify_proxy  # noqa: E402
@@ -394,5 +406,5 @@ __all__ = [
     "NotifyClient", "async_init_notify_client", "get_notify_client",
     "send_notification", "try_send", "send_email", "send_admin_email", "send_sms", "send_webhook_robot",
     "DEFAULT_TASK_FAILURE_RULES", "friendly_task_failure", "notify_task_result",
-    "register_notify_proxy",
+    "register_notify_proxy", "is_sent",
 ]

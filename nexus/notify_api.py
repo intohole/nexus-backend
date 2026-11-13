@@ -32,6 +32,18 @@ async def send_notification(
     )
 
 
+def is_sent(result: object) -> bool:
+    """统一终态契约的送达判定原语（1.149.0 收归）：仅 status=="sent" 为真。
+
+    try_send 的 None、failed/suppressed 信封、非 dict 一律 False——业务仓
+    逐项对账/状态机推进统一写 `if sent(result)`，替代手搓
+    `isinstance(result, dict) and result.get("status") == "sent"` 样板
+    （challengePlanet 六处/travelMate 仓内 is_sent 同型，教训#1054 对账纪律
+    的判定单源）。
+    """
+    return isinstance(result, dict) and result.get("status") == "sent"
+
+
 async def try_send(
     user_id: str,
     title: str,
@@ -149,7 +161,8 @@ async def send_webhook_robot(
                 resp = await client.get(f"https://api.day.app/{api_key}/{title}/{content}")
                 return resp.json().get("code", -1) == 200
         return False
-    except Exception:
+    except Exception as exc:
+        logger.error("webhook robot send failed: channel=%s err=%s", channel, str(exc)[:120])
         return False
 
 
