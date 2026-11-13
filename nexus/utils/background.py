@@ -63,3 +63,66 @@ async def drain_background_tasks(timeout: float = 5.0) -> int:
         return 0
     _, still = await asyncio.wait(pending, timeout=timeout)
     return len(still)
+
+
+_PERIODIC_TASKS: Set["asyncio.Task[object]"] = set()
+
+
+def spawn_periodic(
+    tick: Callable[[], Awaitable[object]],
+    interval_seconds: float,
+    *,
+    name: Optional[str] = None,
+    immediate: bool = True,
+    initial_delay: float = 0.0,
+    logger: Optional[logging.Logger] = None,
+) -> "asyncio.Task[object]":
+    """派发固定间隔周期任务（进程内轮询骨架单点，r211）。
+
+    与 spawn_background 同族互补：那边管一次性 fire-and-forget，这边管
+    while 轮询循环。单拍异常 logger.exception 留痕后继续循环（单拍失败不杀
+    任务）；CancelledError 直接穿透——stop=持有返回句柄 cancel。业务轮询
+    不进 scheduler gate（治理面任务与业务核心任务的分界，r205 判例同源）。
+    immediate=True（默认）先拍后睡=启动即首拍；immediate=False 先睡后拍；
+    initial_delay 为循环外首睡（延迟首拍等依赖就绪）。
+
+    registry 语义：登记 _PERIODIC_TASKS 防 GC+供观测，但**不进
+    drain_background_tasks**——周期任务永命，drain 会卡死关停钩子；
+    关停收尾用返回句柄逐个 cancel。必须在运行中的事件循环内调用。
+    """
+    lg = logger or _logger
+    loop = asyncio.get_running_loop()
+
+    async def _loop() -> None:
+        if initial_delay > 0:
+            await asyncio.sleep(initial_delay)
+        while True:
+            if not immediate:
+                await asyncio.sleep(interval_seconds)
+            try:
+                await tick()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                lg.exception("periodic task %s tick failed", name or "unnamed")
+            if immediate:
+                await asyncio.sleep(interval_seconds)
+
+    task = loop.create_task(_loop(), name=name)
+    _PERIODIC_TASKS.add(task)
+
+    def _done(t: "asyncio.Task[object]") -> None:
+        _PERIODIC_TASKS.discard(t)
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc is not None:
+            lg.error("periodic task %s exited unexpectedly: %r", t.get_name(), exc)
+
+    task.add_done_callback(_done)
+    return task
+
+
+def periodic_background_tasks() -> list:
+    """在跑的周期任务句柄快照（健康检查/关停收尾/测试断言用）。"""
+    return [t for t in _PERIODIC_TASKS if not t.done()]

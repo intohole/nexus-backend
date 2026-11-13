@@ -58,6 +58,8 @@ from nexus.utils import (
     pending_background_tasks,
     drain_background_tasks,
     running_background_tasks,
+    spawn_periodic,
+    periodic_background_tasks,
 )
 from nexus.rag_quality import (
     extract_citations,
@@ -327,6 +329,7 @@ __all__ = [
     "validate_upload", "read_upload_with_limit", "split_ext",
     "batch_cosine_similarity", "clamp", "loads_or", "safe_float", "safe_bool", "jsonable", "resolve_cors_origins",
     "paginate_from_skip", "spawn_background", "pending_background_tasks", "drain_background_tasks",
+    "spawn_periodic", "periodic_background_tasks",
     "extract_citations", "validate_citations", "judge_support", "run_check",
     "repair_citations", "strip_citations",
     "register_service_auth", "register_health_endpoints",
