@@ -242,5 +242,7 @@ async def asr_transcribe(
         except ValueError:
             return {"success": False, "detail": "gateway response parse error"}
         if attempt < _MAX_RETRIES - 1:
-            logger.warning("ASR transcribe retry %s: %s", attempt + 1, last_detail)
+            delay = min(1.0 * (2**attempt), 8.0)
+            logger.warning("ASR transcribe retry %s in %.1fs: %s", attempt + 1, delay, last_detail)
+            await asyncio.sleep(delay)
     return {"success": False, "detail": last_detail or "gateway unavailable"}
