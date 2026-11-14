@@ -41,7 +41,7 @@ TASK_BUDGETS: dict[str, TaskBudget] = {
     "intent": TaskBudget(max_tokens=200, temperature=0.2, output_mode=OutputMode.JSON, thinking=False),
     "summarize": TaskBudget(max_tokens=800, temperature=0.3, output_mode=OutputMode.CONCISE, thinking=False),
     "analyze": TaskBudget(max_tokens=1200, temperature=0.3, output_mode=OutputMode.DEFAULT, thinking=False),
-    "evaluation": TaskBudget(max_tokens=600, temperature=0.2, output_mode=OutputMode.JSON, thinking=False),
+    "evaluation": TaskBudget(max_tokens=2000, temperature=0.2, output_mode=OutputMode.JSON, thinking=False),
     "code": TaskBudget(max_tokens=1500, temperature=0.3, output_mode=OutputMode.DEFAULT, thinking=False),
     "creative": TaskBudget(max_tokens=8000, temperature=0.85, output_mode=OutputMode.PROSE,
                            thinking=True, thinking_budget=6000),

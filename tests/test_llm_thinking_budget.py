@@ -23,6 +23,13 @@ def test_tier_table_capacity_self_consistency():
             )
 
 
+def test_evaluation_tier_cap_covers_judge_verdicts():
+    assert TASK_BUDGETS["evaluation"].max_tokens >= 2000, (
+        "evaluation 判官档帽低于实证判官长度（arcade 24 条/7d 顶 600 帽截断，"
+        "promptGenius/arcade 修复值均为 2000）"
+    )
+
+
 def test_thinking_off_tiers_resolve_false():
     for task in ("chat", "assistant", "goodbye", "extract", "classify", "intent",
                  "summarize", "analyze", "evaluation", "code", "research", "ppt"):

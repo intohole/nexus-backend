@@ -59,7 +59,7 @@ def test_alias_unblocks_budget_tier() -> None:
     max_tokens2, _, _, _, _ = resolve_effective_budget(
         canonicalize_task_type("eval"), None, 0.7, None
     )
-    assert max_tokens2 == 600
+    assert max_tokens2 == 2000
 
 
 def test_alias_raw_value_misses_budget_tier() -> None:
