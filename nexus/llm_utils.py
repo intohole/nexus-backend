@@ -27,7 +27,9 @@ logger = logging.getLogger("nexus.llm_utils")
 T = TypeVar("T")
 
 # P1: 不可重试的 HTTP 状态码（4xx 客户端错误，除 429 限流）
-_NON_RETRYABLE_STATUS_CODES: tuple[str, ...] = ("400", "401", "403", "404", "422")
+# S155: 402 Insufficient Balance（生产 5,785 条实证，余额窗前重试纯放大）与
+# 499 client closed request（调用方已断连，重试结果无人收）补入永久表。
+_NON_RETRYABLE_STATUS_CODES: tuple[str, ...] = ("400", "401", "402", "403", "404", "422", "499")
 # P1: 可重试的 HTTP 状态码（429 限流、5xx 服务端错误）
 _RETRYABLE_STATUS_CODES: tuple[str, ...] = ("429", "500", "502", "503", "504")
 
@@ -45,6 +47,17 @@ class LLMEmptyContentError(RuntimeError):
     （thinking 吃光预算，S27 实测约 50% 概率），交由 with_llm_retry 重试。
     """
     pass
+
+
+def error_body_snippet(exc: Exception, limit: int = 500) -> str:
+    response = getattr(exc, "response", None)
+    if response is None:
+        return ""
+    try:
+        text = str(response.text)
+    except Exception:
+        return ""
+    return text[:limit]
 
 
 def is_retryable_error(exc: Exception) -> bool:
@@ -214,12 +227,12 @@ async def with_llm_retry(
         except Exception as e:
             last_error = e
             if non_retryable and isinstance(e, non_retryable):
-                logger.error("LLM non-retryable (business error): %s", e)
+                logger.error("LLM non-retryable (business error): %s | body=%s", e, error_body_snippet(e))
                 raise
             if not is_retryable_error(e):
-                logger.error("LLM non-retryable error (no retry): %s", e)
+                logger.error("LLM non-retryable error (no retry): %s | body=%s", e, error_body_snippet(e))
                 raise
-            logger.error("LLM error, attempt %d/%d: %s", attempt + 1, max_retries, e)
+            logger.error("LLM error, attempt %d/%d: %s | body=%s", attempt + 1, max_retries, e, error_body_snippet(e))
             if attempt == max_retries - 1:
                 raise
             retry_after = _extract_retry_after(e)

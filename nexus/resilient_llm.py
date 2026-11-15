@@ -19,7 +19,7 @@ from nexus.circuit_breaker import (
 )
 from nexus.cost_guard import CostBudgetExceededError, get_cost_guard
 from nexus.llm import get_llm_service
-from nexus.llm_utils import is_retryable_error
+from nexus.llm_utils import error_body_snippet, is_retryable_error
 from nexus.llm_json import parse_llm_json
 from nexus.logging import get_logger
 
@@ -102,14 +102,14 @@ async def resilient_ask(
         except Exception as e:
             last_error = e
             if not is_retryable_error(e):
-                logger.error("LLM non-retryable error, giving up: %s", e)
+                logger.error("LLM non-retryable error, giving up: %s | body=%s", e, error_body_snippet(e))
                 break
             logger.warning("LLM call failed (attempt %s/%s): %s", attempt + 1, retry_count + 1, e)
             if attempt < retry_count:
                 delay = retry_delay * (2 ** attempt)
                 await asyncio.sleep(random.uniform(delay * 0.5, delay))
 
-    logger.error("LLM call exhausted all retries: %s", last_error)
+    logger.error("LLM call exhausted all retries: %s | body=%s", last_error, error_body_snippet(last_error))
     if fallback is not None:
         if on_fallback:
             on_fallback("max_retries")
