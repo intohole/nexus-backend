@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from nexus.sqlite_migrate import (
     ensure_column,
-    ensure_model_indexes,
     ensure_model_indexes_sync,
     ensure_column_sync,
     ensure_columns,

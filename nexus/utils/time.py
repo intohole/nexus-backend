@@ -33,10 +33,6 @@ class TimeUtils:
         return cls.to_cn(dt).isoformat()
 
     @classmethod
-    def from_iso(cls, iso_str: str) -> datetime:
-        return datetime.fromisoformat(iso_str)
-
-    @classmethod
     def format(cls, dt: datetime, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
         return cls.to_cn(dt).strftime(fmt)
 

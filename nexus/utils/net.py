@@ -53,6 +53,3 @@ class HealthRegistry:
         resultsList: list[tuple[str, bool]] = await asyncio.gather(*tasks)
         return dict(resultsList)
 
-    async def is_healthy(self) -> bool:
-        results: dict[str, bool] = await self.run_all()
-        return all(results.values())

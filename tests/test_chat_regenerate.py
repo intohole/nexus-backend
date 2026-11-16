@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from nexus.auth import get_current_user_id_required
-from nexus.chat import ChatEngine, LocalChatStore, chat_router
+from nexus.chat import chat_router
 
 
 @pytest.mark.asyncio

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 
-import pytest
 
 from nexus.signed_page import (
     archive_page,

@@ -82,7 +82,6 @@ async def test_open_stream_streams_upstream_and_caches_sign(token):
             return httpx.Response(200, json={"success": True, "data": {"gezhi/short/u1/a.jpg": {"url": "http://wx.test/serve/x?sig=abc"}}})
         return httpx.Response(200, headers={"content-type": "image/jpeg"}, content=b"IMGDATA")
 
-    from fastapi import HTTPException
 
     gateway = _gateway(handler)
     client, upstream = await gateway.open_stream("gezhi/short/u1/a.jpg")

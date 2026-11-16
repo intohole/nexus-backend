@@ -369,7 +369,6 @@ def test_send_audience_check_fail_open_on_missing_module() -> None:
     client = _client()
     client._http = _FakeHttp(resp=_ok_body())
     import sys
-    import nexus.audience as audience_mod
 
     saved = sys.modules.get("nexus.audience")
     sys.modules["nexus.audience"] = None  # type: ignore[assignment]

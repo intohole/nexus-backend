@@ -18,10 +18,6 @@ class ChannelDispatcher:
         self._sse_manager: Optional[SSEManager] = sse_manager
         self._initialized: bool = False
 
-    def register_channel(self, channel: NotificationChannel) -> None:
-        self._channels[channel.name] = channel
-        logger.info("Channel registered: %s", channel.name)
-
     def set_sse_manager(self, manager: SSEManager) -> None:
         self._sse_manager = manager
 

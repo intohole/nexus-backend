@@ -1,7 +1,7 @@
 from typing import Annotated  # noqa: F401
 
 import pytest
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from nexus.deps import UserFullNormalized, UserIdOptional, UserIdRequired

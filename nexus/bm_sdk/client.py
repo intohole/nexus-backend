@@ -188,9 +188,6 @@ class BeeMemorySDK(BaseAsyncClient):
         """钉住（core memory 块）：钉住记忆在 snapshot/context 装填恒定置顶，上限 5 条/用户。"""
         return await self._request("PUT", f"/api/memory/v1/{memory_id}/pin")
 
-    async def unpin_memory(self, memory_id: str) -> Dict:
-        return await self._request("DELETE", f"/api/memory/v1/{memory_id}/pin")
-
     async def save_history(
         self,
         user_id: str,

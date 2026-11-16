@@ -26,7 +26,3 @@ class StrategyRegistry(Generic[T]):
         with self._lock:
             return self._items.get(name)
 
-    def list_names(self) -> list[str]:
-        with self._lock:
-            return list(self._items.keys())
-

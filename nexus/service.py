@@ -1,7 +1,7 @@
 """服务基类：业务服务层的通用基类。"""
 from __future__ import annotations
 
-from typing import Awaitable, Callable, Optional, TypeVar
+from typing import TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,14 +23,3 @@ class BaseService:
     async def flush(self) -> None:
         await self.session.flush()
 
-    async def get_or_create(
-        self,
-        finder: Callable[[], Awaitable[Optional[T]]],
-        creator: Callable[[], Awaitable[T]],
-    ) -> tuple[T, bool]:
-        """创建前查重样板：命中返回 (obj, False)，否则创建返回 (obj, True)。"""
-        obj = await finder()
-        if obj is not None:
-            return obj, False
-        created = await creator()
-        return created, True

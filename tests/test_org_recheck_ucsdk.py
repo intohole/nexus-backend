@@ -163,7 +163,6 @@ def test_token_without_jti_skips_recheck():
 def test_jwks_layer_also_applies_recheck():
     sdk = _make_sdk()
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    from cryptography.hazmat.primitives import serialization
     pub_nums = key.public_key().public_numbers()
     import base64
 

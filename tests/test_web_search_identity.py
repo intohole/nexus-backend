@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import httpx
 import pytest
 
 from nexus.web_search_providers import SearchProvider, SearchConfig, ProviderSearchResponse
