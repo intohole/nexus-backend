@@ -44,6 +44,72 @@ def is_sent(result: object) -> bool:
     return isinstance(result, dict) and result.get("status") == "sent"
 
 
+_PLACEHOLDER_USER_IDS: frozenset[str] = frozenset(
+    {"", "default", "none", "null", "unknown", "0", "guest"}
+)
+
+
+def _is_placeholder_user(user_id: str) -> bool:
+    lowered = user_id.lower()
+    return lowered in _PLACEHOLDER_USER_IDS or lowered.startswith("anon_")
+
+
+async def send_receipt(
+    user_id: str,
+    title: str,
+    content: str = "",
+    type: str = "system",
+    priority: int = 1,
+    app_id: str = "system",
+    link: str = "",
+    **kwargs: object,
+) -> tuple[int, dict[str, object]]:
+    """回执句柄原语（1.152.0 收归）：发送并返回 (notify_id, envelope)。
+
+    notify_id>0 ⇔ status=="sent"，行号即 notifyCenter 落库回执——read-status
+    归因 join 键（goldenFish r26/financialKG r28 直连样板单源，教训#1052）。
+    占位 user（default/空/unknown/0/guest/anon_* 前缀）单源拦截返回
+    suppressed 信封：这类投递永远无人可见，只会积累幽灵行。
+    全链不抛异常：网络/HTTP/参数异常一律转 (0, failed 信封)——触达归因链
+    不允许中断业务主链。截断单源 title 200/content 2000（与渠道轨同口径）。
+    """
+    from nexus.notify import get_notify_client  # 调用时解析：patch nexus.notify.get_notify_client 的测试桩保持有效
+
+    uid = str(user_id or "").strip()
+    if _is_placeholder_user(uid):
+        logger.warning(
+            "send_receipt placeholder user_id=%r refused (app=%s title=%s)",
+            uid, app_id, str(title)[:50],
+        )
+        return 0, {"status": "suppressed", "id": 0, "reason": "placeholder_user"}
+    try:
+        result = await get_notify_client().send(
+            user_id=uid,
+            title=str(title or "")[:200],
+            content=str(content or "")[:2000],
+            type=type,
+            priority=int(priority or 1),
+            app_id=str(app_id or "system"),
+            link=str(link or ""),
+            **kwargs,
+        )
+    except Exception as exc:
+        logger.warning("send_receipt error: user=%s err=%s", uid, str(exc)[:120])
+        return 0, {"status": "failed", "id": 0, "reason": f"receipt_error:{str(exc)[:80]}"}
+    envelope: dict[str, object] = (
+        result if isinstance(result, dict)
+        else {"status": "failed", "id": 0, "reason": "malformed_body"}
+    )
+    notify_id = int(envelope.get("id") or 0)
+    if envelope.get("status") == "sent" and notify_id > 0:
+        return notify_id, envelope
+    logger.warning(
+        "send_receipt not sent: user=%s status=%s reason=%s",
+        uid, envelope.get("status"), envelope.get("reason"),
+    )
+    return 0, envelope
+
+
 async def try_send(
     user_id: str,
     title: str,

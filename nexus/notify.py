@@ -12,7 +12,9 @@ from nexus.defaults import DEFAULT_NOTIFY_CENTER_URL
 from nexus.infra import get_notify_center_url
 from nexus.logging import get_logger
 from nexus.notify_breaker import (
-    BreakerOpenError, ConnectBreaker, note_exception,
+    BreakerOpenError,
+    ConnectBreaker,
+    note_exception,
 )
 from nexus.service_client import get_service_token
 from nexus.utils import HttpClient
@@ -391,20 +393,21 @@ async def unread_status(notify_id: int) -> Optional[bool]:
 from nexus.notify_api import (  # noqa: E402
     DEFAULT_TASK_FAILURE_RULES,
     friendly_task_failure,
+    is_sent,
     notify_task_result,
     send_admin_email,
     send_email,
     send_notification,
+    send_receipt,
     send_sms,
     send_webhook_robot,
-    is_sent,
     try_send,
 )
 from nexus.notify_proxy import register_notify_proxy  # noqa: E402
 
 __all__ = [
     "NotifyClient", "async_init_notify_client", "get_notify_client",
-    "send_notification", "try_send", "send_email", "send_admin_email", "send_sms", "send_webhook_robot",
+    "send_notification", "send_receipt", "try_send", "send_email", "send_admin_email", "send_sms", "send_webhook_robot",
     "DEFAULT_TASK_FAILURE_RULES", "friendly_task_failure", "notify_task_result",
     "register_notify_proxy", "is_sent",
 ]
