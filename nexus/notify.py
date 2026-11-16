@@ -17,6 +17,7 @@ from nexus.notify_breaker import (
     note_exception,
 )
 from nexus.service_client import get_service_token
+from nexus.trace import outbound_headers
 from nexus.utils import HttpClient
 
 logger = get_logger("nexus.notify")
@@ -61,7 +62,8 @@ class NotifyClient:
 
     async def _headers(self) -> dict[str, str]:
         token: str = self._service_token or await get_service_token()
-        return {"X-Service-Token": token} if token else {}
+        extra: dict[str, str] = {"X-Service-Token": token} if token else {}
+        return outbound_headers(extra)
 
     async def _audience_blocked(self, user_id: str) -> bool:
         """出口受众净化：True=该用户不可触达（孤儿/测试/停用号），请求不出网。

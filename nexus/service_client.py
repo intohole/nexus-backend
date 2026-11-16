@@ -10,6 +10,7 @@ import httpx
 
 from nexus.defaults import DEFAULT_UC_BASE_URL
 from nexus.logging import get_logger
+from nexus.trace import outbound_headers
 
 logger = get_logger("nexus.service_client")
 
@@ -133,7 +134,8 @@ class ServiceClient:
 
     async def header(self) -> dict[str, str]:
         token = await self.get_token()
-        return {"Authorization": f"Bearer {token}"} if token else {}
+        auth: dict[str, str] = {"Authorization": f"Bearer {token}"} if token else {}
+        return outbound_headers(auth)
 
     async def delegation_headers(self, user_id: str) -> dict[str, str]:
         """服务委托头：服务 JWT + X-On-Behalf-Of，代表指定用户调用上游用户端点。
@@ -143,10 +145,10 @@ class ServiceClient:
         token = await self.get_token()
         if not token or not user_id:
             return {}
-        return {
+        return outbound_headers({
             "Authorization": f"Bearer {token}",
             "X-On-Behalf-Of": str(user_id),
-        }
+        })
 
     def get_cached_token(self) -> str:
         if self._token and time.time() < self._expires_at - _REFRESH_MARGIN:
