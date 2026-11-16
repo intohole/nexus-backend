@@ -17,6 +17,7 @@ from nexus.credits import CreditsInsufficientError, get_credits_service, report_
 from nexus.image_ops import ImageMeta, prepare_data_url
 from nexus.llm_config import resolve_app_name
 from nexus.llm_json import parse_llm_json
+from nexus.vision_cache import VisionCache, build_key, get_vision_cache
 from nexus.vision_profiles import detail_for, plan_for, resolve_profile
 
 DEFAULT_VISION_MODEL = "glm-4.6v-flash"
@@ -138,15 +139,29 @@ class VisionService(_GatewayServiceBase):
         feature: str = "",
         profile: str = "auto",
         model: Optional[str] = None,
+        no_cache: bool = False,
     ) -> str:
         await self._resolve_config("vision_model", DEFAULT_VISION_MODEL)
         self._require_config("vision")
         resolved_profile = resolve_profile(profile)
+        detail = detail_for(resolved_profile)
         effective_model = model or str(self._model or DEFAULT_VISION_MODEL)
+        cache_key = build_key(
+            profile=resolved_profile,
+            detail=detail,
+            model=effective_model,
+            system=system,
+            prompt=prompt,
+            image_keys=[VisionCache.image_key(url) for url in image_urls],
+        )
+        if not no_cache:
+            cached = get_vision_cache().get(cache_key)
+            if cached is not None:
+                return cached
         await _vision_preflight(effective_model)
         prepared_urls, metas = self._prepare_images(image_urls, resolved_profile)
         content: list[dict[str, object]] = [
-            {"type": "image_url", "image_url": {"url": url, "detail": detail_for(resolved_profile)}}
+            {"type": "image_url", "image_url": {"url": url, "detail": detail}}
             for url in prepared_urls
         ]
         content.append({"type": "text", "text": prompt})
@@ -182,6 +197,8 @@ class VisionService(_GatewayServiceBase):
         content_text = str(message.get("content") or "")
         if not content_text.strip():
             raise RuntimeError("vision request returned empty content")
+        if not no_cache:
+            get_vision_cache().set(cache_key, content_text)
         return content_text
 
     async def analyze(
@@ -192,10 +209,11 @@ class VisionService(_GatewayServiceBase):
         temperature: float = 0.2,
         profile: str = "auto",
         feature: str = "",
+        no_cache: bool = False,
     ) -> str:
         return await self.recognize(
             prompt, images, system=system, temperature=temperature,
-            profile=profile, feature=feature,
+            profile=profile, feature=feature, no_cache=no_cache,
         )
 
     async def recognize(
@@ -206,6 +224,7 @@ class VisionService(_GatewayServiceBase):
         temperature: float = 0.2,
         feature: str = "",
         profile: str = "auto",
+        no_cache: bool = False,
     ) -> str:
         """通用图片识别：对单张/多张图片提问，返回模型文本回答。
 
@@ -214,7 +233,7 @@ class VisionService(_GatewayServiceBase):
         image_urls = self._normalize_images(images)
         return await self._chat_vision(
             system or "你是图片识别助手，用简体中文准确回答。", prompt, image_urls, temperature,
-            feature=feature, profile=profile,
+            feature=feature, profile=profile, no_cache=no_cache,
         )
 
     async def recognize_json(
@@ -225,6 +244,7 @@ class VisionService(_GatewayServiceBase):
         temperature: float = 0.2,
         feature: str = "",
         profile: str = "auto",
+        no_cache: bool = False,
     ) -> dict[str, object]:
         """结构化图片识别：要求模型输出 JSON 并解析为 dict；免费/轻量档解析失败时升档重试。"""
         image_urls = self._normalize_images(images)
@@ -236,7 +256,7 @@ class VisionService(_GatewayServiceBase):
             try:
                 raw = await self._chat_vision(
                     merged_system, prompt, image_urls, temperature,
-                    feature=feature, profile=profile, model=candidate,
+                    feature=feature, profile=profile, model=candidate, no_cache=no_cache,
                 )
                 result = parse_llm_json(raw)
                 if result and set(result) != {"raw_response"}:
@@ -256,11 +276,12 @@ class VisionService(_GatewayServiceBase):
         temperature: float = 0.2,
         feature: str = "",
         profile: str = "auto",
+        no_cache: bool = False,
     ) -> str:
         """本地图片字节识别的语义化入口（等价 recognize + 自动 data URL 转换）。"""
         return await self.recognize(
             prompt, blobs, system=system, temperature=temperature,
-            feature=feature, profile=profile,
+            feature=feature, profile=profile, no_cache=no_cache,
         )
 
 

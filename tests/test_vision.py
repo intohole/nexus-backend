@@ -89,7 +89,7 @@ async def test_recognize_json_parses(monkeypatch):
     service._model = "glm-4.6v-flash"
     service._resolved = True
 
-    async def fake_chat(system, prompt, urls, temperature, feature="", profile="auto", model=None):
+    async def fake_chat(system, prompt, urls, temperature, feature="", profile="auto", model=None, no_cache=False):
         assert "JSON" in system
         return '```json\n{"items": ["杯子"], "count": 1}\n```'
 
@@ -108,7 +108,7 @@ async def test_recognize_json_invalid_raises(monkeypatch):
     service._model = "glm-4.6v-flash"
     service._resolved = True
 
-    async def fake_chat(system, prompt, urls, temperature, feature="", profile="auto", model=None):
+    async def fake_chat(system, prompt, urls, temperature, feature="", profile="auto", model=None, no_cache=False):
         return "完全不是 JSON 的回答"
 
     monkeypatch.setattr(service, "_chat_vision", fake_chat)
@@ -128,7 +128,7 @@ async def test_recognize_single_str_image(monkeypatch):
 
     captured: dict = {}
 
-    async def fake_chat(system, prompt, urls, temperature, feature="", profile="auto", model=None):
+    async def fake_chat(system, prompt, urls, temperature, feature="", profile="auto", model=None, no_cache=False):
         captured["urls"] = urls
         return "通过"
 
@@ -252,3 +252,51 @@ def test_prepare_data_url_remote_untouched():
 
     rewritten, meta = prepare_data_url("https://a.com/x.png")
     assert rewritten == "https://a.com/x.png" and meta.width == 0
+
+
+def test_vision_cache_key_stable_and_scoped():
+    from nexus.vision_cache import VisionCache
+
+    base = dict(app="app", profile="ocr", detail="high", model="glm-4.6v-flash",
+                system="sys", prompt="q", image_keys=["a", "b"])
+    assert VisionCache.make_key(**base) == VisionCache.make_key(**base)
+    changed = dict(base, prompt="q2")
+    assert VisionCache.make_key(**base) != VisionCache.make_key(**changed)
+    changed_app = dict(base, app="other")
+    assert VisionCache.make_key(**base) != VisionCache.make_key(**changed_app)
+
+
+@pytest.mark.asyncio
+async def test_recognize_cache_hit_skips_second_call(monkeypatch):
+    from nexus.vision import VisionService
+
+    service = VisionService()
+    service._base_url = "http://gateway"
+    service._api_key = "sk-test"
+    service._model = "glm-4.6v-flash"
+    service._resolved = True
+
+    calls: list = []
+
+    async def fake_post(self, url, json=None, headers=None):
+        calls.append(url)
+
+        class Resp:
+            status_code = 200
+
+            def json(self):
+                return {
+                    "choices": [{"message": {"content": "缓存命中测试"}}],
+                    "model": "glm-4.6v-flash",
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                }
+
+        return Resp()
+
+    import httpx
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    first = await service.recognize("缓存唯一问题", _PNG)
+    second = await service.recognize("缓存唯一问题", _PNG)
+    assert first == second == "缓存命中测试"
+    assert len(calls) == 1

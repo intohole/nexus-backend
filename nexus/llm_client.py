@@ -10,6 +10,7 @@ from nexus.image_ops import ImageMeta, prepare_data_url
 from nexus.llm import get_llm_service
 from nexus.llm_json import parse_llm_json
 from nexus.llm_verify import verified_json_chat
+from nexus.vision_cache import VisionCache, build_key, get_vision_cache
 from nexus.vision_profiles import detail_for, plan_for, resolve_profile
 
 logger = logging.getLogger("nexus.llm_client")
@@ -204,11 +205,27 @@ class LLMJsonClient:
         image_detail: Optional[str] = None,
         profile: str = "auto",
         reasoning_effort: Optional[str] = None,
+        no_cache: bool = False,
     ) -> Dict[str, Any]:
         """多模态 JSON 调用：文本 prompt + 图片列表(URL/dataURL) 走统一 LLM 栈，供原生多模态模型使用。"""
         resolved_profile = resolve_profile(profile)
         plan = plan_for(resolved_profile)
         detail = detail_for(resolved_profile, image_detail)
+        effective_model = model if model is not None else (self._model or "auto")
+        cache_key = build_key(
+            profile=resolved_profile,
+            detail=detail,
+            model=str(effective_model),
+            system=system,
+            prompt=prompt,
+            image_keys=[VisionCache.image_key(url) for url in images],
+        )
+        if not no_cache:
+            cached = get_vision_cache().get(cache_key)
+            if cached:
+                parsed_cached = parse_llm_json(cached)
+                if isinstance(parsed_cached, dict):
+                    return parsed_cached
         prepared: List[str] = []
         metas: List[ImageMeta] = []
         for url in images:
@@ -239,8 +256,11 @@ class LLMJsonClient:
                 reasoning_effort=self._reasoning_effort if reasoning_effort is None else reasoning_effort,
                 vision_meta=vision_meta,
                 feature=f"vision:{resolved_profile}",
+                no_cache=no_cache,
                 **self._thinking_kwargs(enable_thinking, thinking_budget),
             )
+            if raw and not no_cache:
+                get_vision_cache().set(cache_key, raw)
             parsed = parse_llm_json(raw)
             if isinstance(parsed, dict):
                 return parsed
