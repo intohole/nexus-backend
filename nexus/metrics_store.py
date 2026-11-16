@@ -1,3 +1,4 @@
+"""指标持久化存储：sqlite 窗口行+totals KV（重启恢复单源）。"""
 from __future__ import annotations
 
 import json

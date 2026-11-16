@@ -1,3 +1,4 @@
+"""请求级指标原语：进程内计数+延迟对数桶分位+窗口落盘（S158）。"""
 from __future__ import annotations
 
 import os

@@ -1,3 +1,4 @@
+"""请求指标中间件：计数采集（排除内部路径，异常安全）。"""
 from __future__ import annotations
 
 import time
