@@ -6,9 +6,11 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
+from nexus.image_ops import ImageMeta, prepare_data_url
 from nexus.llm import get_llm_service
 from nexus.llm_json import parse_llm_json
 from nexus.llm_verify import verified_json_chat
+from nexus.vision_profiles import detail_for, plan_for, resolve_profile
 
 logger = logging.getLogger("nexus.llm_client")
 
@@ -199,13 +201,31 @@ class LLMJsonClient:
         thinking_budget: Optional[int] = None,
         task_type: Optional[str] = None,
         timeout: Optional[float] = None,
-        image_detail: str = "low",
+        image_detail: Optional[str] = None,
+        profile: str = "auto",
         reasoning_effort: Optional[str] = None,
     ) -> Dict[str, Any]:
         """多模态 JSON 调用：文本 prompt + 图片列表(URL/dataURL) 走统一 LLM 栈，供原生多模态模型使用。"""
-        content: List[dict] = [{"type": "text", "text": prompt}]
+        resolved_profile = resolve_profile(profile)
+        plan = plan_for(resolved_profile)
+        detail = detail_for(resolved_profile, image_detail)
+        prepared: List[str] = []
+        metas: List[ImageMeta] = []
         for url in images:
-            content.append({"type": "image_url", "image_url": {"url": url, "detail": image_detail}})
+            rewritten, meta = prepare_data_url(
+                url, max_side=plan.max_side, target_tokens=plan.target_tokens
+            )
+            prepared.append(rewritten)
+            metas.append(meta)
+        content: List[dict] = [{"type": "text", "text": prompt}]
+        for url in prepared:
+            content.append({"type": "image_url", "image_url": {"url": url, "detail": detail}})
+        vision_meta: Dict[str, object] = {
+            "profile": resolved_profile,
+            "image_count": len(prepared),
+            "image_detail": detail,
+            "est_image_tokens": sum(meta.est_tokens for meta in metas),
+        }
         try:
             raw = await self._svc.chat(
                 messages=[{"role": "user", "content": content}],
@@ -217,6 +237,8 @@ class LLMJsonClient:
                 timeout=self._timeout if timeout is None else timeout,
                 model=model if model is not None else self._model,
                 reasoning_effort=self._reasoning_effort if reasoning_effort is None else reasoning_effort,
+                vision_meta=vision_meta,
+                feature=f"vision:{resolved_profile}",
                 **self._thinking_kwargs(enable_thinking, thinking_budget),
             )
             parsed = parse_llm_json(raw)

@@ -72,7 +72,11 @@ async def test_recognize_uses_gateway(monkeypatch):
     assert captured["payload"]["model"] == "glm-4.6v-flash"
     parts = captured["payload"]["messages"][1]["content"]
     assert parts[0]["type"] == "image_url" and parts[0]["image_url"]["url"].startswith("data:image/png")
+    assert parts[0]["image_url"]["detail"] == "auto"
     assert parts[1] == {"type": "text", "text": "这是什么动物"}
+    meta = captured["payload"]["vision_meta"]
+    assert meta["profile"] == "auto" and meta["image_count"] == 1
+    assert meta["image_detail"] == "auto"
 
 
 @pytest.mark.asyncio
@@ -85,7 +89,7 @@ async def test_recognize_json_parses(monkeypatch):
     service._model = "glm-4.6v-flash"
     service._resolved = True
 
-    async def fake_chat(system, prompt, urls, temperature, feature=""):
+    async def fake_chat(system, prompt, urls, temperature, feature="", profile="auto", model=None):
         assert "JSON" in system
         return '```json\n{"items": ["杯子"], "count": 1}\n```'
 
@@ -104,7 +108,7 @@ async def test_recognize_json_invalid_raises(monkeypatch):
     service._model = "glm-4.6v-flash"
     service._resolved = True
 
-    async def fake_chat(system, prompt, urls, temperature, feature=""):
+    async def fake_chat(system, prompt, urls, temperature, feature="", profile="auto", model=None):
         return "完全不是 JSON 的回答"
 
     monkeypatch.setattr(service, "_chat_vision", fake_chat)
@@ -124,7 +128,7 @@ async def test_recognize_single_str_image(monkeypatch):
 
     captured: dict = {}
 
-    async def fake_chat(system, prompt, urls, temperature, feature=""):
+    async def fake_chat(system, prompt, urls, temperature, feature="", profile="auto", model=None):
         captured["urls"] = urls
         return "通过"
 
@@ -192,3 +196,59 @@ async def test_vision_meters_feature_and_charges(monkeypatch):
     assert metered["output_tokens"] == 20
     assert charged["preflight"] == "vision"
     assert charged["kind"] == "vision"
+
+
+def test_vision_profiles_resolve():
+    from nexus.vision_profiles import detail_for, plan_for, resolve_profile
+
+    assert resolve_profile("screenshot") == "ui"
+    assert resolve_profile("table") == "ocr"
+    assert resolve_profile("unknown") == "auto"
+    assert detail_for("ocr") == "high"
+    assert detail_for("quick") == "low"
+    assert detail_for("ocr", "auto") == "auto"
+    assert plan_for("photo").max_side == 1568
+
+
+def test_prepare_bytes_resizes_and_estimates():
+    import io
+
+    from PIL import Image
+
+    from nexus.image_ops import estimate_tokens, prepare_bytes
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (3000, 2000), (240, 240, 240)).save(buffer, format="PNG")
+    payload, mime, meta = prepare_bytes(
+        buffer.getvalue(), max_side=1024, target_tokens=600, lossless=False
+    )
+    assert mime == "image/jpeg"
+    assert meta.width <= 1024 and meta.height <= 1024
+    assert meta.resized is True
+    assert 0 < meta.est_tokens <= 600
+    assert estimate_tokens(28, 28) >= 4
+
+
+def test_prepare_data_url_rewrites_png():
+    import base64
+    import io
+
+    from PIL import Image
+
+    from nexus.image_ops import prepare_data_url
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (2400, 1600), (20, 40, 60)).save(buffer, format="PNG")
+    raw = buffer.getvalue()
+    original = "data:image/png;base64," + base64.b64encode(raw).decode("ascii")
+    rewritten, meta = prepare_data_url(original, max_side=800, target_tokens=400)
+    assert rewritten.startswith("data:image/png;base64,")
+    assert meta.width <= 800 and meta.resized is True
+    assert meta.est_tokens <= 400
+
+
+def test_prepare_data_url_remote_untouched():
+    from nexus.image_ops import prepare_data_url
+
+    rewritten, meta = prepare_data_url("https://a.com/x.png")
+    assert rewritten == "https://a.com/x.png" and meta.width == 0

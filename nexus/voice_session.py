@@ -56,6 +56,7 @@ class VoiceRealtimeConfig:
     turn_timeout_s: float = 180.0
     max_user_chars: int = 2000
     min_turn_chars: int = 2
+    tts_max_chars: int = 600
     uid_prefix: str = "nexus-vr"
 
 
@@ -315,12 +316,16 @@ class _RealtimeSession:
                             self._first_flush_chars = len(flush)
                         if self._tts_first_push_ms is None:
                             self._tts_first_push_ms = int((time.monotonic() - self._turn_started_at) * 1000)
-                        tts, speaker_task = await self._push_tts(tts, speaker_task, flush)
-                        if tts is None:
-                            break
+                        if self._tts_budget_exceeded(flush):
+                            tts, speaker_task = await self._stop_tts(tts, speaker_task)
+                        else:
+                            tts, speaker_task = await self._push_tts(tts, speaker_task, flush)
             if tts is not None:
                 if sentence_buf.strip():
-                    tts, speaker_task = await self._push_tts(tts, speaker_task, sentence_buf)
+                    if self._tts_budget_exceeded(sentence_buf):
+                        tts, speaker_task = await self._stop_tts(tts, speaker_task)
+                    else:
+                        tts, speaker_task = await self._push_tts(tts, speaker_task, sentence_buf)
                 if tts is not None:
                     await tts.finish()
                     try:
@@ -350,6 +355,29 @@ class _RealtimeSession:
             if not self._closed:
                 self._tts.schedule_warm()
 
+    def _tts_budget_exceeded(self, text: str) -> bool:
+        limit = self._config.tts_max_chars
+        if limit <= 0:
+            return False
+        return self._turn_tts_chars + len(text) > limit
+
+    async def _stop_tts(
+        self,
+        tts: TTSStreamSession,
+        speaker_task: asyncio.Task | None,
+    ) -> tuple[None, None]:
+        if speaker_task is not None and not speaker_task.done():
+            speaker_task.cancel()
+        try:
+            await tts.close()
+        except Exception:
+            pass
+        await self._send({
+            "type": "tts_truncated",
+            "message": "本轮语音已达长度上限，后续内容以文字继续",
+        })
+        return None, None
+
     async def _push_tts(
         self,
         tts: TTSStreamSession,
@@ -357,15 +385,15 @@ class _RealtimeSession:
         text: str,
     ) -> tuple[TTSStreamSession | None, asyncio.Task | None]:
         replacement, swapped = await self._tts.push_or_recover(tts, text)
+        if replacement is None:
+            await self._send({"type": "tts_unavailable", "message": "语音合成暂不可用，本轮以文字进行"})
+            return None, None
         self._meter.note_tts(text)
         self._turn_tts_chars += len(text)
         if swapped:
             if speaker_task is not None and not speaker_task.done():
                 speaker_task.cancel()
             speaker_task = asyncio.create_task(self._pump_tts(replacement))
-        if replacement is None:
-            await self._send({"type": "tts_unavailable", "message": "语音合成暂不可用，本轮以文字进行"})
-            return None, None
         return replacement, speaker_task
 
     async def _complete_turn(self, user_text: str, reply_text: str) -> None:

@@ -49,6 +49,21 @@ def _session(ws: FakeWebSocket, config: VoiceRealtimeConfig | None = None) -> _R
     return _RealtimeSession(ws, EchoHandler(), config or VoiceRealtimeConfig(asr_api_key=""), {"user_id": "u1"})
 
 
+def test_tts_budget_exceeded() -> None:
+    ws = FakeWebSocket()
+    session = _session(ws, VoiceRealtimeConfig(asr_api_key="", tts_max_chars=10))
+    session._turn_tts_chars = 8
+    assert session._tts_budget_exceeded("abc") is True
+    assert session._tts_budget_exceeded("ab") is False
+
+
+def test_tts_budget_disabled_when_non_positive() -> None:
+    ws = FakeWebSocket()
+    session = _session(ws, VoiceRealtimeConfig(asr_api_key="", tts_max_chars=0))
+    session._turn_tts_chars = 100000
+    assert session._tts_budget_exceeded("任意长文本") is False
+
+
 def test_split_sentence_hard_punct() -> None:
     flush, rest = _split_sentence("你好。请开始")
     assert flush == "你好。"

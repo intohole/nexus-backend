@@ -15,6 +15,7 @@ logger = get_logger("nexus.voice_meter")
 
 ASR_BYTES_PER_SECOND = 32000
 ASR_EST_CNY_PER_HOUR = 4.95
+TTS_EST_CNY_PER_10K_CHARS = 5.0
 
 
 class VoiceUsageMeter:
@@ -35,9 +36,16 @@ class VoiceUsageMeter:
     def est_asr_cny(self) -> float:
         return round(self.asr_seconds() * ASR_EST_CNY_PER_HOUR / 3600, 4)
 
+    def est_tts_cny(self) -> float:
+        return round(self.tts_chars / 10000 * TTS_EST_CNY_PER_10K_CHARS, 4)
+
+    def est_total_cny(self) -> float:
+        return round(self.est_asr_cny() + self.est_tts_cny(), 4)
+
     def snapshot(self) -> dict[str, object]:
         return {"asr_seconds": self.asr_seconds(), "tts_chars": self.tts_chars,
-                "est_asr_cny": self.est_asr_cny()}
+                "est_asr_cny": self.est_asr_cny(), "est_tts_cny": self.est_tts_cny(),
+                "est_total_cny": self.est_total_cny()}
 
     def report(self, user: dict) -> None:
         user_id = str((user or {}).get("user_id") or "")

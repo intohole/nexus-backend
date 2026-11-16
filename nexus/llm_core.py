@@ -51,6 +51,7 @@ class LLMCore:
         namespace: Optional[str],
         task_type: Optional[str],
         reasoning_effort: Optional[str] = None,
+        extra_fields: Optional[dict[str, object]] = None,
     ) -> dict[str, object] | None:
         extra: dict[str, object] | None = None
         if json_mode:
@@ -65,6 +66,9 @@ class LLMCore:
         if reasoning_effort:
             extra = dict(extra or {})
             extra["reasoning_effort"] = reasoning_effort
+        if extra_fields:
+            extra = dict(extra or {})
+            extra.update(extra_fields)
         return extra
 
     async def _prepare_call(
@@ -81,6 +85,7 @@ class LLMCore:
         thinking_budget: Optional[int],
         reasoning_effort: Optional[str] = None,
         no_cache: bool = False,
+        extra_fields: Optional[dict[str, object]] = None,
     ) -> tuple[object, float, int, Optional[OutputMode]]:
         """公共前置：配置 ironman、预算解析并构造 LLMOptions。
 
@@ -122,7 +127,7 @@ class LLMCore:
             enable_thinking=eff_thinking,
             thinking_budget=eff_thinking_budget,
             no_cache=no_cache,
-            extra=self._build_extra(json_mode, namespace, task_type, reasoning_effort),
+            extra=self._build_extra(json_mode, namespace, task_type, reasoning_effort, extra_fields),
         )
         return opts, temp, eff_max, budget_mode
 
@@ -191,6 +196,7 @@ class LLMCore:
         feature: str = "",
         no_cache: bool = False,
         images: Optional[list[str]] = None,
+        vision_meta: Optional[dict[str, object]] = None,
         _want_usage: bool = False,
     ) -> str | dict[str, object]:
         """images（r30 additive）：data URL/URL 列表，挂到末条 user 消息尾部
@@ -201,6 +207,7 @@ class LLMCore:
             output_mode=output_mode, json_mode=json_mode, namespace=namespace,
             model=model, enable_thinking=enable_thinking, thinking_budget=thinking_budget,
             reasoning_effort=reasoning_effort, no_cache=no_cache,
+            extra_fields={"vision_meta": vision_meta} if vision_meta else None,
         )
         system, _ = apply_output_discipline(system, "", concise, json_mode, budget_mode)
         ironman_messages = convert_messages(messages, system, images)
