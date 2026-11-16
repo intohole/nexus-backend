@@ -84,6 +84,42 @@ class TesseractEngine:
         return await asyncio.to_thread(_run)
 
 
+class RapidOcrEngine:
+    name = "rapidocr"
+
+    @staticmethod
+    def available() -> bool:
+        try:
+            import importlib.util
+
+            return importlib.util.find_spec("rapidocr_onnxruntime") is not None
+        except Exception:
+            return False
+
+    async def extract(self, images: list[Union[str, bytes, bytearray]]) -> OcrResult:
+        def _run() -> OcrResult:
+            import io
+
+            import numpy as np
+            from PIL import Image
+            from rapidocr_onnxruntime import RapidOCR
+
+            engine = RapidOCR()
+            parts: list[str] = []
+            for image in images:
+                raw = _decode_image(image)
+                if not raw:
+                    continue
+                with Image.open(io.BytesIO(raw)) as img:
+                    result, _ = engine(np.array(img.convert("RGB")))
+                if result:
+                    parts.append("\n".join(str(line[1]) for line in result if len(line) > 1))
+            return OcrResult(text="\n".join(part.strip() for part in parts if part.strip()),
+                             engine=self.name)
+
+        return await asyncio.to_thread(_run)
+
+
 class VlmOcrEngine:
     name = "vlm"
 
@@ -106,6 +142,8 @@ def get_engine(name: str = "auto", vision: Optional[VisionService] = None) -> Oc
     key = (name or "auto").strip().lower()
     if key in ("auto", "tesseract") and TesseractEngine.available():
         return TesseractEngine()
+    if key in ("auto", "rapidocr") and RapidOcrEngine.available():
+        return RapidOcrEngine()
     return VlmOcrEngine(vision)
 
 
@@ -188,6 +226,7 @@ __all__ = [
     "MIN_TEXT_CHARS",
     "OcrEngine",
     "OcrResult",
+    "RapidOcrEngine",
     "TesseractEngine",
     "VlmOcrEngine",
     "get_document_reader",
