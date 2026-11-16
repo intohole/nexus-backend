@@ -9,15 +9,19 @@
 """
 from __future__ import annotations
 
+import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from threading import Lock
-import time
 from typing import Optional
 
 from nexus.logging import get_logger
+from nexus.metrics_store import MetricsStore
+from nexus.request_metrics import default_db_path
 
 logger = get_logger("nexus.llm_metrics")
+
+LLM_FLUSH_INTERVAL_S: int = 300
 
 
 class LLMMetrics:
@@ -32,6 +36,7 @@ class LLMMetrics:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
                     cls._instance._init()
+                    cls._instance._restore_from_store()
         return cls._instance
 
     def _init(self) -> None:
@@ -49,6 +54,74 @@ class LLMMetrics:
             lambda: {"calls": 0, "errors": 0, "tokens": 0, "latency": 0.0, "cost_usd": 0.0}
         )
         self._by_status: dict[str, int] = defaultdict(int)
+        self._store: Optional[MetricsStore] = None
+        self._last_flush_at: float = 0.0
+
+    def _ensure_store(self) -> Optional[MetricsStore]:
+        if self._store is None:
+            import os
+
+            path: str = default_db_path()
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            self._store = MetricsStore(path)
+        return self._store
+
+    def configure_store(self, db_path: str) -> None:
+        self._store = MetricsStore(db_path)
+        self._restore_from_store()
+
+    def _restore_from_store(self) -> None:
+        store: Optional[MetricsStore] = self._ensure_store()
+        if store is None:
+            return
+        try:
+            payload = store.load_totals("llm")
+        except Exception:
+            return
+        if not payload:
+            return
+        with self._call_lock:
+            self._calls = int(payload.get("calls", 0))
+            self._errors = int(payload.get("errors", 0))
+            self._total_latency = float(payload.get("total_latency", 0.0))
+            self._total_tokens = int(payload.get("total_tokens", 0))
+            self._total_cost_usd = float(payload.get("total_cost_usd", 0.0))
+            self._cached_tokens = int(payload.get("cached_tokens", 0))
+            self._by_app = defaultdict(
+                lambda: {"calls": 0, "errors": 0, "tokens": 0, "latency": 0.0, "cost_usd": 0.0},
+                {k: dict(v) for k, v in payload.get("by_app", {}).items()},
+            )
+            self._by_model = defaultdict(
+                lambda: {"calls": 0, "errors": 0, "tokens": 0, "latency": 0.0, "cost_usd": 0.0},
+                {k: dict(v) for k, v in payload.get("by_model", {}).items()},
+            )
+            self._by_status = defaultdict(int, payload.get("by_status", {}))
+
+    def flush_to_store(self) -> None:
+        store: Optional[MetricsStore] = self._ensure_store()
+        if store is None:
+            return
+        with self._call_lock:
+            payload: dict[str, object] = {
+                "calls": self._calls,
+                "errors": self._errors,
+                "total_latency": self._total_latency,
+                "total_tokens": self._total_tokens,
+                "total_cost_usd": self._total_cost_usd,
+                "cached_tokens": self._cached_tokens,
+                "by_app": dict(self._by_app),
+                "by_model": dict(self._by_model),
+                "by_status": dict(self._by_status),
+            }
+        try:
+            store.save_totals("llm", payload)
+        except Exception:
+            pass
+
+    def _maybe_flush(self, now: float) -> None:
+        if now - self._last_flush_at >= LLM_FLUSH_INTERVAL_S:
+            self._last_flush_at = now
+            self.flush_to_store()
 
     def record(
         self,
@@ -96,6 +169,9 @@ class LLMMetrics:
             model_stats["cost_usd"] += cost_usd
             if error:
                 model_stats["errors"] += 1
+            flush_due: bool = time.monotonic() - self._last_flush_at >= LLM_FLUSH_INTERVAL_S
+        if flush_due:
+            self._maybe_flush(time.monotonic())
 
     def snapshot(self) -> dict[str, object]:
         """返回当前指标的快照（JSON 可序列化）。"""

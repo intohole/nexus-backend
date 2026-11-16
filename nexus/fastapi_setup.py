@@ -79,6 +79,16 @@ class AppLifecycle:
             except Exception as exc:
                 logger.error("Shutdown hook failed: %s", str(exc))
         try:
+            from nexus.request_metrics import get_request_metrics
+            get_request_metrics().flush()
+        except Exception as exc:
+            logger.warning("request metrics final flush failed: %s", str(exc))
+        try:
+            from nexus.llm_metrics import get_llm_metrics
+            get_llm_metrics().flush_to_store()
+        except Exception as exc:
+            logger.warning("llm metrics final flush failed: %s", str(exc))
+        try:
             from nexus.scheduler import get_scheduler
             get_scheduler().shutdown(wait=False)
         except Exception as exc:
@@ -94,6 +104,7 @@ def create_app(
     enable_rate_limit: bool = True,
     enable_logging_middleware: bool = True,
     enable_loading_splash: bool = False,
+    enable_metrics: bool = True,
 ) -> FastAPI:
     cfg: NexusConfig = config or get_settings()
     setup_logging(cfg, app_name=title)
@@ -131,6 +142,9 @@ def create_app(
     app.add_middleware(StaticAssetsCacheMiddleware, path_prefix="/static")
     if enable_loading_splash:
         app.add_middleware(LoadingSplashMiddleware, app_name=cfg.app_name)
+    if enable_metrics:
+        from nexus.middleware_metrics import RequestMetricsMiddleware
+        app.add_middleware(RequestMetricsMiddleware)
 
     from nexus.middleware_exception import setup_exception_handlers
     setup_exception_handlers(app)
@@ -157,6 +171,7 @@ def setup_middleware(
     enable_not_found_check: bool = False,
     enable_loading_splash: bool = False,
     enable_audit: bool = False,
+    enable_metrics: bool = True,
     no_cache_prefix: str = "/static",
 ) -> None:
     """在已存在的 FastAPI app 上注册统一中间件栈。
@@ -190,6 +205,9 @@ def setup_middleware(
     if enable_audit:
         from nexus.audit_middleware import AuditMiddleware
         app.add_middleware(AuditMiddleware, config=cfg)
+    if enable_metrics:
+        from nexus.middleware_metrics import RequestMetricsMiddleware
+        app.add_middleware(RequestMetricsMiddleware)
     if enable_cors:
         setup_cors(app, cfg, origins=cors_origins)
 

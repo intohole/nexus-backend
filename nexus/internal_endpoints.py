@@ -97,6 +97,35 @@ def register_internal_endpoints(app: FastAPI) -> None:
         from nexus.circuit_breaker import get_llm_circuit
         return JSONResponse(content=get_llm_circuit().to_dict())
 
+    @app.get("/api/_internal/metrics", dependencies=[Depends(require_service_token)])
+    async def request_metrics_endpoint(request: Request) -> JSONResponse:
+        """S158: 暴露请求级指标一站式读数（内部端点）。
+
+        requests=窗口读数（1h/24h/累计，sqlite 持久化重启不清零），
+        llm=LLMMetrics snapshot（同 llm-metrics 端点）。供 sentinel 拉取聚合。
+        """
+        from nexus.config import get_settings
+        from nexus.llm_metrics import get_llm_metrics
+        from nexus.request_metrics import get_request_metrics
+        metrics = get_request_metrics()
+        try:
+            window_1h: dict[str, object] = metrics.window(hours=1)
+        except Exception:
+            window_1h = {}
+        try:
+            window_24h: dict[str, object] = metrics.window(hours=24)
+        except Exception:
+            window_24h = {}
+        return JSONResponse(content={
+            "app": get_settings().app_name,
+            "requests": {
+                "window_1h": window_1h,
+                "window_24h": window_24h,
+                "total": metrics.snapshot_total(),
+            },
+            "llm": get_llm_metrics().snapshot(),
+        })
+
 
 def setup_health_check(
     app: FastAPI,
