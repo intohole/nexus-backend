@@ -485,3 +485,21 @@ def test_probe_integrity_no_consumer_skipped() -> None:
     data = _get(_app(llm=False, notify=False))
     assert data["checks"]["integrity"]["status"] == "skipped"
     assert data["checks"]["integrity"]["evidence"]["reason"] == "no_integrity_consumer"
+
+
+@pytest.mark.asyncio()
+async def test_probe_backup_check_wired() -> None:
+    async def _backup_fail() -> dict[str, object]:
+        return {"status": "fail", "detail": "stale backup", "evidence": {}}
+
+    run_probe = build_probe_runner(app_name="bk", backup_check=_backup_fail)
+    report = await run_probe(fresh=True)
+    assert report["checks"]["backup"]["status"] == "fail"
+    assert report["overall"] == "fail"
+
+
+@pytest.mark.asyncio()
+async def test_probe_backup_absent_skipped() -> None:
+    run_probe = build_probe_runner(app_name="bk2")
+    report = await run_probe(fresh=True)
+    assert report["checks"]["backup"]["status"] == "skipped"

@@ -65,7 +65,7 @@ def table_count(db_path: Path, table: str) -> Optional[int]:
     try:
         conn = sqlite3.connect(str(db_path))
         try:
-            cur = conn.execute(f"SELECT COUNT(*) FROM {table}")
+            cur = conn.execute(f'SELECT COUNT(*) FROM "{table}"')
             row = cur.fetchone()
             return int(row[0]) if row else None
         finally:

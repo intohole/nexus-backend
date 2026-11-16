@@ -3,6 +3,7 @@ from nexus.middleware_base import (
     LoggingMiddleware,
     NotFoundCheckMiddleware,
     RequestIdMiddleware,
+    SecurityHeadersMiddleware,
     StaticAssetsCacheMiddleware,
     setup_cors,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "setup_cors",
     "RequestIdMiddleware",
     "LoggingMiddleware",
+    "SecurityHeadersMiddleware",
     "NotFoundCheckMiddleware",
     "StaticAssetsCacheMiddleware",
     "LoadingSplashMiddleware",

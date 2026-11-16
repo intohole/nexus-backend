@@ -7,6 +7,7 @@ from pathlib import Path
 
 from nexus.lifecycle import LifecyclePolicy
 from nexus.probe_extras import (
+    make_backup_freshness_check,
     classify_jobs,
     jobs_health,
     last_send_outcome,
@@ -61,3 +62,37 @@ def test_watermark_check_db_missing(tmp_path: Path) -> None:
     check = make_watermark_check(tmp_path / "none.db", [policy])
     result = asyncio.new_event_loop().run_until_complete(check())
     assert result["status"] == "fail"
+
+
+def test_backup_freshness_check_three_states(tmp_path: Path) -> None:
+    import os
+    import shutil
+    import time
+
+    from nexus import backup
+
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    src = tmp_path / "src.db"
+    conn = sqlite3.connect(src)
+    conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+    conn.commit()
+    conn.close()
+    report = backup.run_backup(src, backup_dir, "app", ["t"])
+    assert report["ok"] is True
+    check = make_backup_freshness_check(backup_dir, "app", max_age_hours=24.0)
+    result = asyncio.new_event_loop().run_until_complete(check())
+    assert result["status"] == "ok"
+    stale = shutil.copy2(Path(str(report["backup"])), backup_dir / "app_old.db")
+    os.utime(stale, (time.time() - 48 * 3600,) * 2)
+    Path(str(report["backup"])).unlink()
+    result2 = asyncio.new_event_loop().run_until_complete(check())
+    assert result2["status"] == "fail"
+    assert "age_hours" in result2["detail"] or "stale" in result2["detail"]
+
+
+def test_backup_freshness_check_no_product(tmp_path: Path) -> None:
+    check = make_backup_freshness_check(tmp_path / "backups", "app")
+    result = asyncio.new_event_loop().run_until_complete(check())
+    assert result["status"] == "fail"
+    assert result["evidence"]["error"] == "no backup product"

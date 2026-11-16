@@ -153,3 +153,32 @@ __all__ = [
     "SEND_STALE_S",
     "JOB_FAILURES_FAIL",
 ]
+
+
+def make_backup_freshness_check(
+    backup_dir: str | Path,
+    prefix: str,
+    max_age_hours: float = 24.0,
+) -> "object":
+    """「备份产物新鲜度」便利构造器（r223 DE3）：只读包 backup_drill.backup_freshness。"""
+    from nexus.backup_drill import backup_freshness
+
+    async def _check() -> dict[str, object]:
+        started: float = time.monotonic()
+        report: dict[str, object] = await asyncio.to_thread(
+            backup_freshness, Path(backup_dir), prefix, max_age_hours
+        )
+        status: str = "ok" if report.get("ok") else "fail"
+        detail: str = (
+            f"latest={report.get('latest')} age_hours={report.get('age_hours')}"
+            if report.get("ok")
+            else f"stale or missing backup: {report.get('error') or report.get('latest')} age_hours={report.get('age_hours')}"
+        )
+        return {
+            "status": status,
+            "latency_ms": int((time.monotonic() - started) * 1000),
+            "detail": detail[:160],
+            "evidence": report,
+        }
+
+    return _check
