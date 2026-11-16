@@ -78,6 +78,7 @@ class LLMService(LLMCore, LLMProbesMixin, LLMStreamMixin):
         root_type: type = dict,
         list_key: Optional[str] = None,
         raise_on_error: bool = True,
+        images: Optional[list[str]] = None,
         **kwargs,
     ) -> tuple[object, dict[str, object]]:
         """JSON 面带账单通道（harness r109）：ask_json 的计费孪生，chat_with_usage 同族语义。
@@ -87,6 +88,8 @@ class LLMService(LLMCore, LLMProbesMixin, LLMStreamMixin):
         （形状 gate+有界重试，attempt>0 绕缓存自愈），全败返回 (None, usage) 或
         sentinel——失败调用不丢账单。json_mode 恒开；task_type 声明面与
         ask_json 一致（省略参交档位解析）。
+        images（r30 additive）：截图列表，透传 chat 挂末条 user 尾部（带图调用
+        绕 PromptCache）；schema 修复重发轮次同样重挂（修复者每轮都看得见画面）。
         """
         _apply_json_primitive_fallback(kwargs)
         if schema is not None:
@@ -94,6 +97,8 @@ class LLMService(LLMCore, LLMProbesMixin, LLMStreamMixin):
 
             call_kwargs = dict(kwargs)
             call_kwargs.pop("json_mode", None)
+            if images:
+                call_kwargs["images"] = images
             bills: list[dict[str, object]] = []
 
             async def _billing_chat(**chat_kw: object) -> str:
@@ -115,7 +120,7 @@ class LLMService(LLMCore, LLMProbesMixin, LLMStreamMixin):
             return data, usage_summary(bills)
         result = await _ask_json_core(
             self, prompt, system=system, root_type=root_type, list_key=list_key,
-            collect_usage=True, **kwargs,
+            collect_usage=True, images=images, **kwargs,
         )
         data, usage = result
         if data is None:

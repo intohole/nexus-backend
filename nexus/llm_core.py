@@ -190,8 +190,12 @@ class LLMCore:
         reasoning_effort: Optional[str] = None,
         feature: str = "",
         no_cache: bool = False,
+        images: Optional[list[str]] = None,
         _want_usage: bool = False,
     ) -> str | dict[str, object]:
+        """images（r30 additive）：data URL/URL 列表，挂到末条 user 消息尾部
+        （convert_messages 位置契约）；带图调用恒绕 PromptCache——缓存 key 只拼
+        消息文本，同 prompt 不同截图会命中旧答案串图（视觉修复环每轮换图=必须 bypass）。"""
         opts, temp, eff_max, budget_mode = await self._prepare_call(
             temperature=temperature, max_tokens=max_tokens, task_type=task_type,
             output_mode=output_mode, json_mode=json_mode, namespace=namespace,
@@ -199,8 +203,8 @@ class LLMCore:
             reasoning_effort=reasoning_effort, no_cache=no_cache,
         )
         system, _ = apply_output_discipline(system, "", concise, json_mode, budget_mode)
-        ironman_messages = convert_messages(messages, system)
-        cache = None if no_cache else (get_prompt_cache() if temp <= 0.0 else None)
+        ironman_messages = convert_messages(messages, system, images)
+        cache = None if (no_cache or images) else (get_prompt_cache() if temp <= 0.0 else None)
         if cache is not None:
             key: str = PromptCache.make_messages_key(
                 system, messages, temp, eff_max,

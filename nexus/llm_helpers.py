@@ -77,8 +77,12 @@ def resolve_namespace(namespace: Optional[str]) -> Optional[str]:
 def convert_messages(
     messages: list[dict[str, str]],
     system: Optional[str],
+    images: Optional[list[str]] = None,
 ) -> list:
-    from ironman.types import Message, Role
+    """消息转换（r30 additive）：images 非空时以 ContentPart 列表挂到**最后一条 user
+    消息**尾部（文本在前、图在后）——图位置契约：永不进 system 前缀，保 deepseek
+    逐字节前缀缓存稳定；带图消息由调用方（chat）绕 PromptCache，不同截图不串缓存。"""
+    from ironman.types import ContentPartImage, ContentPartText, ImageURL, Message, Role
 
     ironman_messages: list = []
     if system:
@@ -92,6 +96,16 @@ def convert_messages(
             ironman_messages.append(Message(role=Role.ASSISTANT, content=content))
         elif role_str == "system":
             ironman_messages.append(Message(role=Role.SYSTEM, content=content))
+    urls = [u for u in (images or []) if isinstance(u, str) and u]
+    if urls:
+        for msg in reversed(ironman_messages):
+            if msg.role == Role.USER:
+                parts: list = []
+                if isinstance(msg.content, str) and msg.content:
+                    parts.append(ContentPartText(text=msg.content))
+                parts.extend(ContentPartImage(image_url=ImageURL(url=u)) for u in urls)
+                msg.content = parts
+                break
     return ironman_messages
 
 
