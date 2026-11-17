@@ -89,13 +89,14 @@ def register_internal_endpoints(app: FastAPI) -> None:
 
     @app.get("/api/_internal/llm-circuit", dependencies=[Depends(require_service_token)])
     async def llm_circuit_endpoint(request: Request) -> JSONResponse:
-        """A4.2: 暴露 LLM 熔断器状态（内部端点）。
+        """A4.2: 暴露 LLM 熔断器状态（内部端点，r227 换核为通道级聚合）。
 
-        返回熔断器当前状态（closed/open/half_open）+ 连续失败/成功计数 + 配置。
-        供监控告警：state=open 时说明 prompt-manager 网关故障。
+        返回 {circuits: {provider: {state, metrics, config}}}——每条 provider
+        通道独立闸（closed/open/half_open）+ 连续失败/成功计数 + 配置。
+        供监控告警：单通道 open 只代表该通道故障，其余通道不受扰。
         """
-        from nexus.circuit_breaker import get_llm_circuit
-        return JSONResponse(content=get_llm_circuit().to_dict())
+        from nexus.circuit_breaker import all_llm_circuits
+        return JSONResponse(content={"circuits": all_llm_circuits()})
 
     @app.get("/api/_internal/metrics", dependencies=[Depends(require_service_token)])
     async def request_metrics_endpoint(request: Request) -> JSONResponse:

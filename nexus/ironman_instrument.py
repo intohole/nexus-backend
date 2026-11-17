@@ -34,14 +34,17 @@ def _instrument_ironman(app_name: str) -> None:
     def _ctx() -> tuple:
         from nexus.context import get_request_id
         from nexus.llm_metrics import get_llm_metrics
-        from nexus.circuit_breaker import get_llm_circuit
         return (
             get_request_id() or "-",
             app_name or "unknown",
-            get_llm_circuit(),
             get_llm_metrics(),
             time.monotonic(),
         )
+
+    def _entry_circuit(llm: object) -> object:
+        from nexus.circuit_breaker import get_llm_circuit, llm_provider_key
+
+        return get_llm_circuit(llm_provider_key(llm))
 
     def _usage(result: object) -> tuple:
         tokens: int = 0
@@ -73,17 +76,21 @@ def _instrument_ironman(app_name: str) -> None:
         )
 
     async def _wrapped_chat(messages: object, llm: object = None, tools: object = None) -> object:
-        request_id, app, circuit, metrics, start = _ctx()
+        request_id, app, metrics, start = _ctx()
+        circuit = _entry_circuit(llm)
 
         async def _do() -> object:
             return await original_chat(messages, llm=llm, tools=tools)  # type: ignore[misc]
 
         try:
-            result: object = await circuit.call(_do)
+            await circuit.acquire_call()
+            result: object = await _do()
+            await _record(llm, None, result)
             model, tokens = _usage(result)
             _ok("chat", request_id, app, metrics, model, start, tokens)
             return result
         except Exception as e:
+            await _record(llm, e)
             _fail("chat", request_id, app, metrics, start, e)
             raise
 
@@ -91,7 +98,7 @@ def _instrument_ironman(app_name: str) -> None:
         text: object, model: object = None, provider: object = None,
         dimensions: object = None, encoding_format: object = None,
     ) -> object:
-        request_id, app, _circuit, metrics, start = _ctx()
+        request_id, app, metrics, start = _ctx()
         try:
             result: object = await original_embed(  # type: ignore[misc]
                 text, model=model, provider=provider,
@@ -104,19 +111,29 @@ def _instrument_ironman(app_name: str) -> None:
             _fail("embed", request_id, app, metrics, start, e, model="embed:unknown")
             raise
 
+    async def _record(llm: object, error: object, response: object = None) -> None:
+        from nexus.circuit_breaker import llm_provider_key, record_llm_outcome
+
+        await record_llm_outcome(llm_provider_key(llm), error, response)
+
     async def _circuit_op(op: str, original: Callable[..., Awaitable[object]],
                           *args: object, **kwargs: object) -> object:
-        request_id, app, circuit, metrics, start = _ctx()
+        request_id, app, metrics, start = _ctx()
+        llm = kwargs.get("llm")
+        circuit = _entry_circuit(llm)
 
         async def _do() -> object:
             return await original(*args, **kwargs)  # type: ignore[misc]
 
         try:
-            result: object = await circuit.call(_do)
+            await circuit.acquire_call()
+            result: object = await _do()
+            await _record(llm, None, result)
             model, tokens = _usage(result)
             _ok(op, request_id, app, metrics, model, start, tokens)
             return result
         except Exception as e:
+            await _record(llm, e)
             _fail(op, request_id, app, metrics, start, e)
             raise
 
@@ -128,38 +145,49 @@ def _instrument_ironman(app_name: str) -> None:
         schema_name: str = "raw"
         if schema_obj is not None:
             schema_name = getattr(schema_obj, "__name__", None) or "extract"
-        request_id, app, circuit, metrics, start = _ctx()
+        request_id, app, metrics, start = _ctx()
+        llm = kwargs.get("llm")
+        circuit = _entry_circuit(llm)
 
         async def _do() -> object:
             return await original_extract(*args, **kwargs)  # type: ignore[misc]
 
         try:
-            result: object = await circuit.call(_do)
+            await circuit.acquire_call()
+            result: object = await _do()
+            await _record(llm, None, result)
             _ok("extract", request_id, app, metrics, f"extract:{schema_name}", start)
             return result
         except Exception as e:
+            await _record(llm, e)
             _fail("extract", request_id, app, metrics, start, e, model="extract:unknown")
             raise
 
     def _wrapped_stream(*args: object, **kwargs: object) -> object:
         async def _gen() -> object:
-            from nexus.circuit_breaker import CircuitBreakerOpenError, CircuitState
+            from nexus.circuit_breaker import CircuitBreakerOpenError, llm_provider_key
 
-            request_id, app, circuit, metrics, start = _ctx()
+            request_id, app, metrics, start = _ctx()
+            llm = kwargs.get("llm")
+            circuit = _entry_circuit(llm)
 
-            if circuit.state == CircuitState.OPEN:
+            try:
+                await circuit.acquire_call()
+            except CircuitBreakerOpenError:
                 metrics.record(app, "stream", 0.0, tokens=0, error="CircuitBreakerOpenError")
                 logger.warning(
-                    "LLM stream blocked by open circuit [req_id=%s, app=%s]",
-                    request_id, app,
+                    "LLM stream blocked by open circuit [req_id=%s, app=%s, provider=%s]",
+                    request_id, app, llm_provider_key(llm),
                 )
-                raise CircuitBreakerOpenError("Circuit 'llm_gateway' is OPEN")
+                raise
 
             try:
                 async for chunk in original_chat_stream(*args, **kwargs):  # type: ignore[misc]
                     yield chunk
+                await _record(llm, None, None)
                 _ok("stream", request_id, app, metrics, "stream", start)
             except Exception as e:
+                await _record(llm, e)
                 _fail("stream", request_id, app, metrics, start, e, model="stream")
                 raise
 
@@ -265,8 +293,8 @@ def _instrument_facade_credits(app_name: str) -> None:
     def _credits_stream_engine(request: object, llm_opts: object, kind: str = "chat_stream",
                                *args: object, **kwargs: object) -> object:
         async def _gen() -> object:
-            from nexus.credits import gateway_handled
             from nexus.context import get_request_id
+            from nexus.credits import gateway_handled
 
             if gateway_handled():
                 async for chunk in original_stream_engine(request, llm_opts, kind, *args, **kwargs):  # type: ignore[misc]

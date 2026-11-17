@@ -13,11 +13,11 @@ from nexus.scheduler_gate import GateDecision, log_gate_refusal, scheduler_gate
 logger = get_logger("nexus.scheduler")
 
 try:
+    from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from apscheduler.schedulers.background import BackgroundScheduler
-    from apscheduler.triggers.interval import IntervalTrigger
     from apscheduler.triggers.cron import CronTrigger
-    from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
+    from apscheduler.triggers.interval import IntervalTrigger
 
     _HAS_APSCHEDULER = True
 except ImportError:
@@ -36,8 +36,10 @@ def sanitize_job_kwargs(kwargs: dict[str, object], job_id: str) -> dict[str, obj
 
     调用方传 None（多误以为等于延后首轮）时弹出该键回落默认调度：
     interval=now+interval、cron=下一触发点；确需延后请传显式 datetime。
+    键不存在（绝大多数注册形态）零告警（r224：.get 缺省 None 会全体 interval
+    job 每次注册都刷 warning 噪声）。
     """
-    if kwargs.get("next_run_time") is None:
+    if "next_run_time" in kwargs and kwargs["next_run_time"] is None:
         kwargs.pop("next_run_time", None)
         logger.warning(
             f"Job '{job_id}': next_run_time=None 语义为「暂停」已弹出回落默认调度；"

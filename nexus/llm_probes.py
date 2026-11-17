@@ -4,16 +4,18 @@ from __future__ import annotations
 import time
 from typing import Optional
 
+from nexus.circuit_breaker import get_llm_circuit, llm_provider_key, record_llm_outcome
 from nexus.context import get_request_id
-from nexus.logging import get_logger
-from nexus.circuit_breaker import get_llm_circuit
 from nexus.credits import credits_gateway_handled
-from nexus.llm_meter import charge as _charge, meter as _meter, preflight as _preflight
-from nexus.llm_utils import with_llm_retry
-from nexus.llm_helpers import convert_messages, extract_content, record_usage
-from nexus.llm_config import configure_ironman, effective_retries, resolve_app_name
 from nexus.llm_budget import canonicalize_task_type, resolve_effective_budget
+from nexus.llm_config import configure_ironman, effective_retries, resolve_app_name
+from nexus.llm_helpers import convert_messages, extract_content, record_usage
+from nexus.llm_meter import charge as _charge
+from nexus.llm_meter import meter as _meter
+from nexus.llm_meter import preflight as _preflight
 from nexus.llm_metrics import llm_telemetry
+from nexus.llm_utils import with_llm_retry
+from nexus.logging import get_logger
 
 logger = get_logger("nexus.llm")
 
@@ -38,7 +40,8 @@ class LLMProbesMixin:
         opts = LLMOptions(max_tokens=16, temperature=0.7, no_cache=True,
                           extra={"task_type": "probe"})
         ironman_messages = convert_messages([{"role": "user", "content": prompt}], None)
-        circuit = get_llm_circuit()
+        entry_key = llm_provider_key(opts)
+        entry_circuit = get_llm_circuit(entry_key)
         started: float = time.monotonic()
 
         async def _do() -> object:
@@ -48,7 +51,13 @@ class LLMProbesMixin:
         try:
             async with llm_telemetry("chat", app_name, request_id) as (metrics, start):
                 async def _do_with_circuit() -> object:
-                    response: object = await circuit.call(_do)
+                    await entry_circuit.acquire_call()
+                    try:
+                        response: object = await _do()
+                    except Exception as e:
+                        await record_llm_outcome(entry_key, e)
+                        raise
+                    await record_llm_outcome(entry_key, None, response)
                     content = (getattr(response, "content", "") or "").strip()
                     reasoning = (getattr(response, "reasoning", "") or "").strip()
                     if not content and not reasoning:
@@ -101,7 +110,8 @@ class LLMProbesMixin:
 
         request_id: str = get_request_id() or "-"
         app_name: str = resolve_app_name()
-        circuit = get_llm_circuit()
+        entry_key = llm_provider_key(None)
+        entry_circuit = get_llm_circuit(entry_key)
         await _preflight("extract")
 
         async def _do() -> object:
@@ -119,7 +129,14 @@ class LLMProbesMixin:
         try:
             async with llm_telemetry("extract", app_name, request_id) as (metrics, start):
                 async def _do_with_circuit() -> object:
-                    return await circuit.call(_do)
+                    await entry_circuit.acquire_call()
+                    try:
+                        result: object = await _do()
+                    except Exception as e:
+                        await record_llm_outcome(entry_key, e)
+                        raise
+                    await record_llm_outcome(entry_key, None, result)
+                    return result
                 result: object = await with_llm_retry(
                     _do_with_circuit, timeout, effective_retries(max_retries)
                 )

@@ -18,6 +18,9 @@ class _FakeCircuit:
     async def call(self, fn):
         return await fn()
 
+    async def acquire_call(self):
+        return None
+
 
 class _FakeTelemetry:
     def __init__(self, *args, **kwargs):
@@ -71,7 +74,7 @@ def captured_chat(monkeypatch):
     monkeypatch.setattr(core_mod, "_preflight", noop_async)
     monkeypatch.setattr(core_mod, "_meter", noop_async)
     monkeypatch.setattr(core_mod, "_charge", noop_async)
-    monkeypatch.setattr(core_mod, "get_llm_circuit", lambda: _FakeCircuit())
+    monkeypatch.setattr(core_mod, "get_llm_circuit", lambda provider=None: _FakeCircuit())
     monkeypatch.setattr(core_mod, "llm_telemetry", _FakeTelemetry)
     monkeypatch.setattr(core_mod, "with_llm_retry", fake_retry)
 

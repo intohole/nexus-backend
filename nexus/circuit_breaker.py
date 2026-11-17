@@ -2,6 +2,10 @@
 
 状态机: CLOSED(正常) -> OPEN(熔断) -> HALF_OPEN(探测) -> CLOSED
 源自 goldenFish 生产实践，上移为通用中间件能力。
+
+r227 LLM 面换核：通道级熔断（llm:{provider} 键）替代全局 llm_gateway 单闸——
+一家通道失败不再锁死全舰队 ironman 链（litellm per-deployment cooldown 同构）。
+通用 get_circuit_breaker(name) 面零变化（goldenFish/piying 自管名空间不受扰）。
 """
 from __future__ import annotations
 
@@ -76,6 +80,26 @@ class CircuitBreaker:
     def metrics(self) -> CircuitMetrics:
         return self._metrics
 
+    async def acquire_call(self) -> None:
+        """前置段：OPEN 拒绝 / HALF_OPEN 占用探测配额。与记账段分离供通道级三段式。"""
+        async with self._lock:
+            await self._update_state()
+            if self._state == CircuitState.OPEN:
+                raise CircuitBreakerOpenError(
+                    f"Circuit '{self._name}' is OPEN. Retry after {self._config.recovery_timeout}s"
+                )
+            if self._state == CircuitState.HALF_OPEN:
+                if self._half_open_calls >= self._config.half_open_max_calls:
+                    raise CircuitBreakerOpenError(f"Circuit '{self._name}' HALF_OPEN limit reached")
+                self._half_open_calls += 1
+
+    async def record_outcome(self, error: Optional[BaseException]) -> None:
+        """记账段：None=成功（half-open 连胜推进恢复），异常=失败。"""
+        if error is None:
+            await self._on_success()
+        else:
+            await self._on_failure(error)
+
     async def call(
         self,
         func: Callable[..., Awaitable[object]],
@@ -90,16 +114,7 @@ class CircuitBreaker:
         仍走 CancelledError 分支兜底计数，但外部主动取消（如客户端断连）无法
         与之区分，属保守误计（宁可多熔不可漏熔）。
         """
-        async with self._lock:
-            await self._update_state()
-            if self._state == CircuitState.OPEN:
-                raise CircuitBreakerOpenError(
-                    f"Circuit '{self._name}' is OPEN. Retry after {self._config.recovery_timeout}s"
-                )
-            if self._state == CircuitState.HALF_OPEN:
-                if self._half_open_calls >= self._config.half_open_max_calls:
-                    raise CircuitBreakerOpenError(f"Circuit '{self._name}' HALF_OPEN limit reached")
-                self._half_open_calls += 1
+        await self.acquire_call()
         return await self._execute(func, *args, timeout=timeout, **kwargs)
 
     async def _execute(
@@ -207,6 +222,13 @@ class CircuitBreaker:
 
 
 _circuit_breakers: Dict[str, CircuitBreaker] = {}
+_LLM_CIRCUIT_PREFIX = "llm:"
+_LLM_CONFIG = CircuitBreakerConfig(
+    failure_threshold=5,
+    recovery_timeout=30.0,
+    half_open_max_calls=3,
+    success_threshold=2,
+)
 
 
 def get_circuit_breaker(name: str, config: Optional[CircuitBreakerConfig] = None) -> CircuitBreaker:
@@ -215,14 +237,53 @@ def get_circuit_breaker(name: str, config: Optional[CircuitBreakerConfig] = None
     return _circuit_breakers[name]
 
 
-def get_llm_circuit() -> CircuitBreaker:
-    """LLM 网关专用熔断器单例（兼容 llm.py / ironman.py / fastapi_setup.py）。"""
-    return get_circuit_breaker(
-        "llm_gateway",
-        config=CircuitBreakerConfig(
-            failure_threshold=5,
-            recovery_timeout=30.0,
-            half_open_max_calls=3,
-            success_threshold=2,
-        ),
-    )
+def _ironman_default_provider() -> Optional[str]:
+    """读 ironman 当前默认通道名（execute_with_pipeline actual_provider 同源语义）。"""
+    try:
+        from ironman.config import ConfigFactory
+
+        return ConfigFactory.get().llm_default.provider or None
+    except Exception:
+        return None
+
+
+def llm_provider_key(llm_opts: object = None) -> str:
+    """LLM 熔断通道键解析单源：显式 provider > ironman 默认通道 > "default"。
+
+    键粒度=provider 通道（故障域），非 model——同一通道多模型共享受限/宕机面，
+    与 ironman fallback_chain、pm 网关 trip_breaker 同粒度（litellm per-deployment 同构）。
+    """
+    explicit = str(getattr(llm_opts, "provider", "") or "") if llm_opts is not None else ""
+    if explicit:
+        return explicit
+    return _ironman_default_provider() or "default"
+
+
+def get_llm_circuit(provider: str) -> CircuitBreaker:
+    """LLM 通道级熔断器（r227 换核：全局 llm_gateway 单闸退役——一家通道失败
+    不再锁死其他通道）。registry 键带 llm: 前缀，与通用 get_circuit_breaker
+    名空间隔离；param 必填，调用点必须先经 llm_provider_key 解析。"""
+    return get_circuit_breaker(f"{_LLM_CIRCUIT_PREFIX}{provider}", config=_LLM_CONFIG)
+
+
+async def record_llm_outcome(entry_key: str, error: Optional[BaseException], response: object = None) -> str:
+    """按实际通道记账（r227 失败归因单源）：异常带 .provider 归因异常通道，
+    成功响应带 .provider 归因响应通道，都缺则回落入口键（fallback 换通道后
+    失败落在最后失败通道头上，不再连坐入口/其他通道）。返回实际记账键。"""
+    actual = ""
+    if error is not None:
+        actual = str(getattr(error, "provider", "") or "")
+    elif response is not None:
+        actual = str(getattr(response, "provider", "") or "")
+    key = actual or entry_key
+    await get_llm_circuit(key).record_outcome(error)
+    return key
+
+
+def all_llm_circuits() -> Dict[str, Dict[str, object]]:
+    """观测聚合：全部 LLM 通道闸快照（/llm-circuit 端点消费）。"""
+    return {
+        name[len(_LLM_CIRCUIT_PREFIX):]: breaker.to_dict()
+        for name, breaker in _circuit_breakers.items()
+        if name.startswith(_LLM_CIRCUIT_PREFIX)
+    }

@@ -1,6 +1,7 @@
 """LLM 统一接入层核心：单例、网关路由前置、确定性缓存与主链 chat."""
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from typing import TYPE_CHECKING, Optional
@@ -11,17 +12,8 @@ from nexus.logging import get_logger
 if TYPE_CHECKING:
     from nexus.llm import LLMService
 
-from nexus.circuit_breaker import get_llm_circuit
+from nexus.circuit_breaker import get_llm_circuit, llm_provider_key, record_llm_outcome
 from nexus.credits import credits_gateway_handled
-from nexus.llm_meter import charge as _charge, meter as _meter, preflight as _preflight
-from nexus.llm_utils import with_llm_retry
-from nexus.llm_helpers import (
-    apply_output_discipline,
-    convert_messages,
-    extract_content,
-    record_usage,
-    resolve_namespace,
-)
 from nexus.llm_budget import (
     DEFAULT_THINKING_BUDGET,
     OutputMode,
@@ -30,7 +22,18 @@ from nexus.llm_budget import (
 )
 from nexus.llm_cache import PromptCache, get_prompt_cache
 from nexus.llm_config import configure_ironman, effective_retries, resolve_app_name
+from nexus.llm_helpers import (
+    apply_output_discipline,
+    convert_messages,
+    extract_content,
+    record_usage,
+    resolve_namespace,
+)
+from nexus.llm_meter import charge as _charge
+from nexus.llm_meter import meter as _meter
+from nexus.llm_meter import preflight as _preflight
 from nexus.llm_metrics import llm_telemetry
+from nexus.llm_utils import with_llm_retry
 
 logger = get_logger("nexus.llm")
 
@@ -140,11 +143,26 @@ class LLMCore:
         request_id: str,
         kind: str,
         feature: str = "",
+        llm_opts: object = None,
     ) -> tuple[str, object]:
-        circuit = get_llm_circuit()
+        entry_key = llm_provider_key(llm_opts)
+        entry_circuit = get_llm_circuit(entry_key)
         async with llm_telemetry(kind, app_name, request_id) as (metrics, start):
             async def _do_with_circuit() -> object:
-                response: object = await circuit.call(do)
+                await entry_circuit.acquire_call()
+                try:
+                    response: object = await do()
+                except asyncio.CancelledError:
+                    task = asyncio.current_task()
+                    if task is not None and task.cancelling() > 0:
+                        await record_llm_outcome(
+                            entry_key, TimeoutError("LLM call cancelled (likely timeout)")
+                        )
+                    raise
+                except Exception as e:
+                    await record_llm_outcome(entry_key, e)
+                    raise
+                await record_llm_outcome(entry_key, None, response)
                 extract_content(response, request_id)
                 return response
             response: object = await with_llm_retry(
@@ -231,7 +249,7 @@ class LLMCore:
             with credits_gateway_handled():
                 return await _chat(messages=ironman_messages, llm=opts)
 
-        result, response = await self._execute(_do, timeout, max_retries, app_name, request_id, "chat", feature=feature)
+        result, response = await self._execute(_do, timeout, max_retries, app_name, request_id, "chat", feature=feature, llm_opts=opts)
         await _charge("chat", app_name, request_id, model=str(getattr(response, "model", "") or ""))
         if cache is not None and result:
             cache.set(key, result)
