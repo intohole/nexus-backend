@@ -45,8 +45,7 @@ class PermissionDependencies:
         )
         if not result:
             return False
-        role = result.get("role")
-        if role == "admin":
+        if result.get("role") == "service":
             return True
         cache_key = f"{await _hash_token(credentials.credentials)}:{permission_code}"
         cached = self._perm_cache.get(cache_key)
@@ -186,8 +185,11 @@ def require_api_key(scope: Optional[str] = None) -> Callable:
     return dependency
 
 
+ADMIN_PERMISSION_CODE = "admin.access"
+
+
 async def _validate_admin_token(
-    authorization: Optional[str], role: str, detail: str,
+    authorization: Optional[str], detail: str,
 ) -> dict[str, object]:
     token = extract_bearer_token(authorization or "")
     if not token:
@@ -195,32 +197,42 @@ async def _validate_admin_token(
     result: Optional[dict[str, object]] = await get_auth_deps().validate_token(token)
     if not result or not result.get("user_id"):
         raise HTTPException(status_code=401, detail="未授权或登录已过期")
-    if str(result.get("role") or "") != role:
+    if result.get("role") == "service":
+        return result
+    from fastapi.security.http import HTTPAuthorizationCredentials as _Creds
+
+    has = await get_permission_deps().user_has_permission(
+        _Creds(scheme="Bearer", credentials=token), ADMIN_PERMISSION_CODE
+    )
+    if not has:
         raise HTTPException(status_code=403, detail=detail)
     return result
 
 
-def require_admin(role: str = "admin", *, detail: str = "需要管理员权限") -> Callable:
-    """返回 FastAPI 依赖，校验当前用户角色后返回原始 UC 用户 dict。
+def require_admin(*, detail: str = "需要管理员权限") -> Callable:
+    """返回 FastAPI 依赖，校验平台管理员权限点后返回原始 UC 用户 dict。
+
+    判定走显式权限点（UC check-permission，30s 缓存），不读 JWT role claim
+    ——成员档位与平台权限语义分列后 role claim 恒 "user"（r226）。
 
     用法: async def ep(user = Depends(require_admin())): ...
     """
     async def dependency(
         authorization: Optional[str] = Header(None),
     ) -> dict[str, object]:
-        return await _validate_admin_token(authorization, role, detail)
+        return await _validate_admin_token(authorization, detail)
     return dependency
 
 
-def require_admin_id(role: str = "admin", *, detail: str = "需要管理员权限") -> Callable:
-    """返回 FastAPI 依赖，校验当前用户角色后返回 user_id 字符串。
+def require_admin_id(*, detail: str = "需要管理员权限") -> Callable:
+    """返回 FastAPI 依赖，校验平台管理员权限点后返回 user_id 字符串。
 
     用法: async def ep(admin_id = Depends(require_admin_id())): ...
     """
     async def dependency(
         authorization: Optional[str] = Header(None),
     ) -> str:
-        result = await _validate_admin_token(authorization, role, detail)
+        result = await _validate_admin_token(authorization, detail)
         return str(result.get("user_id") or "")
     return dependency
 

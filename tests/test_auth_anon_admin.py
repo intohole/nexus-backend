@@ -16,19 +16,27 @@ from nexus.permissions import require_admin, require_admin_id
 
 
 class FakeDeps:
-    def __init__(self, result):
+    def __init__(self, result, has_perm=False):
         self._result = result
+        self._has_perm = has_perm
 
     async def validate_token(self, token: str):
         if token == "good":
             return {"user_id": "42", "role": self._result}
         return None
 
+    async def get_sdk(self):
+        return self
 
-def _patch(monkeypatch, role="user"):
-    fake = FakeDeps(role)
+    async def check_permission(self, token: str, permission: str):
+        return {"success": True, "data": {"has_permission": self._has_perm}}
+
+
+def _patch(monkeypatch, role="user", has_perm=False):
+    fake = FakeDeps(role, has_perm=has_perm)
     monkeypatch.setattr(auth_anon, "get_auth_deps", lambda: fake)
     monkeypatch.setattr(perms, "get_auth_deps", lambda: fake)
+    monkeypatch.setattr(perms, "get_permission_deps", lambda: perms.PermissionDependencies())
     return fake
 
 
@@ -89,18 +97,31 @@ async def test_anon_id_re_shape():
 
 @pytest.mark.asyncio
 async def test_require_admin_role_gate(monkeypatch):
-    _patch(monkeypatch, role="admin")
+    """r226 语义分列后契约：admin 判定走显式权限点，role claim 不再开闸。"""
+    # 显式权限点持有者（role 恒 user 的分列后 token）过闸
+    _patch(monkeypatch, role="user", has_perm=True)
     dep = require_admin()
     user = await dep("Bearer good")
     assert user["user_id"] == "42"
     dep_id = require_admin_id()
     assert await dep_id("Bearer good") == "42"
 
-    _patch(monkeypatch, role="user")
+    # service principal 直放过
+    _patch(monkeypatch, role="service", has_perm=False)
+    user = await dep("Bearer good")
+    assert user["user_id"] == "42"
+
+    # 无权限点一律 403——**role="admin" 的旧 token 语义不再开闸（r226 核心证明）**
+    _patch(monkeypatch, role="admin", has_perm=False)
     with pytest.raises(HTTPException) as e:
         await dep("Bearer good")
     assert e.value.status_code == 403
     assert e.value.detail == "需要管理员权限"
+    _patch(monkeypatch, role="user", has_perm=False)
+    with pytest.raises(HTTPException) as e:
+        await dep("Bearer good")
+    assert e.value.status_code == 403
+
     with pytest.raises(HTTPException) as e:
         await dep("Bearer bad")
     assert e.value.status_code == 401
