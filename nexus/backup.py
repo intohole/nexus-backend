@@ -123,6 +123,8 @@ def prune_files(
     max_age_days: Optional[int] = None,
     max_total_bytes: Optional[int] = None,
     dry_run: bool = False,
+    keep_elder: Optional[int] = None,
+    elder_interval_days: Optional[float] = None,
 ) -> list[str]:
     if not directory.exists():
         return []
@@ -144,6 +146,23 @@ def prune_files(
             pass
     protected_count = min(keep, len(candidates))
     remainder = [path for _, path in candidates[protected_count:]]
+    if keep_elder and elder_interval_days and elder_interval_days > 0:
+        elder_gap = elder_interval_days * 86400
+        boundary = candidates[protected_count - 1][0] if protected_count else None
+        last_kept: Optional[float] = boundary
+        kept_elder: list[Path] = []
+        for _, path in candidates[protected_count:]:
+            if len(kept_elder) >= keep_elder:
+                break
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue
+            if last_kept is None or (last_kept - mtime) >= elder_gap:
+                kept_elder.append(path)
+                last_kept = mtime
+        elder_set = set(kept_elder)
+        remainder = [path for path in remainder if path not in elder_set]
     cutoff = (datetime.now().timestamp() - max_age_days * 86400) if max_age_days else None
     pruned: list[str] = []
 
@@ -185,9 +204,12 @@ def prune_backups(
     max_age_days: Optional[int] = None,
     max_total_bytes: Optional[int] = None,
     dry_run: bool = False,
+    keep_elder: Optional[int] = None,
+    elder_interval_days: Optional[float] = None,
 ) -> list[str]:
     return prune_files(
-        backup_dir, [f"{prefix}_*.db"], keep, max_age_days, max_total_bytes, dry_run
+        backup_dir, [f"{prefix}_*.db"], keep, max_age_days, max_total_bytes, dry_run,
+        keep_elder, elder_interval_days,
     )
 
 
@@ -199,6 +221,8 @@ def run_backup(
     keep: int = DEFAULT_KEEP,
     max_age_days: Optional[int] = None,
     max_total_bytes: Optional[int] = None,
+    keep_elder: Optional[int] = None,
+    elder_interval_days: Optional[float] = None,
 ) -> dict[str, object]:
     if isinstance(verify_tables, str):
         verify_tables = [verify_tables]
@@ -221,9 +245,15 @@ def run_backup(
             "parts": parts,
         }
         if report["ok"]:
-            report["pruned"] = prune_backups(
-                backup_dir, str(prefix), keep, max_age_days, max_total_bytes
-            )
+            pruned_all: list[str] = []
+            for one_prefix in (prefixes if prefixes else [prefix]):
+                pruned_all.extend(
+                    prune_backups(
+                        backup_dir, str(one_prefix), keep, max_age_days, max_total_bytes,
+                        keep_elder=keep_elder, elder_interval_days=elder_interval_days,
+                    )
+                )
+            report["pruned"] = pruned_all
         return report
     backup_dir.mkdir(parents=True, exist_ok=True)
     stamp = _stamp()
@@ -234,7 +264,10 @@ def run_backup(
     report["ts"] = datetime.now().isoformat(timespec="seconds")
     if not report.get("ok"):
         return report
-    report["pruned"] = prune_backups(backup_dir, str(prefix), keep, max_age_days, max_total_bytes)
+    report["pruned"] = prune_backups(
+        backup_dir, str(prefix), keep, max_age_days, max_total_bytes,
+        keep_elder=keep_elder, elder_interval_days=elder_interval_days,
+    )
     return report
 
 
@@ -248,13 +281,16 @@ def register_backup_job(
     job_id: str = JOB_ID,
     max_age_days: Optional[int] = None,
     max_total_bytes: Optional[int] = None,
+    keep_elder: Optional[int] = None,
+    elder_interval_days: Optional[float] = None,
 ):
     from nexus.scheduler import get_scheduler
 
     def _job() -> None:
         try:
             report = run_backup(
-                db_paths, backup_dir, prefix, verify_tables, keep, max_age_days, max_total_bytes
+                db_paths, backup_dir, prefix, verify_tables, keep, max_age_days, max_total_bytes,
+                keep_elder, elder_interval_days,
             )
             if not report.get("ok"):
                 logger.error("backup failed: %s", report)
