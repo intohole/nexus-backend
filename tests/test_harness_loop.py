@@ -159,3 +159,14 @@ def test_custom_state_field() -> None:
     ))
     assert outcome.stop_reason == "final"
     assert outcome.state == "q" * 60
+
+
+def test_repeat_limit_stops_no_progress() -> None:
+    outcome = _run(run_tool_loop(
+        ask=_scripted([{"action": "node_check"} for _ in range(4)]),
+        tools=_tools(),
+        initial_state="a" * 50,
+        limits=LoopLimits(max_steps=6, max_repeat=2),
+    ))
+    assert outcome.stop_reason == "repeat_limit"
+    assert outcome.tool_uses == ["node_check", "node_check", "node_check"]

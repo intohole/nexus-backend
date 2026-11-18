@@ -16,6 +16,7 @@ ToolHandler = Callable[[str, str], Awaitable[str]]
 RESERVED_ACTIONS = frozenset(("revise", "final"))
 _ILLEGAL_ACTION = "illegal"
 _REVISE_REJECTED = "revise_rejected"
+_REPEAT_HINT = "连续相同调用无新信息，下一步请改用其他工具或 revise"
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ class LoopLimits:
     min_state_chars: int = 1
     max_result_chars: int = 1600
     max_illegal: int = 3
+    max_repeat: int = 2
 
 
 @dataclass(frozen=True)
@@ -136,6 +138,8 @@ async def run_tool_loop(
     tool_uses: list[str] = []
     illegal = 0
     revised = 0
+    last_signature: str = ""
+    repeat_count = 0
 
     def elapsed_ms() -> int:
         return int((time.monotonic() - started) * 1000)
@@ -193,7 +197,17 @@ async def run_tool_loop(
         except Exception as exc:
             result = f"tool error: {str(exc)[:200]}"
         result = result[: limits.max_result_chars]
+        signature = f"{action.kind}|{action.arg}|{result}"
+        if signature == last_signature:
+            repeat_count += 1
+            history.append(f"[{step}] hint: {_REPEAT_HINT}")
+        else:
+            repeat_count = 0
+        last_signature = signature
         tool_uses.append(action.kind)
         history.append(f"[{step}] {action.kind} -> {result}")
         steps.append(LoopStep(step, action.kind, action.arg, result))
+        if limits.max_repeat > 0 and repeat_count >= limits.max_repeat:
+            return LoopOutcome(
+                state, steps, "repeat_limit", illegal, tool_uses, revised, elapsed_ms())
     return LoopOutcome(state, steps, "max_steps", illegal, tool_uses, revised, elapsed_ms())
