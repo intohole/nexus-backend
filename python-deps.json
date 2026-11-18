@@ -5,64 +5,188 @@
     "同步纪律": "升级流程: 改此清单 -> check_python_deps.py 全绿 -> 各仓requirements/pyproject同步 -> 全新venv抽样实测 -> 各节点venv312收敛升级。2026-10-26 r132 起公共包版本校验接入 miniDeploy 提交门禁(check_standards.py), 漂移在提交期即拦。"
   },
   "deps": {
-    "fastapi": {"version": "0.141.1"},
-    "uvicorn[standard]": {"version": "0.53.0", "base": "uvicorn"},
-    "starlette": {"version": "1.6.0"},
-    "pydantic": {"version": "2.13.5"},
-    "pydantic-settings": {"version": "2.15.0"},
-    "sqlalchemy[asyncio]": {"version": "2.0.53", "base": "sqlalchemy"},
-    "aiosqlite": {"version": "0.22.1"},
-    "greenlet": {"version": "3.5.6"},
-    "httpx": {"version": "0.28.1"},
-    "pyyaml": {"version": "6.0.3", "base": "pyyaml"},
-    "python-multipart": {"version": "0.0.32"},
-    "python-jose[cryptography]": {"version": "3.5.0", "base": "python-jose"},
-    "pyjwt": {"version": "2.14.0", "base": "pyjwt"},
-    "cryptography": {"version": "50.0.1"},
-    "python-dotenv": {"version": "1.2.3"},
-    "email-validator": {"version": "2.3.0"},
-    "loguru": {"version": "0.7.2"},
-    "jinja2": {"version": "3.1.6", "base": "jinja2"},
-    "apscheduler": {"version": "3.11.3", "base": "apscheduler"},
-    "croniter": {"version": "6.2.4"},
-    "cachetools": {"version": "7.2.0"},
-    "sse-starlette": {"version": "3.4.11"},
-    "jsonschema": {"version": "4.26.0"},
-    "semver": {"version": "3.0.4"},
-    "mcp": {"version": "1.30.0"},
-    "websockets": {"version": "17.1"},
-    "aiosmtplib": {"version": "3.0.0"},
-    "slowapi": {"version": "0.1.10"},
-    "tenacity": {"version": "9.1.4"},
-    "passlib[bcrypt]": {"version": "1.7.4", "base": "passlib"},
-    "bcrypt": {"version": "5.0.0"},
-    "python-dateutil": {"version": "2.9.0.post0"},
-    "pytz": {"version": "2026.2"},
-    "psutil": {"version": "7.2.2"},
-    "pillow": {"version": "12.3.0"},
-    "numpy": {"version": "2.5.3"},
-    "pandas": {"version": "3.0.6"},
-    "scipy": {"version": "1.18.0"},
-    "scikit-learn": {"version": "1.9.0"},
-    "joblib": {"version": "1.5.3"},
-    "xgboost": {"version": "3.3.0"},
-    "networkx": {"version": "3.6.1"},
-    "aiohttp": {"version": "3.14.4"},
-    "beautifulsoup4": {"version": "4.15.0"},
-    "trafilatura": {"version": "2.1.0"},
-    "python-docx": {"version": "1.2.0"},
-    "weasyprint": {"version": "69.0"},
-    "pdfplumber": {"version": "0.11.10"},
-    "akshare": {"version": "1.18.81"},
-    "baostock": {"version": "0.9.3"},
-    "jieba": {"version": "0.42.1"},
-    "markitdown": {"version": "0.1.7"},
-    "pycrdt": {"version": "0.14.5"},
-    "python-pptx": {"version": "1.0.2"},
-    "openpyxl": {"version": "3.1.5"},
-    "playwright": {"version": "1.63.0"},
-    "pytest": {"version": "9.1.1"},
-    "pytest-asyncio": {"version": "1.4.0"}
+    "fastapi": {
+      "version": "0.141.1"
+    },
+    "uvicorn[standard]": {
+      "version": "0.53.0",
+      "base": "uvicorn"
+    },
+    "starlette": {
+      "version": "1.6.0"
+    },
+    "pydantic": {
+      "version": "2.13.5"
+    },
+    "pydantic-settings": {
+      "version": "2.15.0"
+    },
+    "sqlalchemy[asyncio]": {
+      "version": "2.0.53",
+      "base": "sqlalchemy"
+    },
+    "aiosqlite": {
+      "version": "0.22.1"
+    },
+    "greenlet": {
+      "version": "3.5.6"
+    },
+    "httpx": {
+      "version": "0.28.1"
+    },
+    "pyyaml": {
+      "version": "6.0.3",
+      "base": "pyyaml"
+    },
+    "python-multipart": {
+      "version": "0.0.32"
+    },
+    "python-jose[cryptography]": {
+      "version": "3.5.0",
+      "base": "python-jose"
+    },
+    "pyjwt": {
+      "version": "2.15.0",
+      "base": "pyjwt"
+    },
+    "cryptography": {
+      "version": "50.0.1"
+    },
+    "python-dotenv": {
+      "version": "1.2.3"
+    },
+    "email-validator": {
+      "version": "2.3.0"
+    },
+    "loguru": {
+      "version": "0.7.2"
+    },
+    "jinja2": {
+      "version": "3.1.6",
+      "base": "jinja2"
+    },
+    "apscheduler": {
+      "version": "3.11.3",
+      "base": "apscheduler"
+    },
+    "croniter": {
+      "version": "6.2.4"
+    },
+    "cachetools": {
+      "version": "7.2.0"
+    },
+    "sse-starlette": {
+      "version": "3.4.11"
+    },
+    "jsonschema": {
+      "version": "4.26.0"
+    },
+    "semver": {
+      "version": "3.0.4"
+    },
+    "mcp": {
+      "version": "1.30.0"
+    },
+    "websockets": {
+      "version": "17.1"
+    },
+    "aiosmtplib": {
+      "version": "5.1.2"
+    },
+    "slowapi": {
+      "version": "0.1.10"
+    },
+    "tenacity": {
+      "version": "9.1.4"
+    },
+    "passlib[bcrypt]": {
+      "version": "1.7.4",
+      "base": "passlib"
+    },
+    "bcrypt": {
+      "version": "5.0.0"
+    },
+    "python-dateutil": {
+      "version": "2.9.0.post0"
+    },
+    "pytz": {
+      "version": "2026.2"
+    },
+    "psutil": {
+      "version": "7.2.2"
+    },
+    "pillow": {
+      "version": "13.0.0"
+    },
+    "numpy": {
+      "version": "2.5.3"
+    },
+    "pandas": {
+      "version": "3.0.6"
+    },
+    "scipy": {
+      "version": "1.18.0"
+    },
+    "scikit-learn": {
+      "version": "1.9.0"
+    },
+    "joblib": {
+      "version": "1.5.3"
+    },
+    "xgboost": {
+      "version": "3.3.0"
+    },
+    "networkx": {
+      "version": "3.6.1"
+    },
+    "aiohttp": {
+      "version": "3.14.4"
+    },
+    "beautifulsoup4": {
+      "version": "4.15.0"
+    },
+    "trafilatura": {
+      "version": "2.1.0"
+    },
+    "python-docx": {
+      "version": "1.2.0"
+    },
+    "weasyprint": {
+      "version": "69.0"
+    },
+    "pdfplumber": {
+      "version": "0.11.10"
+    },
+    "akshare": {
+      "version": "1.18.81"
+    },
+    "baostock": {
+      "version": "0.9.3"
+    },
+    "jieba": {
+      "version": "0.42.1"
+    },
+    "markitdown": {
+      "version": "0.1.7"
+    },
+    "pycrdt": {
+      "version": "0.14.5"
+    },
+    "python-pptx": {
+      "version": "1.0.2"
+    },
+    "openpyxl": {
+      "version": "3.1.5"
+    },
+    "playwright": {
+      "version": "1.63.0"
+    },
+    "pytest": {
+      "version": "9.1.1"
+    },
+    "pytest-asyncio": {
+      "version": "1.4.0"
+    }
   },
   "ignore_paths": []
 }
