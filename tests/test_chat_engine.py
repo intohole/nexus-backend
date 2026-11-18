@@ -7,9 +7,10 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from conftest import MetaHandler
+from conftest import FakeHandler, MetaHandler
 from nexus.auth import get_current_user_id_required
 from nexus.chat import ChatEngine, HistoryMiddleware, LocalChatStore, chat_router
+from nexus.chat.context import ChatContext
 from nexus.chat.models import ChatConversation
 from nexus.errors import ForbiddenError, NotFoundError
 
@@ -285,3 +286,41 @@ async def test_router_validation(engine):
             f"/api/chat/conversations/{conv_id}/messages", json={"content": ""}
         )
         assert resp.status_code == 422
+
+class _PartialThenFailHandler(FakeHandler):
+    async def stream_reply(self, context: ChatContext, messages: list[dict[str, str]]):
+        yield "部分"
+        yield "内容"
+        raise RuntimeError("upstream down")
+
+
+class _EmptyFailHandler(FakeHandler):
+    async def stream_reply(self, context: ChatContext, messages: list[dict[str, str]]):
+        raise RuntimeError("upstream dead on arrival")
+
+
+@pytest.mark.asyncio
+async def test_stream_error_persists_user_and_partial_reply(engine):
+    engine.register("failapp", _PartialThenFailHandler())
+    conv = await engine.create_conversation("user1", "failapp")
+    events = []
+    async for event in engine.stream_message("user1", "failapp", conv.id, "问一句"):
+        events.append(event)
+    assert any(isinstance(e, dict) and e.get("type") == "error" for e in events)
+    messages = await engine.list_messages("user1", conv.id)
+    assert [m.role for m in messages["items"]] == ["user", "assistant"]
+    assert messages["items"][0].content == "问一句"
+    assert messages["items"][1].content == "部分内容"
+
+
+@pytest.mark.asyncio
+async def test_stream_error_with_no_output_persists_user_message(engine):
+    engine.register("deadapp", _EmptyFailHandler())
+    conv = await engine.create_conversation("user1", "deadapp")
+    events = []
+    async for event in engine.stream_message("user1", "deadapp", conv.id, "在吗"):
+        events.append(event)
+    assert any(isinstance(e, dict) and e.get("type") == "error" for e in events)
+    messages = await engine.list_messages("user1", conv.id)
+    assert [m.role for m in messages["items"]] == ["user"]
+    assert messages["items"][0].content == "在吗"

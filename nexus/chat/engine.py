@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import Any, AsyncIterator
 
@@ -183,8 +184,9 @@ class ChatEngine:
         for middleware in reversed(self._middlewares):
             stream = middleware.wrap_stream(context, stream)
 
+        await self._store.add_message(conversation_id, "user", content)
+
         collected: list[str] = []
-        error: str | None = None
         try:
             async for chunk in stream:
                 if isinstance(chunk, dict):
@@ -194,15 +196,19 @@ class ChatEngine:
                 else:
                     collected.append(str(chunk))
                     yield {"type": "delta", "content": chunk}
+        except (asyncio.CancelledError, GeneratorExit):
+            partial = "".join(collected)
+            if partial:
+                await self._store.add_message(conversation_id, "assistant", partial)
+            raise
         except Exception as exc:
-            error = str(exc)
-
-        if error is not None:
-            yield {"type": "error", "message": error}
+            partial = "".join(collected)
+            if partial:
+                await self._store.add_message(conversation_id, "assistant", partial)
+            yield {"type": "error", "message": str(exc)}
             return
 
         reply = "".join(collected)
-        await self._store.add_message(conversation_id, "user", content)
         assistant_message = await self._store.add_message(conversation_id, "assistant", reply)
 
         for middleware in self._middlewares:
