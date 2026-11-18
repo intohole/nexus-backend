@@ -298,6 +298,7 @@ def register_backup_job(
             logger.exception("continuous backup job crashed")
 
     get_scheduler().add_interval_job(_job, job_id=job_id, hours=interval_hours)
+    _job()
     return get_scheduler()
 
 
