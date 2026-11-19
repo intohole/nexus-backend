@@ -503,3 +503,22 @@ async def test_probe_backup_absent_skipped() -> None:
     run_probe = build_probe_runner(app_name="bk2")
     report = await run_probe(fresh=True)
     assert report["checks"]["backup"]["status"] == "skipped"
+
+
+@pytest.mark.asyncio()
+async def test_probe_deps_check_wired() -> None:
+    async def _deps_ok() -> dict[str, object]:
+        return {"status": "ok", "detail": "2 declared", "evidence": {}}
+
+    run_probe = build_probe_runner(app_name="dp", deps_check=_deps_ok)
+    report = await run_probe(fresh=True)
+    assert report["checks"]["deps"]["status"] == "ok"
+    assert "deps" in report["checks"]
+
+
+@pytest.mark.asyncio()
+async def test_probe_deps_absent_skipped() -> None:
+    run_probe = build_probe_runner(app_name="dp2")
+    report = await run_probe(fresh=True)
+    assert report["checks"]["deps"]["status"] == "skipped"
+    assert report["checks"]["deps"]["evidence"]["reason"] == "no_deps_consumer"

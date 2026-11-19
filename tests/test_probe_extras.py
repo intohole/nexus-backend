@@ -8,6 +8,7 @@ from pathlib import Path
 from nexus.lifecycle import LifecyclePolicy
 from nexus.probe_extras import (
     make_backup_freshness_check,
+    make_deps_drift_check,
     classify_jobs,
     jobs_health,
     last_send_outcome,
@@ -96,3 +97,49 @@ def test_backup_freshness_check_no_product(tmp_path: Path) -> None:
     result = asyncio.new_event_loop().run_until_complete(check())
     assert result["status"] == "fail"
     assert result["evidence"]["error"] == "no backup product"
+
+
+def test_deps_drift_check_all_satisfied(tmp_path: Path) -> None:
+    from importlib import metadata
+
+    (tmp_path / "requirements.txt").write_text(
+        f"pytest=={metadata.version('pytest')}\n", encoding="utf-8"
+    )
+    check = make_deps_drift_check(tmp_path)
+    out = asyncio.run(check())
+    assert out["status"] == "ok"
+    assert out["evidence"]["missing"] == []
+    assert out["evidence"]["drifted"] == []
+    assert out["evidence"]["declared"] == 1
+
+
+def test_deps_drift_check_missing_and_drifted(tmp_path: Path) -> None:
+    from importlib import metadata
+
+    (tmp_path / "requirements.txt").write_text(
+        f"zz-no-such-dist-s173==1.0.0\npytest==0.0.1\n", encoding="utf-8"
+    )
+    check = make_deps_drift_check(tmp_path)
+    out = asyncio.run(check())
+    assert out["status"] == "fail"
+    assert any("zz-no-such-dist-s173" in m for m in out["evidence"]["missing"])
+    drifted_line = out["evidence"]["drifted"][0]
+    assert drifted_line.startswith("pytest ")
+    assert metadata.version("pytest") in drifted_line
+    assert "0.0.1" in drifted_line
+
+
+def test_deps_drift_check_drift_only_degraded(tmp_path: Path) -> None:
+    (tmp_path / "requirements.txt").write_text("pytest==0.0.1\n", encoding="utf-8")
+    check = make_deps_drift_check(tmp_path)
+    out = asyncio.run(check())
+    assert out["status"] == "degraded"
+    assert out["evidence"]["missing"] == []
+
+
+def test_deps_drift_check_no_requirements_skipped(tmp_path: Path) -> None:
+    check = make_deps_drift_check(tmp_path)
+    out = asyncio.run(check())
+    assert out["status"] == "skipped"
+    assert out["evidence"]["reason"]
+    assert out["detail"]

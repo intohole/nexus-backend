@@ -6,6 +6,8 @@ v1 四问（llm/db/notify/scheduler）见 business_probe.py；本模块只承载
 from __future__ import annotations
 
 import asyncio
+import os
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -150,6 +152,8 @@ __all__ = [
     "classify_jobs",
     "jobs_health",
     "make_watermark_check",
+    "make_backup_freshness_check",
+    "make_deps_drift_check",
     "SEND_STALE_S",
     "JOB_FAILURES_FAIL",
 ]
@@ -182,3 +186,130 @@ def make_backup_freshness_check(
         }
 
     return _check
+
+
+_DEPS_SKIP_DIRS: set[str] = {
+    ".git", "node_modules", "__pycache__", ".venv", "venv",
+    "dist", "build", "vendor", "static",
+}
+
+
+def _parse_req_lines(work_dir: Path) -> list[str]:
+    specs: list[str] = []
+    base_depth: int = len(work_dir.resolve().parts)
+    for root, dirs, files in os.walk(work_dir):
+        dirs[:] = [d for d in dirs if d not in _DEPS_SKIP_DIRS]
+        if len(Path(root).resolve().parts) - base_depth > 2:
+            dirs[:] = []
+            continue
+        if "requirements.txt" not in files:
+            continue
+        try:
+            for line in (Path(root) / "requirements.txt").read_text(
+                encoding="utf-8", errors="ignore"
+            ).splitlines():
+                line = line.strip()
+                if line and not line.startswith(("#", "-", "git+", "http")) and line not in specs:
+                    specs.append(line)
+        except OSError:
+            continue
+    return specs
+
+
+def _req_import_name(spec: str) -> str:
+    name: str = spec.split(";")[0].split("#")[0].strip()
+    if " @ " in name:
+        name = name.split(" @ ", 1)[0]
+    name = re.sub(r"\[[^\]]*\]", "", name)
+    for sep in ("===", "==", ">=", "<=", "~=", "!=", ">", "<"):
+        name = name.split(sep)[0]
+    return name.strip().replace("-", "_").replace(".", "_")
+
+
+def _req_pinned(spec: str) -> str:
+    m = re.search(r"==\s*([0-9][^;\s]*)", spec)
+    return m.group(1) if m else ""
+
+
+def make_deps_drift_check(
+    work_dir: str | Path,
+) -> "object":
+    """「依赖漂移」便利构造器（S173）：声明面 requirements vs 实装面对表。
+
+    口径与 miniDeploy app_deps.check_app_requirements 同源（发现深度≤2、文件名
+    requirements.txt、==钉版、packaging.Version 相等）；分列字段对齐 S172
+    diagnose（missing/deps_drifted）。missing→fail（环境残缺）、仅钉版漂移→
+    degraded（包在版本不符）、全满足→ok、无声明面→skipped（禁谎报）。
+    """
+    from importlib import metadata
+
+    def _report() -> dict[str, object]:
+        specs: list[str] = _parse_req_lines(Path(work_dir))
+        if not specs:
+            return {
+                "status": "skipped",
+                "latency_ms": 0,
+                "detail": "no requirements declared",
+                "evidence": {"reason": "no_requirements_declared"},
+            }
+        missing: list[str] = []
+        drifted: list[str] = []
+        for spec in specs:
+            import_name: str = _req_import_name(spec)
+            if not import_name or import_name in {"http", "git", "file", "pip", "setuptools"}:
+                continue
+            dist_name: str = re.sub(r"[-_.]+", "-", import_name).lower()
+            try:
+                installed: str = metadata.version(import_name)
+            except Exception:
+                try:
+                    installed = metadata.version(dist_name)
+                except Exception:
+                    installed = ""
+            pinned: str = _req_pinned(spec)
+            if not installed:
+                missing.append(spec)
+            elif pinned and not _version_eq(pinned, installed):
+                drifted.append(f"{import_name} {installed}→{pinned}")
+        evidence: dict[str, object] = {
+            "missing": missing,
+            "drifted": drifted,
+            "declared": len(specs),
+        }
+        if missing:
+            status, detail = "fail", f"{len(missing)} missing deps"
+        elif drifted:
+            status, detail = "degraded", f"{len(drifted)} pinned drift"
+        else:
+            status, detail = "ok", f"{len(specs)} declared, all satisfied"
+        return {
+            "status": status,
+            "latency_ms": 0,
+            "detail": detail,
+            "evidence": evidence,
+        }
+
+    async def _check() -> dict[str, object]:
+        started: float = time.monotonic()
+        try:
+            out: dict[str, object] = await asyncio.to_thread(_report)
+        except Exception as exc:
+            return {
+                "status": "fail",
+                "latency_ms": int((time.monotonic() - started) * 1000),
+                "detail": f"{type(exc).__name__}: {exc}"[:160],
+                "evidence": {},
+            }
+        out["latency_ms"] = int((time.monotonic() - started) * 1000)
+        return out
+
+    return _check
+
+
+def _version_eq(declared: str, installed: str) -> bool:
+    try:
+        from packaging.version import Version
+
+        return Version(declared) == Version(installed)
+    except Exception:
+        return declared.strip() == installed.strip()
