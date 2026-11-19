@@ -215,6 +215,18 @@ from nexus.channels import (
 )
 from nexus.llm_client import LLMJsonClient
 from nexus.llm_verify import ask_json_verified, chat_json_verified
+from nexus.judge import (
+    DEGRADE_KIND_BUDGET,
+    DEGRADE_KIND_REVIEW,
+    DEGRADE_KIND_SUPPLY,
+    JUDGE_CANDIDATES,
+    NO_CROSS_FAMILY_NOTE,
+    ask_with_supply_retry,
+    model_family,
+    parse_group_scores,
+    pick_judge_model,
+    resolve_judge_model,
+)
 from nexus.credits import (
     get_credits_service,
     PrecheckResult,
