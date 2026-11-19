@@ -11,7 +11,8 @@ medium|low 放行观测；scanner 参数可注入自定义扫描器，契约 {"e
 规范校验=findings 观测不阻断（r30 定谳「采纳≠合规」：宿主退化不灭失技能但必须可见）；
 安全红线=fail-close（S71 判例）。
 消费方：nexus-agent capability_registry（r86 适配壳退役后唯一装配点）/truemirror 评测技能
-加载器；业务链注入=inject_skills。
+加载器；业务链注入=inject_skills。selection 面=suggest（query×元数据词面打分纯候选建议，
+业界 metadata-based selection 标准环节，r124 SK2 翻案落码）。
 """
 from __future__ import annotations
 
@@ -37,6 +38,8 @@ __all__ = [
 
 NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+_WORD_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
 MAX_NAME_CHARS = 64
 MAX_DESCRIPTION_CHARS = 1024
@@ -46,6 +49,15 @@ DEFAULT_MAX_BODY_CHARS = 24000
 DEFAULT_MAX_RESOURCE_CHARS = 24000
 
 Scanner = Callable[[Path], dict]
+
+
+def _face_tokens(text: str) -> set[str]:
+    """selection 面词面令牌：英文/数字连字符词 + CJK 字符 bigram（零依赖薄形态）。"""
+    lowered = text.lower()
+    tokens = set(_WORD_RE.findall(lowered))
+    cjk = _CJK_RE.findall(lowered)
+    tokens.update(a + b for a, b in zip(cjk, cjk[1:]))
+    return tokens
 
 
 @dataclass(frozen=True)
@@ -221,18 +233,40 @@ class SkillRegistry:
         return self._errors + [f"{k}: {v}" for k, v in sorted(self.rejected.items())]
 
     def list_meta(self) -> list[SkillMetaView]:
-        return [
-            SkillMetaView(
-                name=e.name,
-                description=e.description,
-                source=e.source,
-                dir_name=e.dir_name,
-                compatibility=str(e.meta.get("compatibility", "")),
-                license=str(e.meta.get("license", "")),
-                spec_findings=list(e.spec_findings),
-            )
-            for e in self._skills.values()
-        ]
+        return [self._meta_view(e) for e in self._skills.values()]
+
+    @staticmethod
+    def _meta_view(e: SkillEntry) -> SkillMetaView:
+        return SkillMetaView(
+            name=e.name,
+            description=e.description,
+            source=e.source,
+            dir_name=e.dir_name,
+            compatibility=str(e.meta.get("compatibility", "")),
+            license=str(e.meta.get("license", "")),
+            spec_findings=list(e.spec_findings),
+        )
+
+    def suggest(self, query: str, top_k: int = 5) -> list[tuple[SkillMetaView, float]]:
+        """按需加载的 selection 面：query×技能元数据（name/description/trigger）词面打分。
+
+        纯候选建议不自动注入（渐进披露契约）：只吐 L1 元数据视图，正文仍经
+        get/get_body 显式取用；消费方确认候选后经 inject_skills 装配。
+        """
+        if top_k <= 0 or not query.strip() or not self._skills:
+            return []
+        q = _face_tokens(query)
+        if not q:
+            return []
+        scored: list[tuple[SkillMetaView, float]] = []
+        for e in self._skills.values():
+            face = " ".join([e.name, e.description, str(e.meta.get("trigger", ""))])
+            overlap = q & _face_tokens(face)
+            if not overlap:
+                continue
+            scored.append((self._meta_view(e), len(overlap) / len(q)))
+        scored.sort(key=lambda x: (-x[1], x[0].name))
+        return scored[:top_k]
 
     def get(self, name: str) -> Optional[SkillEntry]:
         return self._skills.get(name)

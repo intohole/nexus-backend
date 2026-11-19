@@ -270,3 +270,47 @@ class TestInject:
         reg.reload()
         out = inject_skills("s", reg, ["one", "one"])
         assert out.count("[SKILL: one") == 1
+
+
+class TestSuggest:
+    """按需加载 selection 面（SK2 翻案）：query×技能元数据词面打分，纯候选建议
+    不自动注入、只吐 L1 元数据视图（渐进披露契约：正文仍经 get/get_body 显式取）。"""
+
+    def _reg(self, tmp_path) -> SkillRegistry:
+        skills = {
+            "todo-helper": GOOD.format(name="todo-helper"),
+            "pdf-report": "---\nname: pdf-report\ndescription: 生成 PDF 报告与排版，涉及报告导出时选用。\n---\n\n正文\n",
+            "promo-copy": "---\nname: promo-copy\ndescription: 撰写营销文案与推广口号。\n---\n\n正文\n",
+        }
+        return _registry(tmp_path, skills)
+
+    def test_query_hits_top_with_score(self, tmp_path):
+        reg = self._reg(tmp_path)
+        hits = reg.suggest("帮我写待办提醒的任务整理")
+        assert hits and hits[0][0].name == "todo-helper"
+        assert 0 < hits[0][1] <= 1.0
+
+    def test_no_hit_returns_empty(self, tmp_path):
+        reg = self._reg(tmp_path)
+        assert reg.suggest("量子纠缠计算") == []
+
+    def test_topk_truncates(self, tmp_path):
+        reg = self._reg(tmp_path)
+        assert len(reg.suggest("报告 文案 待办", top_k=2)) <= 2
+
+    def test_l1_only_no_body_leak(self, tmp_path):
+        reg = self._reg(tmp_path)
+        for meta, _score in reg.suggest("待办"):
+            assert not hasattr(meta, "body")
+            assert meta.name
+
+    def test_trigger_field_joins_face(self, tmp_path):
+        md = "---\nname: trig-skill\ndescription: 通用处理。\ntrigger: excel 表格 透视表\n---\n\n正文\n"
+        reg = _registry(tmp_path, {"trig-skill": md})
+        hits = reg.suggest("excel 透视表怎么弄")
+        assert hits and hits[0][0].name == "trig-skill"
+
+    def test_empty_query_or_zero_k(self, tmp_path):
+        reg = self._reg(tmp_path)
+        assert reg.suggest("") == []
+        assert reg.suggest("待办", top_k=0) == []
