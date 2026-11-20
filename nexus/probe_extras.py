@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import sqlite3
 import time
 from datetime import datetime
 from pathlib import Path
@@ -154,9 +155,60 @@ __all__ = [
     "make_watermark_check",
     "make_backup_freshness_check",
     "make_deps_drift_check",
+    "make_memory_anchor_check",
     "SEND_STALE_S",
     "JOB_FAILURES_FAIL",
 ]
+
+
+def make_memory_anchor_check(
+    db_path: str | Path,
+    questions: Sequence[tuple[str, str]],
+) -> "object":
+    """「记忆锚读数行」便利构造器（r233 AM7）：sqlite 声明式只读计数进探针 evidence。
+
+    questions=[(label, sql)]，label 进 evidence 键、sql 单值计数查询；读得动=ok
+    （零计数也是 ok，观察面不造阈值）、库缺失/查询失败=fail（链断）。
+    跨业务记忆锚（beeMemory/memoria/financialKG）横向读数单源，sentinel 面板经
+    business_probe memory_check 插槽消费。
+    """
+
+    def _report() -> dict[str, object]:
+        path = Path(db_path)
+        if not path.exists():
+            return {
+                "status": "fail",
+                "latency_ms": 0,
+                "detail": f"db not found: {path.name}",
+                "evidence": {"db_path": str(path)},
+            }
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            evidence: dict[str, object] = {}
+            for label, sql in questions:
+                row = conn.execute(sql).fetchone()
+                evidence[label] = int(row[0]) if row is not None else 0
+        finally:
+            conn.close()
+        detail = " ".join(f"{k}={v}" for k, v in evidence.items())
+        return {"status": "ok", "latency_ms": 0, "detail": detail, "evidence": evidence}
+
+    async def _check() -> dict[str, object]:
+        started: float = time.monotonic()
+        try:
+            out: dict[str, object] = await asyncio.to_thread(_report)
+        except Exception as exc:
+            return {
+                "status": "fail",
+                "latency_ms": int((time.monotonic() - started) * 1000),
+                "detail": f"{type(exc).__name__}: {exc}"[:160],
+                "evidence": {"db_path": str(db_path)},
+            }
+        out["latency_ms"] = int((time.monotonic() - started) * 1000)
+        return out
+
+    return _check
 
 
 def make_backup_freshness_check(

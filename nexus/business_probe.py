@@ -321,6 +321,7 @@ def build_probe_runner(
     value_check: Optional[ProbeCheck] = None,
     backup_check: Optional[ProbeCheck] = None,
     deps_check: Optional[ProbeCheck] = None,
+    memory_check: Optional[ProbeCheck] = None,
     integrity: IntegritySetting = None,
 ) -> Callable[[bool], Awaitable[dict[str, object]]]:
     _prefix: str = f"{app_name}:"
@@ -363,6 +364,7 @@ def build_probe_runner(
         val_fn: Optional[ProbeCheck] = value_check
         bk_fn: Optional[ProbeCheck] = backup_check
         dep_fn: Optional[ProbeCheck] = deps_check
+        mem_fn: Optional[ProbeCheck] = memory_check
         if integrity is None:
             ig_fn: Optional[ProbeCheck] = _integrity_via_factory() if db_session_factory else None
         elif integrity is False:
@@ -378,6 +380,7 @@ def build_probe_runner(
             ("value", val_fn),
             ("backup", bk_fn),
             ("deps", dep_fn),
+            ("memory", mem_fn),
             ("integrity", ig_fn),
         ):
             if fn is None:
@@ -426,6 +429,7 @@ def register_probe_endpoints(
     value_check: Optional[ProbeCheck] = None,
     backup_check: Optional[ProbeCheck] = None,
     deps_check: Optional[ProbeCheck] = None,
+    memory_check: Optional[ProbeCheck] = None,
     integrity: IntegritySetting = None,
 ) -> None:
     run_probe: Callable[[bool], Awaitable[dict[str, object]]] = build_probe_runner(
@@ -441,6 +445,7 @@ def register_probe_endpoints(
         value_check=value_check,
         backup_check=backup_check,
         deps_check=deps_check,
+        memory_check=memory_check,
         integrity=integrity,
     )
     router: APIRouter = APIRouter(

@@ -9,6 +9,7 @@ from nexus.lifecycle import LifecyclePolicy
 from nexus.probe_extras import (
     make_backup_freshness_check,
     make_deps_drift_check,
+    make_memory_anchor_check,
     classify_jobs,
     jobs_health,
     last_send_outcome,
@@ -143,3 +144,57 @@ def test_deps_drift_check_no_requirements_skipped(tmp_path: Path) -> None:
     assert out["status"] == "skipped"
     assert out["evidence"]["reason"]
     assert out["detail"]
+
+
+def _make_anchor_db(path: Path) -> None:
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE memories (id INTEGER PRIMARY KEY, content TEXT, created_at TEXT)")
+    conn.execute(
+        "INSERT INTO memories (content, created_at) VALUES ('a', datetime('now','-1 day'))"
+    )
+    conn.execute(
+        "INSERT INTO memories (content, created_at) VALUES ('b', datetime('now','-30 day'))"
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_memory_anchor_check_ok(tmp_path: Path) -> None:
+    db = tmp_path / "memory.db"
+    _make_anchor_db(db)
+    check = make_memory_anchor_check(
+        db,
+        [
+            ("total", "SELECT COUNT(*) FROM memories"),
+            ("created_7d", "SELECT COUNT(*) FROM memories WHERE created_at >= datetime('now','-7 days')"),
+        ],
+    )
+    out = asyncio.run(check())
+    assert out["status"] == "ok"
+    assert out["evidence"]["total"] == 2
+    assert out["evidence"]["created_7d"] == 1
+    assert out["latency_ms"] >= 0
+
+
+def test_memory_anchor_check_db_missing_fail(tmp_path: Path) -> None:
+    check = make_memory_anchor_check(tmp_path / "ghost.db", [("total", "SELECT COUNT(*) FROM memories")])
+    out = asyncio.run(check())
+    assert out["status"] == "fail"
+    assert "evidence" in out
+
+
+def test_memory_anchor_check_bad_sql_fail(tmp_path: Path) -> None:
+    db = tmp_path / "memory.db"
+    _make_anchor_db(db)
+    check = make_memory_anchor_check(db, [("total", "SELECT COUNT(*) FROM no_such_table")])
+    out = asyncio.run(check())
+    assert out["status"] == "fail"
+
+
+def test_memory_anchor_check_zero_is_ok(tmp_path: Path) -> None:
+    db = tmp_path / "memory.db"
+    _make_anchor_db(db)
+    check = make_memory_anchor_check(db, [("empty", "SELECT COUNT(*) FROM memories WHERE id > 999")])
+    out = asyncio.run(check())
+    assert out["status"] == "ok"
+    assert out["evidence"]["empty"] == 0

@@ -522,3 +522,22 @@ async def test_probe_deps_absent_skipped() -> None:
     report = await run_probe(fresh=True)
     assert report["checks"]["deps"]["status"] == "skipped"
     assert report["checks"]["deps"]["evidence"]["reason"] == "no_deps_consumer"
+
+
+@pytest.mark.asyncio()
+async def test_probe_memory_check_wired() -> None:
+    async def _memory_ok() -> dict[str, object]:
+        return {"status": "ok", "detail": "total=44", "evidence": {"total": 44}}
+
+    run_probe = build_probe_runner(app_name="mm", memory_check=_memory_ok)
+    report = await run_probe(fresh=True)
+    assert report["checks"]["memory"]["status"] == "ok"
+    assert report["checks"]["memory"]["evidence"]["total"] == 44
+
+
+@pytest.mark.asyncio()
+async def test_probe_memory_absent_skipped() -> None:
+    run_probe = build_probe_runner(app_name="mm2")
+    report = await run_probe(fresh=True)
+    assert report["checks"]["memory"]["status"] == "skipped"
+    assert report["checks"]["memory"]["evidence"]["reason"] == "no_memory_consumer"
