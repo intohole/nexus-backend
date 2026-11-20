@@ -235,8 +235,9 @@ async def test_facade_explicit_still_wins(captured_chat):
 # ---------------------------------------------------------------------------
 
 class _CaptureSvc:
-    def __init__(self, responses):
+    def __init__(self, responses, finish_reasons=None):
         self._responses = list(responses)
+        self._finish_reasons = list(finish_reasons or [])
         self.ask_kwargs = None
 
     async def ask(self, **kwargs):
@@ -245,15 +246,19 @@ class _CaptureSvc:
 
     async def chat(self, **kwargs):
         self.ask_kwargs = kwargs
-        return self._responses.pop(0)
+        raw = self._responses.pop(0)
+        if kwargs.get("_want_usage"):
+            finish = self._finish_reasons.pop(0) if self._finish_reasons else "stop"
+            return {"content": raw, "finish_reason": finish, "model": "stub", "cached": False}
+        return raw
 
 
 @pytest.fixture()
 def stubbed_service(monkeypatch):
     holder: dict = {}
 
-    def _install(responses):
-        svc = _CaptureSvc(responses)
+    def _install(responses, finish_reasons=None):
+        svc = _CaptureSvc(responses, finish_reasons)
         holder["svc"] = svc
         import nexus.llm_client as llm_client_mod
 
@@ -287,12 +292,23 @@ async def test_client_explicit_params_win(stubbed_service):
 
 @pytest.mark.anyio
 async def test_client_budget_retry_unknown_budget_safe(stubbed_service):
-    """预算未知（max_tokens=None）时解析失败放大重试不 TypeError，按上限 16000 重试。"""
-    svc = stubbed_service(["不是JSON", '{"answer": 1}'])
+    """预算未知（max_tokens=None）+截断实锤（length）时放大重试不 TypeError，按上限 16000 重试。"""
+    svc = stubbed_service(["不是JSON", '{"answer": 1}'], finish_reasons=["length"])
     client = LLMJsonClient(max_tokens=None)
     result = await client.ask_json("p", "s")
     assert result == {"answer": 1}
     assert svc.ask_kwargs["max_tokens"] == 16000
+
+
+@pytest.mark.anyio
+async def test_client_budget_retry_non_length_same_budget(stubbed_service):
+    """非截断解析失败（stop/模型抽风）同预算绕缓存重试，不放大预算。"""
+    svc = stubbed_service(["模型抽风", '{"answer": 2}'], finish_reasons=["stop"])
+    client = LLMJsonClient(max_tokens=2000)
+    result = await client.ask_json("p", "s")
+    assert result == {"answer": 2}
+    assert svc.ask_kwargs["max_tokens"] == 2000
+    assert svc.ask_kwargs["no_cache"] is True
 
 
 @pytest.mark.anyio

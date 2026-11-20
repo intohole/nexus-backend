@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from nexus.image_ops import ImageMeta, prepare_data_url
 from nexus.llm import get_llm_service
-from nexus.llm_json import parse_llm_json
+from nexus.llm_json import is_llm_json_error, parse_llm_json
 from nexus.llm_verify import verified_json_chat
 from nexus.vision_cache import VisionCache, build_key, get_vision_cache
 from nexus.vision_profiles import detail_for, plan_for, resolve_profile
@@ -55,7 +55,7 @@ class LLMJsonClient:
 
     @staticmethod
     def _is_parse_failed(result: object) -> bool:
-        return isinstance(result, dict) and set(result.keys()) == {"raw_response"}
+        return is_llm_json_error(result)
 
     def _thinking_kwargs(self, enable_thinking: Optional[bool], thinking_budget: Optional[int]) -> dict[str, object]:
         kwargs: dict[str, object] = {}
@@ -72,23 +72,30 @@ class LLMJsonClient:
         prompt: str,
         system: str,
         *,
-        max_tokens: int,
+        max_tokens: Optional[int],
         task_type: str,
         timeout: float,
         call: dict[str, object],
-    ) -> Dict[str, Any]:
-        raw = await self._svc.ask(
-            prompt=prompt,
+    ) -> tuple[Dict[str, Any], str]:
+        bill = await self._svc.chat(
+            messages=[{"role": "user", "content": prompt}],
             system=system,
             max_tokens=max_tokens,
             json_mode=True,
             task_type=task_type,
             timeout=timeout,
+            _want_usage=True,
             **call,
         )
+        if isinstance(bill, dict):
+            raw = str(bill.get("content") or "")
+            finish_reason = str(bill.get("finish_reason") or "")
+        else:
+            raw = str(bill)
+            finish_reason = ""
         parsed = parse_llm_json(raw)
         if isinstance(parsed, dict):
-            return parsed
+            return parsed, finish_reason
         raise ValueError(f"LLM 返回非 dict 结构: {type(parsed).__name__}")
 
     async def ask_json(
@@ -139,20 +146,29 @@ class LLMJsonClient:
                 return fallback
             raise ValueError(self._last_error or "LLM 返回无效 JSON")
         try:
-            result = await self._ask_json_once(
+            result, finish_reason = await self._ask_json_once(
                 prompt, system,
                 max_tokens=budget, task_type=eff_task_type, timeout=eff_timeout, call=call,
             )
             if self._is_parse_failed(result) and self._budget_retry:
-                if budget is None:
-                    bigger = _BUDGET_RETRY_MAX
+                heal_call = dict(call)
+                heal_call["no_cache"] = True
+                if finish_reason == "length":
+                    if budget is None:
+                        bigger = _BUDGET_RETRY_MAX
+                    else:
+                        bigger = min(_BUDGET_RETRY_MAX, max(budget * 3, _BUDGET_RETRY_MIN))
+                    if budget is None or bigger > budget:
+                        logger.warning("JSON 解析失败且 finish_reason=length，放大输出预算重试：%s -> %s", budget, bigger)
+                        result, _ = await self._ask_json_once(
+                            prompt, system,
+                            max_tokens=bigger, task_type=eff_task_type, timeout=eff_timeout, call=heal_call,
+                        )
                 else:
-                    bigger = min(_BUDGET_RETRY_MAX, max(budget * 3, _BUDGET_RETRY_MIN))
-                if budget is None or bigger > budget:
-                    logger.warning("JSON 解析失败，放大输出预算重试：%s -> %s", budget, bigger)
-                    result = await self._ask_json_once(
+                    logger.warning("JSON 解析失败（finish_reason=%s），同预算绕缓存重试一次", finish_reason or "unknown")
+                    result, _ = await self._ask_json_once(
                         prompt, system,
-                        max_tokens=bigger, task_type=eff_task_type, timeout=eff_timeout, call=call,
+                        max_tokens=budget, task_type=eff_task_type, timeout=eff_timeout, call=heal_call,
                     )
             if not self._is_parse_failed(result):
                 return result

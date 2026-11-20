@@ -179,7 +179,12 @@ class LLMCore:
 
     @staticmethod
     def _usage_payload(result: str, response: object) -> dict[str, object]:
-        """从 ironman LLMResponse 提取调用方可见的用量账单（缓存命中时 response 为 None）。"""
+        """从 ironman LLMResponse 提取调用方可见的用量账单（缓存命中时 response 为 None）。
+
+        finish_reason（r234，S180-GAP）：providers 已填（OpenAI 兼容响应
+        choices[0].finish_reason），账单面透传供 budget_retry 分型——缓存命中
+        response=None 或字段缺席时为空串（无截断语义）。
+        """
         usage = getattr(response, "usage", None)
         return {
             "content": result,
@@ -192,6 +197,7 @@ class LLMCore:
             "latency_ms": int(float(getattr(response, "latency_ms", 0.0) or 0.0)),
             "provider": getattr(response, "provider", "") or "",
             "cached": bool(getattr(response, "cached", False)) or response is None,
+            "finish_reason": str(getattr(response, "finish_reason", "") or ""),
         }
 
     async def chat(
@@ -256,7 +262,7 @@ class LLMCore:
         return self._usage_payload(result, response) if _want_usage else result
 
     async def chat_with_usage(self, messages: list[dict[str, str]], **kwargs) -> dict[str, object]:
-        """chat 的带账单版：返回 {content, model, total_tokens, cached_tokens, cost_usd, latency_ms, provider, cached}。
+        """chat 的带账单版：返回 {content, model, total_tokens, cached_tokens, cost_usd, latency_ms, provider, cached, finish_reason}。
 
         计费/熔断/重试/缓存/json_mode 语义与 chat 完全一致；缓存命中时 usage 为 0 且 cached=True。
         """
