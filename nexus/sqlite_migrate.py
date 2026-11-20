@@ -151,9 +151,3 @@ async def ensure_model_columns(
     conn: AsyncConnection, metadata: MetaData, tables: Optional[Iterable[str]] = None
 ) -> List[Tuple[str, str]]:
     return await conn.run_sync(lambda sc: ensure_model_columns_sync(sc, metadata, tables))
-
-
-async def ensure_model_indexes(
-    conn: AsyncConnection, metadata: MetaData, tables: Optional[Iterable[str]] = None
-) -> List[Tuple[str, str]]:
-    return await conn.run_sync(lambda sc: ensure_model_indexes_sync(sc, metadata, tables))
