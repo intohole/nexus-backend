@@ -44,17 +44,33 @@ def _extract_memories(payload: dict) -> list[dict]:
     return [m for m in memories if isinstance(m, dict)]
 
 
+_TRUNCATION_NOTE = "（另有 {dropped} 条记忆因预算截断，未注入）"
+
+
 def render_memory_context(payload: dict, *, self_app: str = "", kind: str = "") -> str:
     """beeMemory v1/recall 或 v1/snapshot 信封 → 注入文本块；空/错误信封返回空串。
 
     kind 缺省自动识别：信封带 empty_reason/analysis 视为 recall，否则 snapshot。
     self_app 传入调用方自身 app 名时，同源记忆不标注来源（跨应用来源才标注）。
     """
+    text, _readout = render_memory_context_bounded(payload, self_app=self_app, kind=kind)
+    return text
+
+
+def render_memory_context_bounded(
+    payload: dict, *, self_app: str = "", kind: str = "", budget_chars: int | None = None
+) -> tuple[str, dict]:
+    """带注入预算的渲染（S176 AM4）：超限分层截断（尾部条目先截）+注入量读数。
+
+    返回 (注入文本, 读数{n_items, n_chars, truncated})；budget_chars 为 None 时
+    全量渲染（等价老 render_memory_context 行为）。截断时保留头尾框架与截断尾标。
+    """
+    readout = {"n_items": 0, "n_chars": 0, "truncated": False}
     if payload.get("unavailable") or payload.get("success") is False or payload.get("error"):
-        return ""
+        return "", readout
     memories = _extract_memories(payload)
     if not memories:
-        return ""
+        return "", readout
     if not kind:
         kind = "recall" if ("empty_reason" in payload or "analysis" in payload) else "snapshot"
     lines: list[str] = []
@@ -73,10 +89,40 @@ def render_memory_context(payload: dict, *, self_app: str = "", kind: str = "") 
         )
         lines.append(f"- {content}{note}")
     if not lines:
-        return ""
-    count = len(lines)
+        return "", readout
     header = _SNAPSHOT_HEADER if kind == "snapshot" else _RECALL_HEADER
-    return "\n".join([header.format(count=count)] + lines + [_FOOTER])
+    footer_len = len(_FOOTER)
+    kept = lines
+    dropped = 0
+    if budget_chars is not None and budget_chars > 0:
+        overhead = len(header.format(count=len(lines))) + footer_len + 8
+        room = budget_chars - overhead
+        kept = []
+        used = 0
+        for line in lines:
+            cost = len(line) + 1
+            if used + cost > room:
+                break
+            kept.append(line)
+            used += cost
+        dropped = len(lines) - len(kept)
+        if dropped > 0 and kept:
+            room -= len(_TRUNCATION_NOTE.format(dropped=dropped)) + 1
+            while kept and used > room:
+                used -= len(kept[-1]) + 1
+                kept.pop()
+                dropped += 1
+    parts = [header.format(count=len(kept))] + kept
+    if dropped > 0:
+        parts.append(_TRUNCATION_NOTE.format(dropped=dropped))
+    parts.append(_FOOTER)
+    text = "\n".join(parts)
+    readout = {
+        "n_items": len(kept),
+        "n_chars": len(text),
+        "truncated": dropped > 0,
+    }
+    return text, readout
 
 
 async def recall_context(
@@ -89,6 +135,7 @@ async def recall_context(
     max_chars: int = 2000,
     self_app: str = "",
     smart: bool = True,
+    budget_chars: int | None = None,
 ) -> str:
     """召回并渲染记忆块的一行式辅助：任何失败（不可用/异常/空结果）返回空串。
 
@@ -122,7 +169,15 @@ async def recall_context(
     if empty_reason:
         logger.info("memory recall empty [user=%s] reason=%s hint=%s", uid, empty_reason, _as_str(result.get("hint")))
         return ""
-    return render_memory_context(result, self_app=self_app, kind="recall")
+    text, readout = render_memory_context_bounded(
+        result, self_app=self_app, kind="recall", budget_chars=budget_chars)
+    if readout["n_items"]:
+        logger.info(
+            "memory injection readout [user=%s app=%s] items=%s chars=%s truncated=%s budget=%s",
+            uid, app_name or "-", readout["n_items"], readout["n_chars"],
+            readout["truncated"], budget_chars,
+        )
+    return text
 
 
 def empty_reason_of(payload: dict) -> str:
