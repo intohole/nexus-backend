@@ -101,11 +101,11 @@ class LLMService(LLMCore, LLMProbesMixin, LLMStreamMixin):
                 call_kwargs["images"] = images
             bills: list[dict[str, object]] = []
 
-            async def _billing_chat(**chat_kw: object) -> str:
+            async def _billing_chat(**chat_kw: object) -> object:
                 bill = await self.chat(_want_usage=True, **chat_kw)  # type: ignore[arg-type]
                 if isinstance(bill, dict):
                     bills.append({k: v for k, v in bill.items() if k != "content"})
-                    return str(bill.get("content") or "")
+                    return bill
                 return str(bill)
 
             data = await verified_json_chat(
@@ -114,6 +114,7 @@ class LLMService(LLMCore, LLMProbesMixin, LLMStreamMixin):
                 schema=schema,
                 repair_attempts=repair_attempts,
                 raise_on_error=True,
+                repair_no_cache=True,
                 system=system,
                 **call_kwargs,
             )

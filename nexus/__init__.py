@@ -214,7 +214,6 @@ from nexus.channels import (
     ChannelDispatcher,
 )
 from nexus.llm_client import LLMJsonClient
-from nexus.llm_verify import ask_json_verified, chat_json_verified
 from nexus.judge import (
     DEGRADE_KIND_BUDGET,
     DEGRADE_KIND_REVIEW,
@@ -379,7 +378,6 @@ __all__ = [
     "with_tail_context", "disciplined_messages",
     "render_memory_context", "recall_context", "empty_reason_of",
     "strip_code_fence", "LLMTimeoutError", "get_llm_service", "LLMJsonClient",
-    "ask_json_verified", "chat_json_verified",
     "get_image_service", "get_vision_service", "JSON_ONLY_HINT", "estimate_tokens",
     "get_credits_service", "charged", "credits_user_scope", "PrecheckResult",
     "ConsumeResult", "CreditsInsufficientError",
