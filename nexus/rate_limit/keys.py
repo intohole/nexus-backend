@@ -1,8 +1,9 @@
-"""限流键解析：XFF 防伪造的客户端 IP 提取与 key_func 统一兜底。"""
+"""限流键解析：XFF 防伪造的客户端 IP 提取、凭证哈希身份键与 key_func 统一兜底。"""
 from __future__ import annotations
 
+import hashlib
 import ipaddress
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 
 from starlette.requests import Request
 
@@ -41,3 +42,27 @@ def resolve_client_id(request: Request, key_func: Optional[Callable[[Request], s
     except Exception as exc:
         _logger.warning("rate limit key_func failed: %s", exc)
         return "unknown"
+
+
+def credential_identity(
+    request: Request,
+    *,
+    headers: Sequence[str] = ("Authorization",),
+    anon_header: Optional[str] = None,
+) -> str:
+    """身份键：凭证哈希优先（同一调用方=同一桶，哈希截断 16 hex 不落裸凭证），
+    匿名档头（X-Anon-Id 类自报身份）次之，无凭证回退 client_ip（XFF 最右公网）。
+
+    业界对齐：authenticated identity first / anonymous per-IP fallback；
+    替代六仓手搓的匿名字面量 "ip" 共享桶（同站全匿名共一桶，与
+    financialKG 弃 slowapi 的「nginx 后全站共享一桶」同缺陷）。
+    """
+    for header in headers:
+        value: str = request.headers.get(header, "")
+        if value:
+            return "c:" + hashlib.sha256(value.encode()).hexdigest()[:16]
+    if anon_header:
+        value = request.headers.get(anon_header, "")
+        if value:
+            return "a:" + value[:64]
+    return client_ip(request)
