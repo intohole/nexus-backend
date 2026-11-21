@@ -39,6 +39,42 @@ __all__ = [
 ]
 
 
+def _mount_component(app: FastAPI, name: str, cfg: NexusConfig, cors_origins, no_cache_prefix: str) -> None:
+    """装配单个 stack 组件；exception_handlers 为处理器注册，与栈位无关。"""
+    if name == "cors":
+        setup_cors(app, cfg, origins=cors_origins)
+    elif name == "request_id":
+        app.add_middleware(RequestIdMiddleware)
+    elif name == "logging":
+        app.add_middleware(LoggingMiddleware)
+    elif name == "rate_limit":
+        app.add_middleware(RateLimitMiddleware, config=cfg)
+    elif name == "error_handler":
+        app.add_middleware(ErrorHandlerMiddleware)
+    elif name == "no_cache":
+        app.add_middleware(StaticAssetsCacheMiddleware, path_prefix=no_cache_prefix)
+    elif name == "security_headers":
+        app.add_middleware(SecurityHeadersMiddleware)
+    elif name == "not_found_check":
+        app.add_middleware(NotFoundCheckMiddleware)
+    elif name == "loading_splash":
+        app.add_middleware(LoadingSplashMiddleware, app_name=cfg.app_name)
+    elif name == "audit":
+        from nexus.audit_middleware import AuditMiddleware
+        app.add_middleware(AuditMiddleware, config=cfg)
+    elif name == "metrics":
+        try:
+            from nexus.middleware_metrics import RequestMetricsMiddleware
+            app.add_middleware(RequestMetricsMiddleware)
+        except ImportError:
+            pass
+    elif name == "exception_handlers":
+        from nexus.middleware_exception import setup_exception_handlers
+        setup_exception_handlers(app)
+    else:
+        raise ValueError(f"unknown middleware stack component: {name!r}")
+
+
 class AppLifecycle:
     def __init__(self, config: Optional[NexusConfig] = None) -> None:
         self._config: NexusConfig = config or get_settings()
@@ -133,9 +169,9 @@ def create_app(
         lifespan=app_lifespan,
     )
 
-    app.add_middleware(RequestIdMiddleware)
     if enable_logging_middleware:
         app.add_middleware(LoggingMiddleware)
+    app.add_middleware(RequestIdMiddleware)
     if enable_rate_limit and cfg.rate_limit.enabled:
         app.add_middleware(RateLimitMiddleware, config=cfg)
     app.add_middleware(ErrorHandlerMiddleware)
@@ -160,11 +196,13 @@ def setup_middleware(
     app: FastAPI,
     config: Optional[NexusConfig] = None,
     *,
+    stack: Optional[list[str]] = None,
     enable_cors: bool = True,
     cors_origins: Optional[list[str]] = None,
     enable_rate_limit: bool = True,
     enable_logging: bool = True,
     enable_error_handler: bool = True,
+    enable_exception_handlers: Optional[bool] = None,
     enable_no_cache: bool = True,
     enable_request_id: bool = True,
     enable_security_headers: bool = False,
@@ -177,40 +215,51 @@ def setup_middleware(
     """在已存在的 FastAPI app 上注册统一中间件栈。
 
     适用于无法直接替换为 create_app() 的项目（已有自定义 lifespan / 路由 / 异常体系）。
-    消除各项目 main.py 中重复的 add_middleware 样板代码。
 
-    用法：
-        app = FastAPI(lifespan=my_lifespan)
-        setup_middleware(app, config, enable_security_headers=True)
-        app.include_router(my_router)
+    两种用法二选一：
+    - stack=[...]：显式声明栈面组件，外→内顺序（跨仓克隆族直替面，运行栈逐字节
+      等价仓内手搓面）；组件全集见 _mount_component，exception_handlers 为处理器
+      注册与栈位无关。
+    - 缺省 flags 路径：canonical 默认栈（enable_* 开关；Logging 先加、RequestId
+      后加=r222 判据「外层先设 id」）。
     """
     cfg: NexusConfig = config or get_settings()
 
-    if enable_request_id:
-        app.add_middleware(RequestIdMiddleware)
-    if enable_logging:
-        app.add_middleware(LoggingMiddleware)
-    if enable_rate_limit and cfg.rate_limit.enabled:
-        app.add_middleware(RateLimitMiddleware, config=cfg)
-    if enable_error_handler:
-        app.add_middleware(ErrorHandlerMiddleware)
-    if enable_no_cache:
-        app.add_middleware(StaticAssetsCacheMiddleware, path_prefix=no_cache_prefix)
-    if enable_security_headers:
-        app.add_middleware(SecurityHeadersMiddleware)
-    if enable_not_found_check:
-        app.add_middleware(NotFoundCheckMiddleware)
-    if enable_loading_splash:
-        app.add_middleware(LoadingSplashMiddleware, app_name=cfg.app_name)
-    if enable_audit:
-        from nexus.audit_middleware import AuditMiddleware
-        app.add_middleware(AuditMiddleware, config=cfg)
-    if enable_metrics:
-        from nexus.middleware_metrics import RequestMetricsMiddleware
-        app.add_middleware(RequestMetricsMiddleware)
-    if enable_cors:
-        setup_cors(app, cfg, origins=cors_origins)
+    if stack is not None:
+        for name in reversed(list(stack)):
+            _mount_component(app, name, cfg, cors_origins, no_cache_prefix)
+        return
 
+    components: list[str] = []
+    if enable_logging:
+        components.append("logging")
+    if enable_request_id:
+        components.append("request_id")
+    if enable_rate_limit and cfg.rate_limit.enabled:
+        components.append("rate_limit")
     if enable_error_handler:
-        from nexus.middleware_exception import setup_exception_handlers
-        setup_exception_handlers(app)
+        components.append("error_handler")
+    if enable_no_cache:
+        components.append("no_cache")
+    if enable_security_headers:
+        components.append("security_headers")
+    if enable_not_found_check:
+        components.append("not_found_check")
+    if enable_loading_splash:
+        components.append("loading_splash")
+    if enable_audit:
+        components.append("audit")
+    if enable_metrics:
+        components.append("metrics")
+    if enable_cors:
+        components.append("cors")
+    with_exception_handlers = (
+        enable_exception_handlers
+        if enable_exception_handlers is not None
+        else enable_error_handler
+    )
+    if with_exception_handlers:
+        components.append("exception_handlers")
+
+    for name in components:
+        _mount_component(app, name, cfg, cors_origins, no_cache_prefix)
