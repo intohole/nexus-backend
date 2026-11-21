@@ -67,7 +67,9 @@ def _mount_component(app: FastAPI, name: str, cfg: NexusConfig, cors_origins, no
             from nexus.middleware_metrics import RequestMetricsMiddleware
             app.add_middleware(RequestMetricsMiddleware)
         except ImportError:
-            pass
+            get_logger("nexus.setup").warning(
+                "nexus.middleware_metrics 缺失，指标中间件降级跳过"
+            )
     elif name == "exception_handlers":
         from nexus.middleware_exception import setup_exception_handlers
         setup_exception_handlers(app)
