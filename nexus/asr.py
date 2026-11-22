@@ -26,6 +26,7 @@ import httpx
 from nexus._ws_stream_base import _WsStreamCloser
 from nexus.infra import get_promptmanager_config
 from nexus.logging import get_logger
+from nexus.trace import outbound_headers
 
 logger = get_logger("nexus.asr")
 
@@ -225,7 +226,11 @@ async def asr_transcribe(
         if value is not None:
             payload[key] = value
 
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        **outbound_headers(),
+    }
     last_detail = ""
     for attempt in range(_MAX_RETRIES):
         try:

@@ -81,13 +81,9 @@ class SearchProvider(ABC):
     async def _do_search(self, query: str, config: SearchConfig) -> ProviderSearchResponse: ...
 
     def _identity_headers(self) -> dict[str, str]:
-        try:
-            from ironman.bootstrap import current_app_name
+        from nexus.trace import identity_headers
 
-            app = current_app_name()
-        except Exception:
-            return {}
-        return {"X-App-Id": app} if app else {}
+        return identity_headers()
 
     async def _ensure_client(self) -> bool:
         if self._client is not None:

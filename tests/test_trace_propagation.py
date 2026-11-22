@@ -200,3 +200,49 @@ class TestInboundReuseSemantics:
         assert r1.headers["X-Request-ID"] == "reuse-me"
         r2 = client.get("/echo-rid")
         assert r2.json()["rid"] and r2.json()["rid"] != "reuse-me"
+
+
+class TestIdentityInjection:
+    """h132 出站身份盖章守底：outbound_headers=trace+身份双通道（匿名桶根治）。"""
+
+    def test_outbound_headers_carries_app_identity_when_bootstrapped(self, monkeypatch):
+        import ironman.bootstrap as bs
+
+        monkeypatch.setattr(bs, "current_app_name", lambda: "Memoria", raising=False)
+        headers = outbound_headers()
+        assert headers.get("X-App-Id") == "Memoria"
+        assert TRACE_HEADER in headers and headers[TRACE_HEADER]
+
+    def test_outbound_headers_identity_absent_when_no_app(self, monkeypatch):
+        import ironman.bootstrap as bs
+
+        monkeypatch.setattr(bs, "_app_name", "", raising=False)
+        headers = outbound_headers()
+        assert "X-App-Id" not in headers
+        assert TRACE_HEADER in headers
+
+    def test_identity_headers_identity_only_no_trace(self, monkeypatch):
+        import ironman.bootstrap as bs
+
+        from nexus.trace import identity_headers
+
+        monkeypatch.setattr(bs, "current_app_name", lambda: "mountain", raising=False)
+        assert identity_headers() == {"X-App-Id": "mountain"}
+
+    def test_identity_headers_swallows_bootstrap_failure(self, monkeypatch):
+        import ironman.bootstrap as bs
+
+        from nexus.trace import identity_headers
+
+        def _raise() -> str:
+            raise RuntimeError("ironman not initialized")
+
+        monkeypatch.setattr(bs, "current_app_name", _raise, raising=False)
+        assert identity_headers() == {}
+
+    def test_extra_overrides_identity(self, monkeypatch):
+        import ironman.bootstrap as bs
+
+        monkeypatch.setattr(bs, "current_app_name", lambda: "Memoria", raising=False)
+        headers = outbound_headers({"X-App-Id": "h132-probe"})
+        assert headers.get("X-App-Id") == "h132-probe"
