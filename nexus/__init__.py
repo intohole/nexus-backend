@@ -121,7 +121,7 @@ from nexus.permissions import (
 from nexus.probe_extras import make_watermark_check
 from nexus.rag_quality import repair_citations, run_check
 from nexus.rate_limit import KeyedRateLimiter, RateLimitMiddleware, SlidingWindow
-from nexus.repository import StatelessRepository, paginate, paginate_skip
+from nexus.repository import StatelessRepository
 from nexus.resilient_llm import resilient_ask, resilient_extract, resilient_stream
 from nexus.response import error_response, spa_index_response, success_response
 from nexus.sanitize import sanitize_platform_text
@@ -166,7 +166,7 @@ from nexus.utils import (
 from nexus.vision import get_vision_service
 from nexus.voice import register_voice_endpoints
 from nexus.voice_realtime import VoiceRealtimeConfig, register_voice_realtime_endpoints
-from nexus.volc import TTSStreamSession, VolcArkClient, VolcArkError, VolcArkUnavailableError
+from nexus.volc import TTSStreamSession
 from nexus.web_search import (
     SpiderSearchResponse,
     SpiderSearchResult,
@@ -180,7 +180,7 @@ except Exception:  # source-tree import without installed metadata
     __version__ = "unknown"
 
 __all__ = [
-    "VolcArkClient", "VolcArkError", "VolcArkUnavailableError", "TTSStreamSession",
+    "TTSStreamSession",
     "asr_transcribe", "register_voice_endpoints", "register_voice_realtime_endpoints", "VoiceRealtimeConfig",
     "load_project_config", "yaml_get", "yaml_secret", "yaml_int",
     "yaml_float", "yaml_bool", "NotFoundError", "DatabaseManager",
@@ -203,7 +203,7 @@ __all__ = [
     "DOMAIN_CREATIVE", "DOMAIN_GROWTH", "DOMAIN_ASSET", "get_client_ip",
     "sanitize_platform_text", "init_uc_sdk", "init_uc_sdk_from_lion", "get_uc_sdk",
     "close_uc_sdk", "extract_bearer_token", "standard_ok", "standard_err",
-    "StatelessRepository", "paginate", "paginate_skip", "register_uc_proxy",
+    "StatelessRepository", "register_uc_proxy",
     "get_current_user_or_anon", "get_current_user_or_anon_lax", "get_current_user_or_anon_optional", "require_admin",
     "require_admin_id", "require_permission", "get_current_org_id_optional", "org_visibility",
     "create_standard_lifespan", "BaseService", "handle_api_errors", "get_lion",
