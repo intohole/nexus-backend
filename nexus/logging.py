@@ -40,9 +40,6 @@ def setup_logging(
     cfg: NexusConfig = config or get_settings()
     log_cfg = cfg.logging
 
-    log_dir: Path = Path(log_cfg.dir)
-    log_dir.mkdir(parents=True, exist_ok=True)
-
     root_logger: logging.Logger = logging.getLogger()
     root_logger.setLevel(getattr(logging, log_cfg.level.upper(), logging.INFO))
 
@@ -50,9 +47,29 @@ def setup_logging(
         if getattr(handler, _NEXUS_HANDLER_ATTR, False):
             root_logger.removeHandler(handler)
 
+    bridged: bool = any(
+        isinstance(handler, _StdlibToLoguruHandler) for handler in root_logger.handlers
+    )
+
     formatter: NexusFormatter = NexusFormatter(detail=cfg.debug)
 
-    if log_cfg.console:
+    log_dir: Path = Path(log_cfg.dir)
+    file_sink_ok: bool = True
+    if bridged:
+        file_sink_ok = False
+    else:
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            print(f"[nexus] log dir not writable, fallback to ./logs: {exc!r}", file=sys.stderr)
+            try:
+                log_dir = Path("logs")
+                log_dir.mkdir(parents=True, exist_ok=True)
+            except OSError as exc2:
+                print(f"[nexus] fallback log dir not writable either, file sinks disabled: {exc2!r}", file=sys.stderr)
+                file_sink_ok = False
+
+    if log_cfg.console and not bridged:
         console_handler: logging.StreamHandler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(formatter)
         console_handler.setLevel(getattr(logging, log_cfg.level.upper(), logging.INFO))
@@ -60,30 +77,31 @@ def setup_logging(
         root_logger.addHandler(console_handler)
 
     app_log_path: Path = log_dir / f"{app_name or cfg.app_name}.log"
-    file_handler: TimedRotatingFileHandler = TimedRotatingFileHandler(
-        app_log_path,
-        when="midnight",
-        interval=1,
-        backupCount=log_cfg.retention_days,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(formatter)
-    file_handler.setLevel(logging.DEBUG)
-    _mark_handler(file_handler)
-    root_logger.addHandler(file_handler)
+    if file_sink_ok:
+        file_handler: TimedRotatingFileHandler = TimedRotatingFileHandler(
+            app_log_path,
+            when="midnight",
+            interval=1,
+            backupCount=log_cfg.retention_days,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(logging.DEBUG)
+        _mark_handler(file_handler)
+        root_logger.addHandler(file_handler)
 
-    error_log_path: Path = log_dir / f"{app_name or cfg.app_name}_error.log"
-    error_handler: TimedRotatingFileHandler = TimedRotatingFileHandler(
-        error_log_path,
-        when="midnight",
-        interval=1,
-        backupCount=log_cfg.retention_days,
-        encoding="utf-8",
-    )
-    error_handler.setFormatter(formatter)
-    error_handler.setLevel(logging.ERROR)
-    _mark_handler(error_handler)
-    root_logger.addHandler(error_handler)
+        error_log_path: Path = log_dir / f"{app_name or cfg.app_name}_error.log"
+        error_handler: TimedRotatingFileHandler = TimedRotatingFileHandler(
+            error_log_path,
+            when="midnight",
+            interval=1,
+            backupCount=log_cfg.retention_days,
+            encoding="utf-8",
+        )
+        error_handler.setFormatter(formatter)
+        error_handler.setLevel(logging.ERROR)
+        _mark_handler(error_handler)
+        root_logger.addHandler(error_handler)
 
     for noisy_logger in ("uvicorn", "uvicorn.access", "sqlalchemy.engine"):
         logging.getLogger(noisy_logger).setLevel(logging.WARNING)
@@ -146,7 +164,28 @@ def setup_loguru(
     import os as _os
     from pathlib import Path as _Path
 
-    _Path(log_dir).mkdir(parents=True, exist_ok=True)
+    env_dir = _os.environ.get("LOGGING__DIR")
+    if env_dir:
+        log_dir = env_dir
+    env_retention = _os.environ.get("LOGGING__RETENTION_DAYS")
+    if env_retention:
+        try:
+            retention_days = int(env_retention)
+        except ValueError:
+            pass
+
+    file_sink_ok = True
+    try:
+        _Path(log_dir).mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        print(f"[nexus] log dir not writable, fallback to ./logs: {exc!r}", file=_os.sys.stderr)
+        try:
+            log_dir = "logs"
+            _Path(log_dir).mkdir(parents=True, exist_ok=True)
+        except OSError as exc2:
+            print(f"[nexus] fallback log dir not writable either, file sinks disabled: {exc2!r}", file=_os.sys.stderr)
+            file_sink_ok = False
+
     logger.remove()
     logger.configure(patcher=_context_patcher)
 
@@ -165,32 +204,33 @@ def setup_loguru(
         " - {message} [req_id={extra[req_id]} uid={extra[uid]}]"
     )
 
-    logger.add(
-        f"{log_dir}/{app_name}-{{time:YYYY-MM-DD}}.log",
-        rotation="00:00",
-        retention=f"{retention_days} days",
-        compression="gz",
-        encoding="utf-8",
-        level=log_level,
-        enqueue=True,
-        backtrace=True,
-        diagnose=False,
-        filter=lambda record: record["level"].no < 40,
-        format=_path_format,
-    )
+    if file_sink_ok:
+        logger.add(
+            f"{log_dir}/{app_name}-{{time:YYYY-MM-DD}}.log",
+            rotation="00:00",
+            retention=f"{retention_days} days",
+            compression="gz",
+            encoding="utf-8",
+            level=log_level,
+            enqueue=True,
+            backtrace=True,
+            diagnose=False,
+            filter=lambda record: record["level"].no < 40,
+            format=_path_format,
+        )
 
-    logger.add(
-        f"{log_dir}/{app_name}-error-{{time:YYYY-MM-DD}}.log",
-        rotation="00:00",
-        retention=f"{retention_days} days",
-        compression="gz",
-        encoding="utf-8",
-        level="ERROR",
-        enqueue=True,
-        backtrace=True,
-        diagnose=False,
-        format=_path_format,
-    )
+        logger.add(
+            f"{log_dir}/{app_name}-error-{{time:YYYY-MM-DD}}.log",
+            rotation="00:00",
+            retention=f"{retention_days} days",
+            compression="gz",
+            encoding="utf-8",
+            level="ERROR",
+            enqueue=True,
+            backtrace=True,
+            diagnose=False,
+            format=_path_format,
+        )
 
     if bridge_stdlib:
         logging.basicConfig(handlers=[_StdlibToLoguruHandler()], level=logging.INFO, force=True)
