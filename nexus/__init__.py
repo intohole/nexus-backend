@@ -9,6 +9,7 @@ from nexus.config import (
     yaml_float,
     yaml_bool,
     resolve_env_tree,
+    RateLimitConfig,
 )
 from nexus.errors import (
     NexusError,
@@ -99,7 +100,6 @@ from nexus.middleware import (
 from nexus.rate_limit import KeyedRateLimiter, RateLimitMiddleware, SlidingWindow, TokenBucket
 from nexus.audit_middleware import AuditMiddleware
 from nexus.audit import log_audit
-from nexus.config import RateLimitConfig as RateLimitConfig
 from nexus.auth import (
     AuthDependencies,
     get_current_user_id_required,
@@ -312,7 +312,6 @@ from nexus.automation import (
 )
 from nexus.sanitize import sanitize_agent_output, sanitize_platform_text, sanitize_text_stream
 from nexus.touch import TouchAction, TouchDecision, decide_touch, fingerprint as touch_fingerprint
-from nexus.audience import sendable_users as audience_sendable_users, sendable as audience_sendable, guard_enabled as audience_guard_enabled
 
 try:
     from importlib.metadata import version as _version
@@ -337,7 +336,6 @@ __all__ = [
     "TimeUtils", "MemoryCache", "SyncTTLCache", "MoutainClient", "HttpClient", "cosine_similarity",
     "TRACE_HEADER", "ensure_request_id", "outbound_headers",
     "extract_document_text", "DocExtractError",
-    "validate_upload", "read_upload_with_limit", "split_ext",
     "batch_cosine_similarity", "clamp", "loads_or", "safe_float", "safe_bool", "jsonable", "resolve_cors_origins",
     "paginate_from_skip", "spawn_background", "pending_background_tasks", "drain_background_tasks",
     "spawn_periodic", "periodic_background_tasks",
@@ -397,5 +395,4 @@ __all__ = [
     "AutomationResult", "AutomationEngine", "EventTrigger", "ScheduleTrigger",
     "sanitize_agent_output", "sanitize_text_stream",
     "TouchAction", "TouchDecision", "decide_touch", "touch_fingerprint",
-    "audience_sendable_users", "audience_sendable", "audience_guard_enabled",
 ]

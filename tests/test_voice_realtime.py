@@ -202,7 +202,7 @@ class FakeAsrSession:
 
 
 def _asr_session(ws: FakeWebSocket, monkeypatch) -> tuple[_RealtimeSession, FakeAsrSession]:
-    monkeypatch.setattr("nexus.voice_session.AsrStreamSession", FakeAsrSession)
+    monkeypatch.setattr("nexus.voice_stream.AsrStreamSession", FakeAsrSession)
     session = _session(ws, VoiceRealtimeConfig(asr_api_key="k", asr_end_window_ms=500))
     return session, session._asr
 

@@ -322,7 +322,7 @@ async def test_asr_audio_bytes_accumulate_into_meter(monkeypatch) -> None:
         async def close(self) -> None:
             pass
 
-    monkeypatch.setattr("nexus.voice_session.AsrStreamSession", FakeAsrSession)
+    monkeypatch.setattr("nexus.voice_stream.AsrStreamSession", FakeAsrSession)
     ws = FakeWebSocket()
     session = _session(ws, EchoHandler(), config=VoiceRealtimeConfig(asr_api_key="k"))
     import base64
@@ -366,7 +366,7 @@ async def test_recorded_asr_stream_replay_drives_turns(monkeypatch) -> None:
         async def close(self) -> None:
             pass
 
-    monkeypatch.setattr("nexus.voice_session.AsrStreamSession", ReplayAsr)
+    monkeypatch.setattr("nexus.voice_stream.AsrStreamSession", ReplayAsr)
     import base64
 
     ws = FakeWebSocket()

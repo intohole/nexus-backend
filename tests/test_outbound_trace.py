@@ -1,6 +1,5 @@
 import pytest
 
-import nexus.notify as notify_mod
 from nexus.context import set_request_context
 from nexus.notify import NotifyClient
 from nexus.service_client import ServiceClient
@@ -11,7 +10,7 @@ async def test_notify_headers_carries_request_id(monkeypatch) -> None:
     async def _fake_token() -> str:
         return "svc-token"
 
-    monkeypatch.setattr(notify_mod, "get_service_token", _fake_token)
+    monkeypatch.setattr("nexus.notify_client.get_service_token", _fake_token)
     set_request_context(request_id="")
     client = NotifyClient(base_url="http://nc", service_token="")
     headers = await client._headers()
@@ -25,7 +24,7 @@ async def test_notify_headers_request_id_follows_context(monkeypatch) -> None:
     async def _fake_token() -> str:
         return "svc-token"
 
-    monkeypatch.setattr(notify_mod, "get_service_token", _fake_token)
+    monkeypatch.setattr("nexus.notify_client.get_service_token", _fake_token)
     set_request_context(request_id="req-abc-123")
     client = NotifyClient(base_url="http://nc", service_token="preset")
     headers = await client._headers()
@@ -38,7 +37,7 @@ async def test_notify_headers_without_token_keeps_trace(monkeypatch) -> None:
     async def _fake_token() -> str:
         return ""
 
-    monkeypatch.setattr(notify_mod, "get_service_token", _fake_token)
+    monkeypatch.setattr("nexus.notify_client.get_service_token", _fake_token)
     set_request_context(request_id="req-no-token")
     client = NotifyClient(base_url="http://nc", service_token="")
     headers = await client._headers()
