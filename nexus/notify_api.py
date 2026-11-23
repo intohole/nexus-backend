@@ -13,10 +13,20 @@ try_send（1.59.0 起）：send 的安全壳——NotifyClient.send 已内吞网
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from nexus.logging import get_logger
-from nexus.notify import NotifyClient, get_notify_client
+
+if TYPE_CHECKING:
+    from nexus.notify import NotifyClient
+
+
+def __getattr__(name: str):
+    if name == "NotifyClient":
+        from nexus.notify import NotifyClient
+
+        return NotifyClient
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 logger = get_logger("nexus.notify_api")
 
@@ -26,6 +36,10 @@ async def send_notification(
     content: str = "",
     **kwargs: object,
 ) -> dict[str, object]:
+    from nexus.notify import (
+        get_notify_client,  # 调用时解析：patch nexus.notify.get_notify_client 的测试桩保持有效
+    )
+
     client: NotifyClient = get_notify_client()
     return await client.send(
         user_id=user_id, title=title, content=content, **kwargs
@@ -73,7 +87,9 @@ async def send_receipt(
     全链不抛异常：网络/HTTP/参数异常一律转 (0, failed 信封)——触达归因链
     不允许中断业务主链。截断单源 title 200/content 2000（与渠道轨同口径）。
     """
-    from nexus.notify import get_notify_client  # 调用时解析：patch nexus.notify.get_notify_client 的测试桩保持有效
+    from nexus.notify import (
+        get_notify_client,  # 调用时解析：patch nexus.notify.get_notify_client 的测试桩保持有效
+    )
 
     uid = str(user_id or "").strip()
     if _is_placeholder_user(uid):
@@ -120,7 +136,9 @@ async def try_send(
     或 None（调用层异常）。仅 status=="sent" 表示已送达；网络失败返回 failed dict 而非 None。
     判定送达请写 `result and result.get("status") == "sent"`，不要写 `result is None`。
     """
-    from nexus.notify import get_notify_client  # 调用时解析：monkeypatch nexus.notify.get_notify_client 的测试桩保持有效
+    from nexus.notify import (
+        get_notify_client,  # 调用时解析：monkeypatch nexus.notify.get_notify_client 的测试桩保持有效
+    )
 
     try:
         return await get_notify_client().send(
@@ -140,6 +158,10 @@ async def send_email(
     body: str,
     html: str | None = None,
 ) -> bool:
+    from nexus.notify import (
+        get_notify_client,  # 调用时解析：patch nexus.notify.get_notify_client 的测试桩保持有效
+    )
+
     client: NotifyClient = get_notify_client()
     return await client.send_email(to=to, subject=subject, body=body, html=html)
 
@@ -152,6 +174,10 @@ async def send_admin_email(
     app_id: str = "system",
     type: str = "alert",
 ) -> dict[str, object]:
+    from nexus.notify import (
+        get_notify_client,  # 调用时解析：patch nexus.notify.get_notify_client 的测试桩保持有效
+    )
+
     client: NotifyClient = get_notify_client()
     return await client.send_admin_email(
         subject=subject,
@@ -169,6 +195,10 @@ async def send_sms(
     template_param: Optional[dict[str, object]] = None,
     sign_name: str = "",
 ) -> bool:
+    from nexus.notify import (
+        get_notify_client,  # 调用时解析：patch nexus.notify.get_notify_client 的测试桩保持有效
+    )
+
     client: NotifyClient = get_notify_client()
     return await client.send_sms(
         phone=phone,

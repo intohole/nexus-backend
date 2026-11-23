@@ -1,177 +1,10 @@
-from nexus.api_decorators import handle_api_errors
-from nexus.asr import asr_transcribe
-from nexus.audit_middleware import AuditMiddleware
-from nexus.auth import (
-    extract_bearer_token,
-    get_current_user_full,
-    get_current_user_id_optional,
-    get_current_user_id_required,
-)
-from nexus.auth_anon import (
-    get_current_user_or_anon,
-    get_current_user_or_anon_lax,
-    get_current_user_or_anon_optional,
-)
-from nexus.auth_routes import create_auth_router
-from nexus.automation import (
-    AutomationContext,
-    AutomationEngine,
-    AutomationResult,
-    EventTrigger,
-    ScheduleTrigger,
-)
-from nexus.bm_sdk import BeeMemorySDK, ensure_app_memory, get_bm_sdk
-from nexus.boot import (
-    mount_spa_static,
-    register_health_endpoints,
-    register_service_auth,
-)
-from nexus.business_probe import (
-    build_probe_runner,
-    probe_scheduler,
-    register_probe_endpoints,
-)
-from nexus.circuit_breaker import (
-    CircuitBreaker,
-    CircuitBreakerConfig,
-    CircuitBreakerOpenError,
-    CircuitState,
-    get_circuit_breaker,
-)
-from nexus.config import (
-    load_project_config,
-    yaml_bool,
-    yaml_float,
-    yaml_get,
-    yaml_int,
-    yaml_secret,
-)
-from nexus.cost_guard import CostBudget, CostBudgetExceededError, CostGuard, get_cost_guard
-from nexus.database import Base, DatabaseManager, close_db, db_manager, get_db, init_db
-from nexus.datacenter import (
-    DOMAIN_ASSET,
-    DOMAIN_CAREER,
-    DOMAIN_CREATIVE,
-    DOMAIN_GROWTH,
-    DOMAIN_KNOWLEDGE,
-    get_datacenter_client,
-    report_core,
-)
-from nexus.doc_extract import extract_document_text
-from nexus.errors import NotFoundError
-from nexus.fastapi_setup import (
-    create_app,
-    register_internal_endpoints,
-    setup_middleware,
-    setup_static_files,
-)
-from nexus.image import get_image_service
-from nexus.infra import get_uc_base_url
-from nexus.ironman import ensure_ironman, init_ironman, is_ironman_available
-from nexus.ironman import startup as startup_ironman
-from nexus.jwt_utils import sign_jwt, verify_jwt
-from nexus.lifespan import create_standard_lifespan
-from nexus.lion import (
-    get_business_config,
-    get_chat_config,
-    get_embed_config,
-    get_image_config,
-    get_lion,
-)
-from nexus.llm import get_llm_service
-from nexus.llm_client import LLMJsonClient
-from nexus.llm_helpers import disciplined_messages, with_tail_context
-from nexus.llm_json import (
-    extract_json_rows,
-    is_llm_json_error,
-    parse_json_column,
-    parse_llm_json,
-    parse_llm_json_lenient,
-    parse_llm_json_or,
-    strip_code_fence,
-)
-from nexus.llm_optimizer import compact_history, estimate_tokens, trim_context
-from nexus.llm_utils import (
-    LLMTimeoutError,
-    ask_json,
-    chat_json,
-    is_meta_narration,
-    with_llm_retry,
-)
-from nexus.logging import get_logger, setup_loguru
-from nexus.memory import recall_context
-from nexus.middleware import (
-    ErrorHandlerMiddleware,
-    LoadingSplashMiddleware,
-    LoggingMiddleware,
-    NotFoundCheckMiddleware,
-    RequestIdMiddleware,
-    ServiceAuthMiddleware,
-    StaticAssetsCacheMiddleware,
-    setup_cors,
-    setup_exception_handlers,
-)
-from nexus.org import org_visibility
-from nexus.permissions import (
-    get_current_org_id_optional,
-    require_admin,
-    require_admin_id,
-    require_permission,
-)
-from nexus.probe_extras import make_watermark_check
-from nexus.rag_quality import repair_citations, run_check
-from nexus.rate_limit import KeyedRateLimiter, RateLimitMiddleware, SlidingWindow
-from nexus.repository import StatelessRepository
-from nexus.resilient_llm import resilient_ask, resilient_extract, resilient_stream
-from nexus.response import error_response, spa_index_response, success_response
-from nexus.sanitize import sanitize_platform_text
-from nexus.scheduler import get_scheduler
-from nexus.service import BaseService
-from nexus.sqlite_migrate import (
-    ensure_column,
-    ensure_columns,
-    ensure_columns_sync,
-    ensure_model_columns,
-)
-from nexus.streaming import openai_sse_deltas
-from nexus.trace import TRACE_HEADER, ensure_request_id, outbound_headers
-from nexus.uc_proxy import register_uc_proxy
-from nexus.uc_sdk_helper import (
-    close_uc_sdk,
-    get_uc_sdk,
-    init_uc_sdk,
-    init_uc_sdk_from_lion,
-    standard_err,
-    standard_ok,
-)
-from nexus.utils import (
-    MemoryCache,
-    SyncTTLCache,
-    TimeUtils,
-    batch_cosine_similarity,
-    clamp,
-    cosine_similarity,
-    drain_background_tasks,
-    get_client_ip,
-    jsonable,
-    loads_or,
-    pending_background_tasks,
-    periodic_background_tasks,
-    resolve_cors_origins,
-    safe_bool,
-    safe_float,
-    spawn_background,
-    spawn_periodic,
-)
-from nexus.vision import get_vision_service
-from nexus.voice import register_voice_endpoints
-from nexus.voice_realtime import VoiceRealtimeConfig, register_voice_realtime_endpoints
-from nexus.volc import TTSStreamSession
-from nexus.web_search import (
-    SpiderSearchResponse,
-    SpiderSearchResult,
-    get_web_search_service,
-)
+"""nexus 包根（渐进披露形态）：声明面只留 name，正文（子模块）首次触达才载入。
+
+单源 _REEXPORTS：绑定名 -> 定义位置（"模块"，别名导出为 "模块:原名"）。__all__ 由映射推导。
+"""
+from __future__ import annotations
+
+from importlib import import_module
 
 try:
     from importlib.metadata import version as _version
@@ -179,48 +12,198 @@ try:
 except Exception:  # source-tree import without installed metadata
     __version__ = "unknown"
 
-__all__ = [
-    "TTSStreamSession",
-    "asr_transcribe", "register_voice_endpoints", "register_voice_realtime_endpoints", "VoiceRealtimeConfig",
-    "load_project_config", "yaml_get", "yaml_secret", "yaml_int",
-    "yaml_float", "yaml_bool", "NotFoundError", "DatabaseManager",
-    "get_db", "db_manager", "Base", "init_db",
-    "close_db", "setup_loguru", "get_logger", "ensure_column",
-    "ensure_columns", "ensure_model_columns", "ensure_columns_sync", "success_response",
-    "error_response", "spa_index_response", "TimeUtils", "MemoryCache",
-    "SyncTTLCache", "cosine_similarity", "TRACE_HEADER", "ensure_request_id",
-    "outbound_headers", "extract_document_text", "batch_cosine_similarity", "clamp",
-    "loads_or", "safe_float", "safe_bool", "jsonable",
-    "resolve_cors_origins", "spawn_background", "pending_background_tasks", "drain_background_tasks",
-    "spawn_periodic", "periodic_background_tasks", "run_check", "repair_citations",
-    "register_service_auth", "register_health_endpoints", "register_probe_endpoints", "build_probe_runner",
-    "probe_scheduler", "make_watermark_check", "mount_spa_static", "setup_cors",
-    "RequestIdMiddleware", "LoggingMiddleware", "NotFoundCheckMiddleware", "StaticAssetsCacheMiddleware",
-    "LoadingSplashMiddleware", "ErrorHandlerMiddleware", "ServiceAuthMiddleware", "setup_exception_handlers",
-    "RateLimitMiddleware", "SlidingWindow", "KeyedRateLimiter", "AuditMiddleware",
-    "get_current_user_id_required", "get_current_user_id_optional", "get_current_user_full", "create_auth_router",
-    "get_datacenter_client", "report_core", "DOMAIN_CAREER", "DOMAIN_KNOWLEDGE",
-    "DOMAIN_CREATIVE", "DOMAIN_GROWTH", "DOMAIN_ASSET", "get_client_ip",
-    "sanitize_platform_text", "init_uc_sdk", "init_uc_sdk_from_lion", "get_uc_sdk",
-    "close_uc_sdk", "extract_bearer_token", "standard_ok", "standard_err",
-    "StatelessRepository", "register_uc_proxy",
-    "get_current_user_or_anon", "get_current_user_or_anon_lax", "get_current_user_or_anon_optional", "require_admin",
-    "require_admin_id", "require_permission", "get_current_org_id_optional", "org_visibility",
-    "create_standard_lifespan", "BaseService", "handle_api_errors", "get_lion",
-    "get_chat_config", "get_embed_config", "get_image_config", "get_business_config",
-    "get_uc_base_url", "get_bm_sdk", "BeeMemorySDK", "ensure_app_memory",
-    "sign_jwt", "verify_jwt", "create_app", "setup_middleware",
-    "setup_static_files", "register_internal_endpoints", "parse_llm_json", "parse_llm_json_lenient",
-    "parse_llm_json_or", "parse_json_column", "with_llm_retry", "is_llm_json_error",
-    "extract_json_rows", "ask_json", "chat_json", "is_meta_narration",
-    "with_tail_context", "disciplined_messages", "recall_context", "strip_code_fence",
-    "LLMTimeoutError", "get_llm_service", "LLMJsonClient", "get_image_service",
-    "get_vision_service", "estimate_tokens", "trim_context", "compact_history",
-    "init_ironman", "ensure_ironman", "startup_ironman", "is_ironman_available",
-    "get_web_search_service", "SpiderSearchResult", "SpiderSearchResponse", "openai_sse_deltas",
-    "CircuitBreaker", "CircuitBreakerConfig", "CircuitState", "CircuitBreakerOpenError",
-    "get_circuit_breaker", "CostGuard", "CostBudget", "CostBudgetExceededError",
-    "get_cost_guard", "resilient_ask", "resilient_extract", "resilient_stream",
-    "get_scheduler", "AutomationContext", "AutomationResult", "AutomationEngine",
-    "EventTrigger", "ScheduleTrigger",
-]
+_REEXPORTS: dict[str, str] = {
+    "handle_api_errors": "nexus.api_decorators",
+    "asr_transcribe": "nexus.asr",
+    "AuditMiddleware": "nexus.audit_middleware",
+    "extract_bearer_token": "nexus.auth",
+    "get_current_user_full": "nexus.auth",
+    "get_current_user_id_optional": "nexus.auth",
+    "get_current_user_id_required": "nexus.auth",
+    "get_current_user_or_anon": "nexus.auth_anon",
+    "get_current_user_or_anon_lax": "nexus.auth_anon",
+    "get_current_user_or_anon_optional": "nexus.auth_anon",
+    "create_auth_router": "nexus.auth_routes",
+    "AutomationContext": "nexus.automation",
+    "AutomationEngine": "nexus.automation",
+    "AutomationResult": "nexus.automation",
+    "EventTrigger": "nexus.automation",
+    "ScheduleTrigger": "nexus.automation",
+    "BeeMemorySDK": "nexus.bm_sdk",
+    "ensure_app_memory": "nexus.bm_sdk",
+    "get_bm_sdk": "nexus.bm_sdk",
+    "mount_spa_static": "nexus.boot",
+    "register_health_endpoints": "nexus.boot",
+    "register_service_auth": "nexus.boot",
+    "build_probe_runner": "nexus.business_probe",
+    "probe_scheduler": "nexus.business_probe",
+    "register_probe_endpoints": "nexus.business_probe",
+    "CircuitBreaker": "nexus.circuit_breaker",
+    "CircuitBreakerConfig": "nexus.circuit_breaker",
+    "CircuitBreakerOpenError": "nexus.circuit_breaker",
+    "CircuitState": "nexus.circuit_breaker",
+    "get_circuit_breaker": "nexus.circuit_breaker",
+    "load_project_config": "nexus.config",
+    "yaml_bool": "nexus.config",
+    "yaml_float": "nexus.config",
+    "yaml_get": "nexus.config",
+    "yaml_int": "nexus.config",
+    "yaml_secret": "nexus.config",
+    "CostBudget": "nexus.cost_guard",
+    "CostBudgetExceededError": "nexus.cost_guard",
+    "CostGuard": "nexus.cost_guard",
+    "get_cost_guard": "nexus.cost_guard",
+    "Base": "nexus.database",
+    "DatabaseManager": "nexus.database",
+    "close_db": "nexus.database",
+    "db_manager": "nexus.database",
+    "get_db": "nexus.database",
+    "init_db": "nexus.database",
+    "DOMAIN_ASSET": "nexus.datacenter",
+    "DOMAIN_CAREER": "nexus.datacenter",
+    "DOMAIN_CREATIVE": "nexus.datacenter",
+    "DOMAIN_GROWTH": "nexus.datacenter",
+    "DOMAIN_KNOWLEDGE": "nexus.datacenter",
+    "get_datacenter_client": "nexus.datacenter",
+    "report_core": "nexus.datacenter",
+    "extract_document_text": "nexus.doc_extract",
+    "NotFoundError": "nexus.errors",
+    "create_app": "nexus.fastapi_setup",
+    "register_internal_endpoints": "nexus.fastapi_setup",
+    "setup_middleware": "nexus.fastapi_setup",
+    "setup_static_files": "nexus.fastapi_setup",
+    "get_image_service": "nexus.image",
+    "get_uc_base_url": "nexus.infra",
+    "ensure_ironman": "nexus.ironman",
+    "init_ironman": "nexus.ironman",
+    "is_ironman_available": "nexus.ironman",
+    "startup_ironman": "nexus.ironman:startup",
+    "sign_jwt": "nexus.jwt_utils",
+    "StatelessRepository": "nexus.repository",
+    "verify_jwt": "nexus.jwt_utils",
+    "create_standard_lifespan": "nexus.lifespan",
+    "get_business_config": "nexus.lion",
+    "get_chat_config": "nexus.lion",
+    "get_embed_config": "nexus.lion",
+    "get_image_config": "nexus.lion",
+    "get_lion": "nexus.lion",
+    "get_llm_service": "nexus.llm",
+    "LLMJsonClient": "nexus.llm_client",
+    "disciplined_messages": "nexus.llm_helpers",
+    "with_tail_context": "nexus.llm_helpers",
+    "extract_json_rows": "nexus.llm_json",
+    "is_llm_json_error": "nexus.llm_json",
+    "parse_json_column": "nexus.llm_json",
+    "parse_llm_json": "nexus.llm_json",
+    "parse_llm_json_lenient": "nexus.llm_json",
+    "parse_llm_json_or": "nexus.llm_json",
+    "strip_code_fence": "nexus.llm_json",
+    "compact_history": "nexus.llm_optimizer",
+    "estimate_tokens": "nexus.llm_optimizer",
+    "trim_context": "nexus.llm_optimizer",
+    "LLMTimeoutError": "nexus.llm_utils",
+    "ask_json": "nexus.llm_utils",
+    "chat_json": "nexus.llm_utils",
+    "is_meta_narration": "nexus.llm_utils",
+    "with_llm_retry": "nexus.llm_utils",
+    "get_logger": "nexus.logging",
+    "setup_loguru": "nexus.logging",
+    "recall_context": "nexus.memory",
+    "ErrorHandlerMiddleware": "nexus.middleware",
+    "LoadingSplashMiddleware": "nexus.middleware",
+    "LoggingMiddleware": "nexus.middleware",
+    "NotFoundCheckMiddleware": "nexus.middleware",
+    "RequestIdMiddleware": "nexus.middleware",
+    "ServiceAuthMiddleware": "nexus.middleware",
+    "StaticAssetsCacheMiddleware": "nexus.middleware",
+    "setup_cors": "nexus.middleware",
+    "setup_exception_handlers": "nexus.middleware",
+    "org_visibility": "nexus.org",
+    "get_current_org_id_optional": "nexus.permissions",
+    "require_admin": "nexus.permissions",
+    "require_admin_id": "nexus.permissions",
+    "require_permission": "nexus.permissions",
+    "make_watermark_check": "nexus.probe_extras",
+    "repair_citations": "nexus.rag_quality",
+    "run_check": "nexus.rag_quality",
+    "KeyedRateLimiter": "nexus.rate_limit",
+    "RateLimitMiddleware": "nexus.rate_limit",
+    "SlidingWindow": "nexus.rate_limit",
+    "resilient_ask": "nexus.resilient_llm",
+    "resilient_extract": "nexus.resilient_llm",
+    "resilient_stream": "nexus.resilient_llm",
+    "error_response": "nexus.response",
+    "spa_index_response": "nexus.response",
+    "success_response": "nexus.response",
+    "sanitize_platform_text": "nexus.sanitize",
+    "get_scheduler": "nexus.scheduler",
+    "BaseService": "nexus.service",
+    "ensure_column": "nexus.sqlite_migrate",
+    "ensure_columns": "nexus.sqlite_migrate",
+    "ensure_columns_sync": "nexus.sqlite_migrate",
+    "ensure_model_columns": "nexus.sqlite_migrate",
+    "openai_sse_deltas": "nexus.streaming",
+    "TRACE_HEADER": "nexus.trace",
+    "ensure_request_id": "nexus.trace",
+    "outbound_headers": "nexus.trace",
+    "register_uc_proxy": "nexus.uc_proxy",
+    "close_uc_sdk": "nexus.uc_sdk_helper",
+    "get_uc_sdk": "nexus.uc_sdk_helper",
+    "init_uc_sdk": "nexus.uc_sdk_helper",
+    "init_uc_sdk_from_lion": "nexus.uc_sdk_helper",
+    "standard_err": "nexus.uc_sdk_helper",
+    "standard_ok": "nexus.uc_sdk_helper",
+    "MemoryCache": "nexus.utils",
+    "SyncTTLCache": "nexus.utils",
+    "TimeUtils": "nexus.utils",
+    "batch_cosine_similarity": "nexus.utils",
+    "clamp": "nexus.utils",
+    "cosine_similarity": "nexus.utils",
+    "drain_background_tasks": "nexus.utils",
+    "get_client_ip": "nexus.utils",
+    "jsonable": "nexus.utils",
+    "loads_or": "nexus.utils",
+    "pending_background_tasks": "nexus.utils",
+    "periodic_background_tasks": "nexus.utils",
+    "resolve_cors_origins": "nexus.utils",
+    "safe_bool": "nexus.utils",
+    "safe_float": "nexus.utils",
+    "spawn_background": "nexus.utils",
+    "spawn_periodic": "nexus.utils",
+    "get_vision_service": "nexus.vision",
+    "register_voice_endpoints": "nexus.voice",
+    "VoiceRealtimeConfig": "nexus.voice_realtime",
+    "register_voice_realtime_endpoints": "nexus.voice_realtime",
+    "TTSStreamSession": "nexus.volc",
+    "SpiderSearchResponse": "nexus.web_search",
+    "SpiderSearchResult": "nexus.web_search",
+    "get_web_search_service": "nexus.web_search",
+}
+
+__all__ = list(_REEXPORTS)
+
+
+def __getattr__(name: str):
+    target = _REEXPORTS.get(name)
+    if target is not None:
+        module_name, _, attr = target.partition(":")
+        value = getattr(import_module(module_name), attr or name)
+        globals()[name] = value
+        return value
+    if name.startswith("_"):
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    try:
+        value = import_module(f"nexus.{name}")
+    except ModuleNotFoundError as exc:
+        if exc.name == f"nexus.{name}":
+            raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+        raise
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    import pkgutil
+
+    subs = {m.name for m in pkgutil.iter_modules(__path__)}
+    return sorted(set(globals()) | set(_REEXPORTS) | subs)

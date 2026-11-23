@@ -22,8 +22,6 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
-from ironman.prompt import get_shared_prompt_manager
-
 from nexus.llm import LLMService, get_llm_service
 from nexus.logging import get_logger
 
@@ -33,6 +31,8 @@ _PROMPTS_DIR = str(Path(__file__).resolve().parents[1] / "prompts")
 
 
 def _citation_prompt(kind: str, label: str) -> str:
+    from ironman.prompt import get_shared_prompt_manager
+
     return get_shared_prompt_manager(_PROMPTS_DIR).render(kind, label=label)
 
 __all__ = [

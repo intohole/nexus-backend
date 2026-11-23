@@ -1,0 +1,207 @@
+"""A 刀守底（方案一第 3 条）：映射金集 prove-red + 165 名可解析冒烟 + 环序独立性抽验。"""
+import importlib
+import os
+import pathlib
+import subprocess
+import sys
+
+import nexus
+
+_GOLDEN = frozenset((
+    "AuditMiddleware",
+    "AutomationContext",
+    "AutomationEngine",
+    "AutomationResult",
+    "Base",
+    "BaseService",
+    "BeeMemorySDK",
+    "CircuitBreaker",
+    "CircuitBreakerConfig",
+    "CircuitBreakerOpenError",
+    "CircuitState",
+    "CostBudget",
+    "CostBudgetExceededError",
+    "CostGuard",
+    "DOMAIN_ASSET",
+    "DOMAIN_CAREER",
+    "DOMAIN_CREATIVE",
+    "DOMAIN_GROWTH",
+    "DOMAIN_KNOWLEDGE",
+    "DatabaseManager",
+    "ErrorHandlerMiddleware",
+    "EventTrigger",
+    "KeyedRateLimiter",
+    "LLMJsonClient",
+    "LLMTimeoutError",
+    "LoadingSplashMiddleware",
+    "LoggingMiddleware",
+    "MemoryCache",
+    "NotFoundCheckMiddleware",
+    "NotFoundError",
+    "RateLimitMiddleware",
+    "RequestIdMiddleware",
+    "ScheduleTrigger",
+    "ServiceAuthMiddleware",
+    "SlidingWindow",
+    "SpiderSearchResponse",
+    "SpiderSearchResult",
+    "StatelessRepository",
+    "StaticAssetsCacheMiddleware",
+    "SyncTTLCache",
+    "TRACE_HEADER",
+    "TTSStreamSession",
+    "TimeUtils",
+    "VoiceRealtimeConfig",
+    "ask_json",
+    "asr_transcribe",
+    "batch_cosine_similarity",
+    "build_probe_runner",
+    "chat_json",
+    "clamp",
+    "close_db",
+    "close_uc_sdk",
+    "compact_history",
+    "cosine_similarity",
+    "create_app",
+    "create_auth_router",
+    "create_standard_lifespan",
+    "db_manager",
+    "disciplined_messages",
+    "drain_background_tasks",
+    "ensure_app_memory",
+    "ensure_column",
+    "ensure_columns",
+    "ensure_columns_sync",
+    "ensure_ironman",
+    "ensure_model_columns",
+    "ensure_request_id",
+    "error_response",
+    "estimate_tokens",
+    "extract_bearer_token",
+    "extract_document_text",
+    "extract_json_rows",
+    "get_bm_sdk",
+    "get_business_config",
+    "get_chat_config",
+    "get_circuit_breaker",
+    "get_client_ip",
+    "get_cost_guard",
+    "get_current_org_id_optional",
+    "get_current_user_full",
+    "get_current_user_id_optional",
+    "get_current_user_id_required",
+    "get_current_user_or_anon",
+    "get_current_user_or_anon_lax",
+    "get_current_user_or_anon_optional",
+    "get_datacenter_client",
+    "get_db",
+    "get_embed_config",
+    "get_image_config",
+    "get_image_service",
+    "get_lion",
+    "get_llm_service",
+    "get_logger",
+    "get_scheduler",
+    "get_uc_base_url",
+    "get_uc_sdk",
+    "get_vision_service",
+    "get_web_search_service",
+    "handle_api_errors",
+    "init_db",
+    "init_ironman",
+    "init_uc_sdk",
+    "init_uc_sdk_from_lion",
+    "is_ironman_available",
+    "is_llm_json_error",
+    "is_meta_narration",
+    "jsonable",
+    "load_project_config",
+    "loads_or",
+    "make_watermark_check",
+    "mount_spa_static",
+    "openai_sse_deltas",
+    "org_visibility",
+    "outbound_headers",
+    "parse_json_column",
+    "parse_llm_json",
+    "parse_llm_json_lenient",
+    "parse_llm_json_or",
+    "pending_background_tasks",
+    "periodic_background_tasks",
+    "probe_scheduler",
+    "recall_context",
+    "register_health_endpoints",
+    "register_internal_endpoints",
+    "register_probe_endpoints",
+    "register_service_auth",
+    "register_uc_proxy",
+    "register_voice_endpoints",
+    "register_voice_realtime_endpoints",
+    "repair_citations",
+    "report_core",
+    "require_admin",
+    "require_admin_id",
+    "require_permission",
+    "resilient_ask",
+    "resilient_extract",
+    "resilient_stream",
+    "resolve_cors_origins",
+    "run_check",
+    "safe_bool",
+    "safe_float",
+    "sanitize_platform_text",
+    "setup_cors",
+    "setup_exception_handlers",
+    "setup_loguru",
+    "setup_middleware",
+    "setup_static_files",
+    "sign_jwt",
+    "spa_index_response",
+    "spawn_background",
+    "spawn_periodic",
+    "standard_err",
+    "standard_ok",
+    "startup_ironman",
+    "strip_code_fence",
+    "success_response",
+    "trim_context",
+    "verify_jwt",
+    "with_llm_retry",
+    "with_tail_context",
+    "yaml_bool",
+    "yaml_float",
+    "yaml_get",
+    "yaml_int",
+    "yaml_secret",
+))
+
+
+def test_mapping_covers_golden_165() -> None:
+    added = sorted(set(nexus.__all__) - _GOLDEN)
+    removed = sorted(_GOLDEN - set(nexus.__all__))
+    assert not added and not removed, (
+        f"包根钉面漂移：新增 {added} / 删失 {removed}——退役须过两仪协议，新增须带消费证据"
+    )
+
+
+def test_all_165_names_resolve_to_source_identity() -> None:
+    from nexus import _REEXPORTS
+
+    for name, where in _REEXPORTS.items():
+        module_name, _, attr = where.partition(":")
+        value = getattr(nexus, name)
+        assert value is getattr(importlib.import_module(module_name), attr or name), name
+
+
+def _nexus_root() -> str:
+    return str(pathlib.Path(nexus.__file__).parent.parent)
+
+
+def test_cycle_second_members_importable_as_first_touch() -> None:
+    for mod in ("nexus.notify_api", "nexus.scheduler_thread"):
+        env = {**os.environ, "PYTHONPATH": _nexus_root()}
+        r = subprocess.run([sys.executable, "-c", f"import {mod}"], env=env,
+                           capture_output=True, text=True, timeout=120)
+        assert r.returncode == 0, (
+            f"{mod} 首触点循环导入（导入序敏感性回潮）：{r.stderr.strip().splitlines()[-1:]}"
+        )

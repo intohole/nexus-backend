@@ -14,14 +14,13 @@ from __future__ import annotations
 import asyncio
 import os
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Awaitable, Callable, Dict, List, Optional
-
-from ironman.observability.pricing import PRICING_TABLE as _IRONMAN_PRICING
 
 from nexus.logging import get_logger
 
@@ -31,23 +30,42 @@ logger = get_logger("nexus.cost_guard")
 # Single source: ironman PRICING_TABLE (nexus->ironman dependency direction).
 # Kept: business-facing claude aliases (ironman table only has full names).
 
-DEFAULT_PRICING: Dict[str, Dict[str, float]] = {
-    **_IRONMAN_PRICING,
+def _default_pricing() -> Dict[str, Dict[str, float]]:
+    from ironman.observability.pricing import PRICING_TABLE as ironman_pricing
+
+    return {
+    **ironman_pricing,
     "claude-haiku": {"prompt": 0.00025, "completion": 0.00125},
     "claude-sonnet": {"prompt": 0.003, "completion": 0.015},
     "claude-opus": {"prompt": 0.015, "completion": 0.075},
-}
+    }
 # Fallback price for unknown models: fleet-active main model
 # (deepseek-flash peak conservative). Old gpt-4o-mini is on no fleet chain.
 _FALLBACK_MODEL = "deepseek-flash"
 
-_pricing: Dict[str, Dict[str, float]] = dict(DEFAULT_PRICING)
+_pricing: Optional[Dict[str, Dict[str, float]]] = None
+_pricing_lock = threading.Lock()
 _unknown_pricing_events = 0
+
+
+def _resolve_pricing() -> Dict[str, Dict[str, float]]:
+    global _pricing
+    if _pricing is None:
+        with _pricing_lock:
+            if _pricing is None:
+                _pricing = _default_pricing()
+    return _pricing
 
 
 def configure_pricing(pricing: Dict[str, Dict[str, float]]) -> None:
     """Override/extend model pricing table (key: model name, value: {"prompt": $/1K, "completion": $/1K})."""
-    _pricing.update(pricing)
+    _resolve_pricing().update(pricing)
+
+
+def __getattr__(name: str):
+    if name == "DEFAULT_PRICING":
+        return dict(_default_pricing())
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def get_unknown_pricing_events() -> int:
@@ -173,14 +191,15 @@ class CostGuard:
     @staticmethod
     def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
         global _unknown_pricing_events
-        p = _pricing.get(model)
+        pricing = _resolve_pricing()
+        p = pricing.get(model)
         if p is None:
             _unknown_pricing_events += 1
             logger.warning(
                 "CostGuard: no pricing for model %r, estimating with fallback %r (unknown_pricing_events=%d)",
                 model, _FALLBACK_MODEL, _unknown_pricing_events,
             )
-            p = _pricing[_FALLBACK_MODEL]
+            p = pricing[_FALLBACK_MODEL]
         return (prompt_tokens * p["prompt"] + completion_tokens * p["completion"]) / 1000
 
     async def check_budget(self, estimated_tokens: int = 0) -> Dict[str, object]:

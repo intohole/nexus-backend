@@ -5,10 +5,13 @@
 """
 from __future__ import annotations
 
-from typing import Awaitable, Callable, Optional, Union
+from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Union
 
 from nexus.logging import get_logger
 from nexus.scheduler_gate import GateDecision, log_gate_refusal, scheduler_gate
+
+if TYPE_CHECKING:
+    from nexus.scheduler_thread import NexusThreadScheduler, get_thread_scheduler
 
 logger = get_logger("nexus.scheduler")
 
@@ -201,7 +204,14 @@ class NexusScheduler:
 def get_scheduler() -> NexusScheduler:
     return NexusScheduler.get_instance()
 from nexus.scheduler_jobs import JobManager  # noqa: E402
-from nexus.scheduler_thread import NexusThreadScheduler, get_thread_scheduler  # noqa: E402
+
+
+def __getattr__(name: str):
+    if name in ("NexusThreadScheduler", "get_thread_scheduler"):
+        from nexus import scheduler_thread
+
+        return getattr(scheduler_thread, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "NexusScheduler", "NexusThreadScheduler",
