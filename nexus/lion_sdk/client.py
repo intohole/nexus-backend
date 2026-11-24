@@ -57,7 +57,16 @@ class LionSDK(BaseAsyncClient):
         self._service_token = service_token
 
     async def _headers(self) -> dict[str, str]:
-        token: str = self._service_token or await get_service_token()
+        # env-first 与包装层 nexus/lion.py 同决策：UC 短效 JWT 对 Lion service auth
+        # 无效（验签通道依赖 UC__BASE_URL，未配则必 401），集群静态 token 才是 lion
+        # 现行接受的凭证；get_service_token() 保留链尾，作 UC__BASE_URL 配齐后的
+        # JWT 迁移通道（r28 PiYing 供应链断链判例）。
+        token: str = (
+            self._service_token
+            or os.getenv("LION_SERVICE_TOKEN")
+            or os.getenv("SERVICE_TOKEN")
+            or await get_service_token()
+        )
         return {"Authorization": f"Bearer {token}"} if token else {}
 
     async def _request(
