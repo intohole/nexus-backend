@@ -48,6 +48,10 @@ class UserTokenVerifier:
 
     - verify: 用户 JWT 验签（allow_user_tokens 场景）；
     - verify_service: 服务 JWT 验签（role=service 或 sub=app_*），供服务间认证使用。
+
+    信任边界（S202 IA3 判留声明）：HS256 兜底承载舰队 e2e 自铸 token 通道（r167 判例）
+    ，持有 UC__JWT_SECRET 即可伪造两种 token——收窄触发器=IA8 secret-scanning 窗/
+    e2e RS256 迁移专项/首次泄露事故，勿在本文件单独收窄。
     """
 
     def __init__(self, base_url: str = "", jwt_secret: str = "") -> None:
@@ -102,13 +106,35 @@ class UserTokenVerifier:
             return None
         algorithm: str = str(header.get("alg", ""))
         if algorithm == "RS256":
-            key: object = await self._rsa_key(header.get("kid"))
+            kid: object = header.get("kid")
+            key: object = await self._rsa_key(kid)
             if key is None:
                 return None
-            return self._decode_payload(jose_jwt, token, key, ["RS256"])
+            payload: Optional[Dict[str, object]] = self._decode_payload(jose_jwt, token, key, ["RS256"])
+            if payload is None:
+                payload = await self._retry_with_refreshed_key(jose_jwt, token, kid)
+            return payload
         if algorithm == "HS256" and self._jwt_secret:
             return self._decode_payload(jose_jwt, token, self._jwt_secret, ["HS256"])
         return None
+
+    async def _retry_with_refreshed_key(
+        self, jose_jwt: object, token: str, kid: object,
+    ) -> Optional[Dict[str, object]]:
+        # same-kid 换钥（UC 侧键值变更）签名失败即限频刷钥一次重试；垃圾签名洪流
+        # 逐请求打 UC JWKS=放大 DoS，与 uc_sdk/auth_verify 同用 60s 限频单时钟纪律
+        if time.time() - self._jwks_fetched_at <= _JWKS_FORCED_REFRESH_MIN_INTERVAL_S:
+            return None
+        await self._refresh_jwks()
+        jwk_data: Optional[Dict[str, object]] = self._jwks.get(kid)
+        if jwk_data is None:
+            return None
+        try:
+            from jose import jwk as jose_jwk
+            refreshed_key: object = jose_jwk.construct(jwk_data)
+        except Exception:
+            return None
+        return self._decode_payload(jose_jwt, token, refreshed_key, ["RS256"])
 
     @staticmethod
     def _decode_payload(

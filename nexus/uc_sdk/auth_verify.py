@@ -1,7 +1,12 @@
-"""UC SDK 令牌验证层：JWKS→本地 HS256→远程 三层验证调度、jti 黑名单同步与 org 声明复核。"""
+"""UC SDK 令牌验证层：JWKS→本地 HS256→远程 三层验证调度、jti 黑名单同步与 org 声明复核。
+
+信任边界（S202 IA3 判留声明）：本地 HS256 层承载舰队 e2e 自铸 token 通道（r167 判例），
+持有 UC__JWT_SECRET 即可伪造 token——收窄须与 middleware_auth 同窗同纪律（触发器=
+IA8 secret-scanning 窗/e2e RS256 迁移专项/首次泄露事故），勿单面收窄。
+"""
 import logging
 import time
-from typing import Dict, Any
+from typing import Any, Dict
 
 from nexus.uc_sdk.resilience import OrgRecheckCache
 
@@ -44,8 +49,8 @@ class TokenVerifyMixin:
         if not token:
             return None
         try:
-            from jose import jwt as jose_jwt
             from jose import jwk
+            from jose import jwt as jose_jwt
             header = jose_jwt.get_unverified_header(token)
             kid = header.get("kid")
             key_jwk = self._jwks_by_kid.get(kid)
