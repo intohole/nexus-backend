@@ -6,10 +6,12 @@ from typing import AsyncGenerator, Optional
 
 from nexus.context import get_request_id
 from nexus.credits import credits_gateway_handled
-from nexus.llm_meter import charge as _charge, meter as _meter, preflight as _preflight
-from nexus.llm_helpers import apply_output_discipline, convert_messages, stream_chunks
 from nexus.llm_budget import OutputMode
 from nexus.llm_config import resolve_app_name
+from nexus.llm_helpers import apply_output_discipline, convert_messages, stream_chunks
+from nexus.llm_meter import charge as _charge
+from nexus.llm_meter import meter as _meter
+from nexus.llm_meter import preflight as _preflight
 
 
 class LLMStreamMixin:
@@ -42,16 +44,17 @@ class LLMStreamMixin:
         start: float = time.monotonic()
         await _preflight("chat_stream", model=str(getattr(opts, "model", "") or ""))
         produced: bool = False
+        usage_read: dict = {}
         try:
             with credits_gateway_handled():
-                async for chunk in stream_chunks(_chat_stream, ironman_messages, opts):
+                async for chunk in stream_chunks(_chat_stream, ironman_messages, opts, usage_sink=usage_read):
                     produced = True
                     yield chunk
         finally:
             await _meter("chat_stream", app_name, request_id, start=start, feature=feature)
             if produced:
                 await _charge("chat_stream", app_name, request_id,
-                              model=str(getattr(opts, "model", "") or ""))
+                              model=str(getattr(opts, "model", "") or ""), usage=usage_read or None)
 
     async def stream_ask(self, prompt: str, system: Optional[str] = None, **kwargs) -> AsyncGenerator[str, None]:
         """单轮流式提问 = 单条 user 消息的 stream_chat。"""

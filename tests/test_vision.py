@@ -178,8 +178,8 @@ async def test_vision_meters_feature_and_charges(monkeypatch):
         kwargs["output_tokens"] = int(getattr(usage, "completion_tokens", 0) or 0)
         metered.update(kwargs)
 
-    async def fake_charge(self, *, kind, app_name, request_id, model=""):
-        charged.update(kind=kind, model=model)
+    async def fake_charge(self, *, kind, app_name, request_id, model="", usage=None):
+        charged.update(kind=kind, model=model, usage=usage)
 
     async def fake_preflight(self, kind, model=""):
         charged["preflight"] = kind
@@ -196,6 +196,8 @@ async def test_vision_meters_feature_and_charges(monkeypatch):
     assert metered["output_tokens"] == 20
     assert charged["preflight"] == "vision"
     assert charged["kind"] == "vision"
+    assert charged["usage"] is not None
+    assert charged["usage"]["input_tokens"] == 100
 
 
 def test_vision_profiles_resolve():

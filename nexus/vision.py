@@ -74,10 +74,33 @@ def _usage_shim(data: dict) -> SimpleNamespace:
     )
 
 
-async def _vision_charge(app_name: str, request_id: str, model: str) -> None:
+def _charge_usage_from(data: dict) -> dict | None:
+    usage = data.get("usage") or {}
+    details = usage.get("prompt_tokens_details")
+    cached = 0
+    if isinstance(details, dict):
+        cached = int(details.get("cached_tokens") or 0)
+    if not cached:
+        cached = int(usage.get("prompt_cache_hit_tokens") or 0)
+    input_tokens = int(usage.get("prompt_tokens") or 0)
+    output_tokens = int(usage.get("completion_tokens") or 0)
+    if input_tokens <= 0 and output_tokens <= 0:
+        return None
+    from datetime import datetime, timezone
+
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cached_tokens": cached,
+        "called_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def _vision_charge(app_name: str, request_id: str, model: str,
+                         usage: dict | None = None) -> None:
     try:
         await get_credits_service().auto_charge_llm(
-            kind="vision", app_name=app_name, request_id=request_id, model=model
+            kind="vision", app_name=app_name, request_id=request_id, model=model, usage=usage
         )
     except Exception:
         pass
@@ -189,7 +212,7 @@ class VisionService(_GatewayServiceBase):
             response=_usage_shim(data), latency_s=time.monotonic() - start,
             feature=feature or f"vision:{resolved_profile}",
         )
-        await _vision_charge(app_name, request_id, effective_model)
+        await _vision_charge(app_name, request_id, effective_model, usage=_charge_usage_from(data))
         choices = data.get("choices") or []
         if not choices:
             raise RuntimeError("vision request returned no choices")

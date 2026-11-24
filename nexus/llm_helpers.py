@@ -1,12 +1,13 @@
 """LLM 调用辅助：输出纪律注入、前缀纪律装配、命名空间解析、消息转换与用量记账。"""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import AsyncGenerator, Iterable, Optional
 
-from nexus.logging import get_logger
+from nexus.llm_budget import PROSE_HINT, OutputMode
 from nexus.llm_optimizer import CONCISENESS_HINT, JSON_ONLY_HINT
-from nexus.llm_budget import OutputMode, PROSE_HINT
 from nexus.llm_utils import LLMEmptyContentError
+from nexus.logging import get_logger
 
 logger = get_logger("nexus.llm_helpers")
 
@@ -147,11 +148,14 @@ async def stream_chunks(
     chat_stream,
     msgs: list,
     llm_opts: object,
+    usage_sink: dict | None = None,
 ) -> AsyncGenerator[str, None]:
     """流式调用统一引擎：think 过滤、空内容重试与用量记账。
 
     chat_stream 为 ironman.chat_stream；msgs/llm_opts 由调用方按
-    convert_messages + LLMOptions 组装。
+    convert_messages + LLMOptions 组装。usage_sink 传入 dict 时，
+    结束后写入末次 usage 读数（input/output/cached_tokens/model/called_at），
+    供流式扣费走按量通道——生成器无法 return 值，sink 是最薄回传面。
     """
     import time
     from typing import Optional as _Optional
@@ -197,6 +201,16 @@ async def stream_chunks(
         tokens=int(getattr(last_usage, "total_tokens", 0) or 0),
         error=None,
     )
+    if usage_sink is not None and last_usage is not None:
+        usage_sink.update(
+            {
+                "input_tokens": int(getattr(last_usage, "prompt_tokens", 0) or 0),
+                "output_tokens": int(getattr(last_usage, "completion_tokens", 0) or 0),
+                "cached_tokens": int(getattr(last_usage, "cached_tokens", 0) or 0),
+                "model": last_model,
+                "called_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
     if not has_content:
         logger.warning("stream_chat: no visible content after think-filter [req_id=%s]", request_id)
         yield "抱歉，本次未能生成有效回答，请换个问法或稍后重试。"

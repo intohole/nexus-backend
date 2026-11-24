@@ -254,8 +254,23 @@ def _instrument_facade_credits(app_name: str) -> None:
                 raise
             logger.debug("facade 计费预检失败(放行): %s", exc)
 
+    def _usage_from_usage(usage: object) -> dict | None:
+        if usage is None:
+            return None
+        input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+        output_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+        if input_tokens <= 0 and output_tokens <= 0:
+            return None
+        return {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cached_tokens": int(getattr(usage, "cached_tokens", 0) or 0),
+            "called_at": time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
+        }
+
     async def _meter_charge(
-        kind: str, request_id: str, model: str, response: object, latency_s: float
+        kind: str, request_id: str, model: str, response: object, latency_s: float,
+        usage: dict | None = None,
     ) -> None:
         try:
             from nexus.credits import get_credits_service, report_llm_usage
@@ -267,7 +282,10 @@ def _instrument_facade_credits(app_name: str) -> None:
             service = get_credits_service()
             if service.gateway_feature(kind):
                 await service.auto_charge_llm(
-                    kind=kind, app_name=app_name, request_id=request_id, model=model
+                    kind=kind, app_name=app_name, request_id=request_id, model=model,
+                    usage=usage if usage is not None else _usage_from_usage(
+                        getattr(response, "usage", None)
+                    ),
                 )
         except Exception as exc:
             logger.debug("facade 计量计费失败(忽略): %s", exc)
@@ -305,16 +323,20 @@ def _instrument_facade_credits(app_name: str) -> None:
             await _safe_preflight(feature_kind, model)
             start = time.monotonic()
             produced = False
+            last_usage = None
             try:
                 async for chunk in original_stream_engine(request, llm_opts, kind, *args, **kwargs):  # type: ignore[misc]
                     if getattr(chunk, "content", ""):
                         produced = True
+                    if getattr(chunk, "usage", None) is not None:
+                        last_usage = chunk.usage
                     yield chunk
             finally:
                 if produced:
                     await _meter_charge(
                         feature_kind, get_request_id() or "-", model, None,
                         time.monotonic() - start,
+                        usage=_usage_from_usage(last_usage),
                     )
 
         return _gen()

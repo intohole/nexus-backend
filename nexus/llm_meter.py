@@ -31,11 +31,12 @@ async def preflight(kind: str, model: str = "") -> None:
         pass
 
 
-async def charge(kind: str, app_name: str, request_id: str, model: str = "") -> None:
-    """调用成功后网关自动计费（fail-open，绝不影响响应），按模型档位系数定价。"""
+async def charge(kind: str, app_name: str, request_id: str, model: str = "",
+                 usage: dict | None = None) -> None:
+    """调用成功后网关自动计费（fail-open，绝不影响响应）；usage 原料在则按量计价。"""
     try:
         await get_credits_service().auto_charge_llm(
-            kind=kind, app_name=app_name, request_id=request_id, model=model
+            kind=kind, app_name=app_name, request_id=request_id, model=model, usage=usage
         )
     except Exception:
         pass

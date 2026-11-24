@@ -1,9 +1,15 @@
-"""LLM 网关自动计费域：kind→feature 映射 + 档位定价扣费 + 调用前预检。
+"""LLM 网关自动计费域：kind→feature 映射 + 按量/档位定价扣费 + 调用前预检。
 
 作为 CreditsService 的 mixin（nexus.credits 组合），llm.py 四路出口经
 get_credits_service().auto_charge_llm / gateway_preflight 调用。
+
+按量通道（usage billing）：调用方传 usage 原料（模型返回 tokens/缓存命中）时走
+UC consume_usage（真实成本折算积分，缓存命中便宜/峰谷贵随成本传导）；usage 缺失
+或 tokens 全零（估算口径/上游未回 usage）退化为按次档位计价，绝不因按量失据而漏计。
 """
 from __future__ import annotations
+
+from datetime import datetime, timezone
 
 from nexus.config import yaml_bool, yaml_get
 from nexus.credits_tiers import resolve_model_tier, tier_label
@@ -31,28 +37,51 @@ DEFAULT_AUTO_CHARGE_KINDS = "chat,chat_stream,extract,vision"
 
 
 class GatewayBillingMixin:
+    @staticmethod
+    def _usable_usage(usage: dict | None) -> dict | None:
+        """usage 原料可用性判定：tokens 有真实读数才走按量（估算口径退按次）。"""
+        if not isinstance(usage, dict):
+            return None
+        if int(usage.get("input_tokens") or 0) <= 0 and int(usage.get("output_tokens") or 0) <= 0:
+            return None
+        return usage
+
     async def auto_charge_llm(
-        self, *, kind: str, app_name: str, request_id: str, model: str = ""
+        self, *, kind: str, app_name: str, request_id: str, model: str = "",
+        usage: dict | None = None,
     ) -> None:
-        """LLM 网关出口自动计费：调用成功后按平台价×模型档位系数扣积分，故障静默放行。
+        """LLM 网关出口自动计费：usage 原料在则按量（UC 折算真实成本），否则按档位按次。
 
         ref_id 幂等防 HTTP 重试双扣；显式动作计费的应用用 credits.auto_charge=false 关停。
         """
         feature = self.gateway_feature(kind)
         if not feature:
             return
-        _, factor = resolve_model_tier(model)
+        tier, factor = resolve_model_tier(model)
         description = GATEWAY_KIND_DESC.get(kind, "")
         if factor != 1.0:
             description = f"{description}·{tier_label(model)}"
+        real_usage = self._usable_usage(usage)
         try:
-            outcome = await self.consume(
-                feature,
-                ref_id=f"llm:{request_id}:{self._next_charge_seq()}"[:100],
-                description=description,
-                app_key=app_name,
-                cost_factor=factor,
-            )
+            if real_usage is not None:
+                outcome = await self.consume_usage(
+                    feature,
+                    {**real_usage, "model": str(real_usage.get("model") or model),
+                     "called_at": real_usage.get("called_at")
+                     or datetime.now(timezone.utc).isoformat()},
+                    ref_id=f"llm:{request_id}:{self._next_charge_seq()}"[:100],
+                    description=description,
+                    app_key=app_name,
+                    tier=tier,
+                )
+            else:
+                outcome = await self.consume(
+                    feature,
+                    ref_id=f"llm:{request_id}:{self._next_charge_seq()}"[:100],
+                    description=description,
+                    app_key=app_name,
+                    cost_factor=factor,
+                )
             if not outcome.allowed:
                 logger.warning(
                     "LLM 网关计费余额不足(trial 透支/formal 已由前置预检拦截): kind=%s app=%s",

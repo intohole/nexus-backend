@@ -29,7 +29,12 @@ class FakeSdk:
             "data": {"allowed": True, "cost": 10, "balance": 500, "charge_mode": "trial", "reason": "ok"},
         }
         self.consumed: list = []
+        self.usage_consumed: list = []
         self.precheck_calls: list = []
+
+    @property
+    def charges(self) -> list:
+        return self.consumed + self.usage_consumed
 
     async def billing_precheck(self, **kwargs) -> dict:
         self.precheck_calls.append(kwargs)
@@ -37,6 +42,10 @@ class FakeSdk:
 
     async def billing_consume(self, **kwargs) -> dict:
         self.consumed.append(kwargs)
+        return {"success": True, "data": {"charged": True, "balance": 490, "charge_mode": "trial"}}
+
+    async def billing_consume_usage(self, **kwargs) -> dict:
+        self.usage_consumed.append(kwargs)
         return {"success": True, "data": {"charged": True, "balance": 490, "charge_mode": "trial"}}
 
     async def billing_report_meters(self, items: list) -> dict:
@@ -126,8 +135,8 @@ async def test_facade_execute_bypass_call_metered_and_charged(service, monkeypat
     with credits_user_scope(7):
         result = await facade_core._execute(FakeRequest(model="glm-4.6"))
     assert result.content == "ok"
-    assert len(service._test_sdk.consumed) == 1
-    charge = service._test_sdk.consumed[0]
+    assert len(service._test_sdk.charges) == 1
+    charge = service._test_sdk.charges[0]
     assert charge["feature"] == "chat"
     assert charge["app_key"] == "testapp"
     assert len(service._meters._buffer) == 1
@@ -148,7 +157,7 @@ async def test_facade_execute_skips_when_llm_service_handled(service, monkeypatc
 
     with credits_user_scope(7), credits_gateway_handled():
         await facade_core._execute(FakeRequest(model="glm-4.6"))
-    assert not service._test_sdk.consumed
+    assert not service._test_sdk.charges
     assert not service._meters._buffer
 
 
@@ -166,7 +175,7 @@ async def test_facade_vision_request_charged_as_vision(service, monkeypatch):
         await facade_core._execute(
             FakeRequest(model="vision", messages=[FakeMsg(content=[FakePart()])])
         )
-    assert service._test_sdk.consumed[0]["feature"] == "vision"
+    assert service._test_sdk.charges[0]["feature"] == "vision"
 
 
 @pytest.mark.asyncio
@@ -188,7 +197,7 @@ async def test_facade_execute_preflight_blocks_formal(service, monkeypatch):
 
     with pytest.raises(CreditsInsufficientError), credits_user_scope(7):
         await facade_core._execute(FakeRequest(model="glm-4.6"))
-    assert not service._test_sdk.consumed
+    assert not service._test_sdk.charges
 
 
 @pytest.mark.asyncio
@@ -211,7 +220,7 @@ async def test_facade_execute_preflight_fail_open(service, monkeypatch):
     with credits_user_scope(7):
         result = await facade_core._execute(FakeRequest(model="glm-4.6"))
     assert result.content == "ok"
-    assert len(service._test_sdk.consumed) == 1
+    assert len(service._test_sdk.charges) == 1
 
 
 @pytest.mark.asyncio
@@ -230,8 +239,8 @@ async def test_stream_engine_charges_only_when_produced(service, monkeypatch):
         async for chunk in facade_stream._stream_engine(FakeRequest(model="glm-4.6"), None, "chat_stream"):
             out.append(chunk.content)
     assert out == ["hello", ""]
-    assert len(service._test_sdk.consumed) == 1
-    assert service._test_sdk.consumed[0]["feature"] == "chat"
+    assert len(service._test_sdk.charges) == 1
+    assert service._test_sdk.charges[0]["feature"] == "chat"
 
     async def empty_stream(request, llm_opts, kind="chat_stream"):
         yield FakeChunk(content="")
@@ -242,7 +251,7 @@ async def test_stream_engine_charges_only_when_produced(service, monkeypatch):
     with credits_user_scope(7):
         async for _ in facade_stream._stream_engine(FakeRequest(model="glm-4.6"), None, "chat_stream"):
             pass
-    assert len(service._test_sdk.consumed) == 1
+    assert len(service._test_sdk.charges) == 1
 
 
 @pytest.mark.asyncio
@@ -258,7 +267,7 @@ async def test_stream_engine_skips_when_handled(service, monkeypatch):
     with credits_user_scope(7), credits_gateway_handled():
         async for _ in facade_stream._stream_engine(FakeRequest(), None, "stream_vision"):
             pass
-    assert not service._test_sdk.consumed
+    assert not service._test_sdk.charges
 
 
 @pytest.mark.asyncio

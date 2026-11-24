@@ -178,6 +178,21 @@ class LLMCore:
             return result, response
 
     @staticmethod
+    def _charge_usage(response: object) -> dict[str, object] | None:
+        """从 ironman LLMResponse 提取按量计费原料（模型返回 usage；缓存命中 None）。"""
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return None
+        from datetime import datetime, timezone
+
+        return {
+            "input_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+            "output_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
+            "cached_tokens": int(getattr(usage, "cached_tokens", 0) or 0),
+            "called_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    @staticmethod
     def _usage_payload(result: str, response: object) -> dict[str, object]:
         """从 ironman LLMResponse 提取调用方可见的用量账单（缓存命中时 response 为 None）。
 
@@ -256,7 +271,8 @@ class LLMCore:
                 return await _chat(messages=ironman_messages, llm=opts)
 
         result, response = await self._execute(_do, timeout, max_retries, app_name, request_id, "chat", feature=feature, llm_opts=opts)
-        await _charge("chat", app_name, request_id, model=str(getattr(response, "model", "") or ""))
+        await _charge("chat", app_name, request_id, model=str(getattr(response, "model", "") or ""),
+                      usage=self._charge_usage(response))
         if cache is not None and result:
             cache.set(key, result)
         return self._usage_payload(result, response) if _want_usage else result

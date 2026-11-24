@@ -30,8 +30,8 @@ from nexus.credits_gateway import (  # noqa: F401 (再导出)
 )
 from nexus.credits_metering import MeteringBuffer, report_llm_usage  # noqa: F401 (再导出)
 from nexus.errors import NexusError
-from nexus.logging import get_logger
 from nexus.llm_config import resolve_app_name
+from nexus.logging import get_logger
 
 logger = get_logger("nexus.credits")
 
@@ -186,6 +186,68 @@ class CreditsService(GatewayBillingMixin):
                     allowed=False, reason="insufficient_balance", raw={**res, **error_data}
                 )
             logger.warning("积分消费异常(放行): %s", message)
+            return ConsumeResult(allowed=True, reason="credits_unavailable")
+        data = res.get("data") or {}
+        self._remember_charge_mode(str(data.get("charge_mode") or ""))
+        return ConsumeResult(
+            allowed=True,
+            charged=bool(data.get("charged")),
+            balance=data.get("balance"),
+            charge_mode=str(data.get("charge_mode") or ""),
+            reason="ok",
+            raw=data,
+        )
+
+    async def consume_usage(
+        self,
+        feature: str,
+        usage: dict[str, Any],
+        user_id: int | str | None = None,
+        ref_id: str | None = None,
+        description: str | None = None,
+        app_key: str | None = None,
+        tier: str = "standard",
+    ) -> ConsumeResult:
+        """按量计费：usage 原料（模型返回 tokens/缓存命中）交 UC 单源折算扣积分。
+
+        与 consume 同构 fail-open；usage 缺失或 tokens 全零时由调用方退化为按次 consume。
+        """
+        uid = str(user_id or _current_user_id() or "")
+        if not uid:
+            return ConsumeResult(allowed=True, reason="no_user_context")
+        sdk = self._sdk()
+        if sdk is None:
+            return ConsumeResult(allowed=True, reason="credits_disabled")
+        try:
+            res = await sdk.billing_consume_usage(
+                user_id=int(uid),
+                app_key=app_key or resolve_app_name(),
+                feature=feature,
+                ref_id=ref_id or self._make_ref_id(feature),
+                model=str(usage.get("model") or ""),
+                input_tokens=int(usage.get("input_tokens") or 0),
+                output_tokens=int(usage.get("output_tokens") or 0),
+                cached_tokens=int(usage.get("cached_tokens") or 0),
+                tier=tier,
+                description=description,
+                called_at=str(usage.get("called_at") or ""),
+            )
+        except Exception as exc:
+            logger.warning("按量消费调用失败，放行: %s", exc)
+            return ConsumeResult(allowed=True, reason="credits_unavailable")
+        if res.get("success") is False:
+            error_data = res.get("error_data") if isinstance(res.get("error_data"), dict) else {}
+            code = str(error_data.get("code") or "")
+            message = str(res.get("message") or "")
+            if code == "overdraft_limit" or "额度已用完" in message:
+                return ConsumeResult(
+                    allowed=False, reason="overdraft_limit", raw={**res, **error_data}
+                )
+            if code == "insufficient_balance" or "余额不足" in message:
+                return ConsumeResult(
+                    allowed=False, reason="insufficient_balance", raw={**res, **error_data}
+                )
+            logger.warning("按量消费异常(放行): %s", message)
             return ConsumeResult(allowed=True, reason="credits_unavailable")
         data = res.get("data") or {}
         self._remember_charge_mode(str(data.get("charge_mode") or ""))
