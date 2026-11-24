@@ -85,10 +85,13 @@ async def resilient_ask(
                 )
 
             result = await cb.call(_guarded, timeout=timeout)
+            # ask 面无 usage 回传（chat 文本链接口不含 bill），记账对齐 call_with_guard
+            # 降级链同款口径：整笔记 completion（保守侧），model 留空走 fallback 定价
+            # 不刷 unknown warning（alias 是调用方分组名非定价键，//2 硬拆随负载形状失真）
             await cost_guard.record_usage(
-                prompt_tokens=estimated_tokens // 2,
-                completion_tokens=estimated_tokens // 2,
-                model=alias,
+                prompt_tokens=0,
+                completion_tokens=estimated_tokens,
+                model="",
                 operation=operation or "llm_ask",
             )
             return result

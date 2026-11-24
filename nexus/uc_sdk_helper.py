@@ -6,6 +6,7 @@ infra 层不反向上探 auth：SDK 初始化后通过 _auth_injector 钩子外�
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from typing import Callable, Optional
 
@@ -166,5 +167,17 @@ def standard_ok(data: object, message: str = "success") -> dict[str, object]:
     return success_response(data, message)
 
 
-def standard_err(message: str, status_code: int = 400) -> None:
-    raise HTTPException(status_code=status_code, detail=message)
+def standard_err(
+    message: str,
+    status_code: int = 400,
+    error_code: Optional[str] = None,
+    details: Optional[dict[str, object]] = None,
+) -> None:
+    # error_code/details 经响应头旁路给出口 handler（_http_exc_handler 优先消费），
+    # detail 保持字符串形态不变，存量前端逐字节兼容
+    headers: dict[str, str] = {}
+    if error_code:
+        headers["X-Error-Code"] = error_code
+    if details:
+        headers["X-Error-Detail"] = json.dumps(details, ensure_ascii=False, default=str)[:512]
+    raise HTTPException(status_code=status_code, detail=message, headers=headers or None)

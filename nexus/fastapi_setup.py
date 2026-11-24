@@ -62,6 +62,9 @@ def _mount_component(app: FastAPI, name: str, cfg: NexusConfig, cors_origins, no
     elif name == "audit":
         from nexus.audit_middleware import AuditMiddleware
         app.add_middleware(AuditMiddleware, config=cfg)
+    elif name == "service_auth":
+        from nexus.middleware_auth import ServiceAuthMiddleware
+        app.add_middleware(ServiceAuthMiddleware)
     elif name == "metrics":
         try:
             from nexus.middleware_metrics import RequestMetricsMiddleware

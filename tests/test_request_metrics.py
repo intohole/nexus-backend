@@ -143,3 +143,30 @@ def test_lazy_flush_interval(tmp_path):
     m.record("GET", 200, 30.0)
     rows = m.store.read_windows("app", "2000-01-01T00:00:00")
     assert len(rows) >= 1
+
+
+def test_flush_failure_holds_baseline_and_counts(tmp_path):
+    from nexus import request_metrics as rm
+
+    metrics = rm.RequestMetrics(db_path=str(tmp_path / "m.db"))
+    failing = rm.MetricsStore(str(tmp_path / "m.db"))
+    metrics._store = failing
+
+    calls = {"save_window": 0}
+
+    def _boom_save_window(*args: object, **kwargs: object) -> None:
+        calls["save_window"] += 1
+        raise RuntimeError("db locked")
+
+    failing.save_window = _boom_save_window  # type: ignore[assignment]
+    metrics.record("GET", 200, 12.0)
+    metrics.flush()
+    assert metrics._flush_failures == 2
+    assert calls["save_window"] == 2
+    assert metrics.snapshot_total()["flush_failures"] == 2
+    assert metrics._requests - metrics._flushed_requests == 1
+
+    failing.save_window = rm.MetricsStore.save_window.__get__(failing)  # type: ignore[method-assign]
+    metrics.record("GET", 200, 20.0)
+    metrics.flush()
+    assert metrics._requests - metrics._flushed_requests == 0

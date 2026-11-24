@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from nexus.logging import get_logger
 from nexus.metrics_store import MetricsStore
 
 BUCKET_BOUNDS: list[int] = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000]
@@ -73,6 +74,7 @@ class RequestMetrics:
         self._flushed_latency: float = 0.0
         self._last_flush_at: float = 0.0
         self._last_flush_wall: Optional[datetime] = None
+        self._flush_failures: int = 0
         self._restore()
 
     @property
@@ -136,10 +138,9 @@ class RequestMetrics:
                 "total_latency": self._total_latency,
                 "buckets": self._buckets,
             }
-            self._sync_flush_baseline()
-            self._last_flush_wall = window_end
-        try:
-            if delta_requests > 0:
+        window_saved: bool = delta_requests <= 0
+        if not window_saved:
+            try:
                 self.store.save_window(
                     self._app_name,
                     window_start.isoformat(timespec="seconds"),
@@ -148,9 +149,24 @@ class RequestMetrics:
                     delta_errors,
                     delta_buckets,
                 )
+                window_saved = True
+            except Exception:
+                self._flush_failures += 1
+                get_logger("nexus.request_metrics").warning(
+                    "metrics save_window failed (flush_failures=%d), window %s baseline held for retry",
+                    self._flush_failures, window_start.isoformat(timespec="seconds"),
+                )
+        try:
             self.store.save_totals("requests", payload)
         except Exception:
-            pass
+            self._flush_failures += 1
+            get_logger("nexus.request_metrics").warning(
+                "metrics save_totals failed (flush_failures=%d)", self._flush_failures
+            )
+        if window_saved:
+            with self._call_lock:
+                self._sync_flush_baseline()
+                self._last_flush_wall = window_end
 
     def snapshot_total(self) -> dict[str, object]:
         with self._call_lock:
@@ -162,6 +178,7 @@ class RequestMetrics:
                 "avg_ms": round(avg, 2),
                 "p50_ms": round(percentile_from_buckets(self._buckets, 50), 1),
                 "p95_ms": round(percentile_from_buckets(self._buckets, 95), 1),
+                "flush_failures": self._flush_failures,
             }
 
     def window(self, hours: int) -> dict[str, object]:

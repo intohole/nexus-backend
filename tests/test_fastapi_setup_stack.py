@@ -116,6 +116,15 @@ def test_stack_mode_with_metrics():
     ]
 
 
+def test_stack_mode_with_service_auth():
+    app = FastAPI()
+    setup_middleware(app, get_settings(), stack=["service_auth", "request_id"])
+    assert _mw_names(app) == [
+        "ServiceAuthMiddleware",
+        "RequestIdMiddleware",
+    ]
+
+
 def test_stack_mode_metrics_missing_graceful(monkeypatch):
     monkeypatch.setitem(__import__("sys").modules, "nexus.middleware_metrics", None)
     app = FastAPI()

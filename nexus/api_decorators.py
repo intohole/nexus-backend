@@ -78,7 +78,12 @@ def handle_api_errors(operation_name: str = "operation") -> Callable[[Callable[.
                     request_id,
                     e.message,
                 )
-                standard_err(message=e.message, status_code=e.status_code)
+                standard_err(
+                    message=e.message,
+                    status_code=e.status_code,
+                    error_code=e.error_code,
+                    details=e.details,
+                )
             except ValueError as e:
                 request_id: str = get_request_id() or "-"
                 logger.warning(

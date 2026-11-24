@@ -1,6 +1,7 @@
 """异常处理中间件：统一错误响应（含中文校验提示与 HTML/JSON 分流）。"""
 from __future__ import annotations
 
+import json
 from typing import Awaitable, Callable
 
 from fastapi import FastAPI, Request, Response
@@ -58,6 +59,7 @@ def not_found_response(request: Request) -> Response:
 _HTTP_ERROR_CODES: dict[int, str] = {
     400: "BAD_REQUEST",
     401: "AUTH_ERROR",
+    402: "INSUFFICIENT_CREDITS",
     403: "FORBIDDEN",
     404: "NOT_FOUND",
     409: "CONFLICT",
@@ -158,14 +160,29 @@ def setup_exception_handlers(app: FastAPI) -> None:
         )
         if exc.status_code == 404 and _wants_html(request):
             return HTMLResponse(content=_NOT_FOUND_HTML, status_code=404)
+        # X-Error-Code/X-Error-Detail 由 standard_err 旁路（NexusError 链），优先于 status 反查表
+        exc_headers = getattr(exc, "headers", None) or {}
+        error_code = exc_headers.get("X-Error-Code")
+        detail_payload = None
+        raw_detail = exc_headers.get("X-Error-Detail")
+        if raw_detail:
+            try:
+                detail_payload = json.loads(raw_detail)
+            except ValueError:
+                detail_payload = None
+        if not error_code:
+            error_code = _HTTP_ERROR_CODES.get(exc.status_code, _HTTP_ERROR_CODES["default"])
+        content: dict[str, object] = {
+            "code": exc.status_code,
+            "message": str(exc.detail),
+            "error_code": error_code,
+            "trace_id": request_id,
+        }
+        if detail_payload is not None:
+            content["details"] = detail_payload
         return JSONResponse(
             status_code=exc.status_code,
-            content={
-                "code": exc.status_code,
-                "message": str(exc.detail),
-                "error_code": _HTTP_ERROR_CODES.get(exc.status_code, _HTTP_ERROR_CODES["default"]),
-                "trace_id": request_id,
-            },
+            content=content,
         )
 
     @app.exception_handler(RequestValidationError)
