@@ -150,7 +150,7 @@ class NotifyClient:
             logger.error("Notify send error: %s", str(exc))
             return {"status": "failed", "id": 0, "reason": "network"}
         if not isinstance(body, dict):
-            return {"status": "sent", "id": 0, "reason": "malformed_body"}
+            return {"status": "failed", "id": 0, "reason": "malformed_body"}
         if "status" not in body:
             body["status"] = "suppressed" if body.get("suppressed") else "sent"
         return body

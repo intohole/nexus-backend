@@ -154,4 +154,11 @@ def setup_health_check(
             },
         )
 
+    async def _metrics_degraded_check() -> bool:
+        from nexus.fastapi_setup import METRICS_DEGRADED
+
+        return not METRICS_DEGRADED
+
+    registry.register("metrics_degraded", _metrics_degraded_check)
+
     register_internal_endpoints(app)

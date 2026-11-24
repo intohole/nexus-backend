@@ -38,6 +38,32 @@ __all__ = [
     "setup_health_check", "setup_static_files",
 ]
 
+METRICS_DEGRADED: bool = False
+
+_FLAG_DEFAULTS: dict[str, object] = {
+    "enable_cors": True,
+    "enable_rate_limit": True,
+    "enable_logging": True,
+    "enable_error_handler": True,
+    "enable_no_cache": True,
+    "enable_request_id": True,
+    "enable_security_headers": False,
+    "enable_not_found_check": False,
+    "enable_loading_splash": False,
+    "enable_audit": False,
+    "enable_metrics": True,
+    "enable_exception_handlers": None,
+}
+
+
+def _warn_flags_shadowed_by_stack(**flags: object) -> None:
+    overridden = [k for k, default in _FLAG_DEFAULTS.items() if flags.get(k) != default]
+    if overridden:
+        get_logger("nexus.setup").warning(
+            "stack=[...] 与显式 flags 同传：%s 被 stack 忽略（stack 声明唯一栈面，缺失组件请并入 stack）",
+            ",".join(overridden),
+        )
+
 
 def _mount_component(app: FastAPI, name: str, cfg: NexusConfig, cors_origins, no_cache_prefix: str) -> None:
     """装配单个 stack 组件；exception_handlers 为处理器注册，与栈位无关。"""
@@ -70,8 +96,10 @@ def _mount_component(app: FastAPI, name: str, cfg: NexusConfig, cors_origins, no
             from nexus.middleware_metrics import RequestMetricsMiddleware
             app.add_middleware(RequestMetricsMiddleware)
         except ImportError:
+            global METRICS_DEGRADED
+            METRICS_DEGRADED = True
             get_logger("nexus.setup").warning(
-                "nexus.middleware_metrics 缺失，指标中间件降级跳过"
+                "nexus.middleware_metrics 缺失，指标中间件降级跳过（readiness metrics_degraded=false 显影）"
             )
     elif name == "exception_handlers":
         from nexus.middleware_exception import setup_exception_handlers
@@ -231,6 +259,20 @@ def setup_middleware(
     cfg: NexusConfig = config or get_settings()
 
     if stack is not None:
+        _warn_flags_shadowed_by_stack(
+            enable_cors=enable_cors,
+            enable_rate_limit=enable_rate_limit,
+            enable_logging=enable_logging,
+            enable_error_handler=enable_error_handler,
+            enable_no_cache=enable_no_cache,
+            enable_request_id=enable_request_id,
+            enable_security_headers=enable_security_headers,
+            enable_not_found_check=enable_not_found_check,
+            enable_loading_splash=enable_loading_splash,
+            enable_audit=enable_audit,
+            enable_metrics=enable_metrics,
+            enable_exception_handlers=enable_exception_handlers,
+        )
         for name in reversed(list(stack)):
             _mount_component(app, name, cfg, cors_origins, no_cache_prefix)
         return

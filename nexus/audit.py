@@ -10,8 +10,20 @@ import httpx
 from nexus.defaults import DEFAULT_UC_BASE_URL
 from nexus.logging import get_logger
 from nexus.service_client import get_service_token
+from nexus.trace import ensure_request_id
 
 logger = get_logger("nexus.audit")
+
+_fail_count: int = 0
+
+
+def audit_fail_count() -> int:
+    return _fail_count
+
+
+def reset_fail_count() -> None:
+    global _fail_count
+    _fail_count = 0
 
 
 def _base_url() -> str:
@@ -52,9 +64,12 @@ async def log_audit(
                     "ip_address": ip_address,
                     "user_agent": user_agent,
                     "status_code": status_code,
+                    "request_id": ensure_request_id(),
                 },
             )
             return response.status_code < 400
     except Exception as exc:
-        logger.warning("审计上报失败 action=%s: %s", action, exc)
+        global _fail_count
+        _fail_count += 1
+        logger.warning("审计上报失败 action=%s fail_count=%s: %s", action, _fail_count, exc)
         return False

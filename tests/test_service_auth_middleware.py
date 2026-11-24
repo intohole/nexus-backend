@@ -142,10 +142,18 @@ async def test_docs_paths_are_not_anonymous() -> None:
 @pytest.mark.asyncio
 async def test_whitelisted_paths_stay_public() -> None:
     app = build_app()
-    for path in ["/health", "/", "/index.html", "/static/app.js"]:
+    for path in ["/health", "/", "/static/app.js", "/assets/app.js"]:
         resp = await call(app, path)
         assert resp.status_code in (200, 404), path
         assert resp.status_code != 401, path
+
+
+@pytest.mark.asyncio
+async def test_static_suffix_outside_static_route_now_gated() -> None:
+    """S200 差距 8 收窄：静态后缀不再任意路径放行（/index.html 走根 / 即可）。"""
+    app = build_app()
+    resp = await call(app, "/index.html")
+    assert resp.status_code == 401
 
 
 def _rsa_pair():

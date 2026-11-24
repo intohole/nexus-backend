@@ -130,7 +130,10 @@ class _StdlibToLoguruHandler(logging.Handler):
             while frame and frame.f_code.co_filename == logging.__file__:
                 frame = frame.f_back
                 depth += 1
-            _loguru_logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+            _loguru_logger.opt(depth=depth, exception=record.exc_info).bind(
+                req_id=get_request_id() or "-",
+                uid=get_user_id() or "-",
+            ).log(level, record.getMessage())
         except ImportError:
             pass
 

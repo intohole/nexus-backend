@@ -33,6 +33,15 @@ _CB_CONFIG = CircuitBreakerConfig(
 )
 
 
+def _alias_circuit_name(alias: str) -> str:
+    """alias 熔断闸聚合命名：llm:alias/{alias} 入 /llm-circuit 观测面（r243 差距 10）。
+
+    前身 llm_{alias} 平行命名空间绕开 llm: 前缀过滤，聚合面不可见；
+    迁移后与 llm:{provider} 通道闸同族（alias 粒度 vs provider 粒度，键结构区分）。
+    """
+    return f"llm:alias/{alias}"
+
+
 async def resilient_ask(
     prompt: str,
     *,
@@ -61,7 +70,7 @@ async def resilient_ask(
     判断型对话/推演链开思考的透传面——显式传参恒优先语义与 chat 层一致）。
     重试唯一样板：retry_count+1 次调用，内层 LLMService 已禁用重试（max_retries=0），不再叠加放大。
     """
-    cb = get_circuit_breaker(f"llm_{alias}", config=_CB_CONFIG)
+    cb = get_circuit_breaker(_alias_circuit_name(alias), config=_CB_CONFIG)
     cost_guard = get_cost_guard()
 
     budget_check = await cost_guard.check_budget(estimated_tokens=estimated_tokens)
@@ -184,10 +193,25 @@ async def resilient_stream(
     enable_thinking: Optional[bool] = None,
     thinking_budget: Optional[int] = None,
 ) -> AsyncGenerator[str, None]:
-    """韧性流式 LLM 调用。异常 re-raise，供调用方感知中断并发送错误事件。"""
-    svc = get_llm_service()
+    """韧性流式 LLM 调用。异常 re-raise，供调用方感知中断并发送错误事件。
+
+    守卫三件套与 resilient_ask 同构（r243 差距 9 收口）：预算闸流前拦截、
+    alias 熔断闸三段式（acquire_call 前置+record_outcome 记账）、流完保守
+    估算记账（流式无 usage 回传，ask 面同口径）。消费方提前断开（aclose/
+    取消）为中性退出：不计熔断成败、不记账。流中失败不记账（ask 判例对齐）。
+    """
+    cb = get_circuit_breaker(_alias_circuit_name(alias), config=_CB_CONFIG)
+    cost_guard = get_cost_guard()
+    budget_check = await cost_guard.check_budget(estimated_tokens=max_tokens)
+    if not budget_check["allowed"]:
+        logger.warning("CostGuard blocked LLM stream: %s", budget_check["reason"])
+        raise CostBudgetExceededError(str(budget_check["reason"]))
+    await cb.acquire_call()
+
+    error: Optional[BaseException] = None
+    aborted = False
     try:
-        async for token in svc.stream_ask(
+        async for token in get_llm_service().stream_ask(
             prompt,
             system=system,
             temperature=temperature,
@@ -198,6 +222,19 @@ async def resilient_stream(
             thinking_budget=thinking_budget,
         ):
             yield token
+        await cost_guard.record_usage(
+            prompt_tokens=0,
+            completion_tokens=max_tokens,
+            model="",
+            operation="llm_stream",
+        )
+    except (asyncio.CancelledError, GeneratorExit):
+        aborted = True
+        raise
     except Exception as e:
+        error = e
         logger.warning("resilient_stream %s failed: %s", alias, e)
         raise
+    finally:
+        if not aborted:
+            await cb.record_outcome(error)

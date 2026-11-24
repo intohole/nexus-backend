@@ -73,6 +73,10 @@ class CircuitBreaker:
         self._on_state_change = on_state_change
 
     @property
+    def name(self) -> str:
+        return self._name
+
+    @property
     def state(self) -> CircuitState:
         return self._state
 

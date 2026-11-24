@@ -22,7 +22,7 @@ DEFAULT_WHITELIST_PATHS: Tuple[str, ...] = (
 DEFAULT_PUBLIC_API_PREFIXES: Tuple[str, ...] = (
     "/api/auth/login", "/api/auth/register", "/api/auth/refresh",
     "/api/auth/config", "/api/auth/login-page-config", "/api/auth/uc/config",
-    "/api/vip/levels", "/api/invite-codes/validate", "/api/discovery",
+    "/api/vip/levels", "/api/invite-codes/validate",
     "/.well-known",
     "/api/gateway/healthz",
 )
@@ -30,6 +30,10 @@ DEFAULT_PUBLIC_API_PREFIXES: Tuple[str, ...] = (
 DEFAULT_STATIC_EXTENSIONS: Tuple[str, ...] = (
     ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
     ".woff", ".woff2", ".ttf", ".eot", ".map", ".html",
+)
+
+DEFAULT_STATIC_ROUTE_PREFIXES: Tuple[str, ...] = (
+    "/assets", "/static", "/statics",
 )
 
 _JWKS_TTL_SECONDS: int = 300
@@ -174,6 +178,7 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
         whitelist_paths: Optional[List[str]] = None,
         public_api_prefixes: Optional[List[str]] = None,
         static_extensions: Optional[List[str]] = None,
+        static_route_prefixes: Optional[List[str]] = None,
         allow_user_tokens: bool = False,
         service_token: Optional[str] = None,
         token_verifier: Optional[UserTokenVerifier] = None,
@@ -182,6 +187,7 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
         self._whitelist: Tuple[str, ...] = tuple(whitelist_paths) if whitelist_paths else DEFAULT_WHITELIST_PATHS
         self._public_prefixes: Tuple[str, ...] = tuple(public_api_prefixes) if public_api_prefixes else DEFAULT_PUBLIC_API_PREFIXES
         self._static_exts: Tuple[str, ...] = tuple(static_extensions) if static_extensions else DEFAULT_STATIC_EXTENSIONS
+        self._static_routes: Tuple[str, ...] = tuple(static_route_prefixes) if static_route_prefixes else DEFAULT_STATIC_ROUTE_PREFIXES
         self._allow_user_tokens: bool = allow_user_tokens
         self._prefix: str = os.environ.get("PATH_PREFIX", "")
         self._service_token: Optional[str] = service_token
@@ -202,12 +208,15 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
             return path[len(self._prefix):]
         return path
 
+    def _is_static_route(self, path: str) -> bool:
+        return any(path == p or path.startswith(p + "/") for p in self._static_routes)
+
     def _is_public(self, path: str) -> bool:
         if path in self._whitelist or any(path.startswith(p + "/") for p in self._whitelist):
             return True
         if any(path == p or path.startswith(p + "/") for p in self._public_prefixes):
             return True
-        if any(path.endswith(ext) for ext in self._static_exts):
+        if any(path.endswith(ext) for ext in self._static_exts) and self._is_static_route(path):
             return True
         return False
 
