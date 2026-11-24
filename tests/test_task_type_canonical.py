@@ -6,11 +6,11 @@ llm_probes.extract。近义键 extraction/eval 在网关侧归并，业务仓调
 import logging
 
 from nexus.llm_budget import (
-    OutputMode,
     TASK_ALIASES,
     TASK_BUDGETS,
     TASK_KNOWN_VALUES,
     TASK_NEUTRAL_VALUES,
+    OutputMode,
     canonicalize_task_type,
     resolve_effective_budget,
 )
@@ -20,6 +20,21 @@ def test_alias_values_canonicalize() -> None:
     assert canonicalize_task_type("eval") == "evaluation"
     assert canonicalize_task_type("rerank") == "extraction"
     assert canonicalize_task_type("eval_batch") == "evaluation"
+    assert canonicalize_task_type("interview_report") == "extraction"
+
+
+def test_interview_report_rides_extraction_tier() -> None:
+    """r45：resumeAI 语音面试复盘报告（唯一生产消费者）从中性值归 extraction 档——
+    结构化抽取语义+二供路由（evaluation 判官线不插二供不适配）。原中性态下
+    r40 调用点直传 max_tokens 无通道（包装层/nexus extract 均无此形参），
+    TypeError 生产死链 14 天（resumeAI r45 prove-red 留档）。"""
+    max_tokens, temp, mode, thinking, _ = resolve_effective_budget(
+        canonicalize_task_type("interview_report"), None, None, None
+    )
+    assert max_tokens == 3000
+    assert temp == 0.2
+    assert mode == OutputMode.JSON
+    assert thinking is False
 
 
 def test_extraction_is_own_tier_not_alias() -> None:

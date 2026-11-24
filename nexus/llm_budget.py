@@ -92,12 +92,18 @@ TASK_ALIASES: dict[str, str] = {
     # entailment 批量判定——归 canonical 档后网关 THINKING_DISABLED/意图守卫全链生效
     "rerank": "extraction",
     "eval_batch": "evaluation",
+    # resumeAI 语音面试复盘报告（r45，唯一生产消费者）：结构化抽取语义归
+    # extraction 族（mt 3000 容量+二供路由；evaluation 判官线不插二供不适配），
+    # 归档后网关 THINKING_DISABLED/意图守卫全链生效。原中性态下 r40 调用点
+    # 直传 max_tokens 无通道（包装层/nexus extract 均无此形参）=TypeError
+    # 生产死链 14 天。
+    "interview_report": "extraction",
 }
 
 TASK_NEUTRAL_VALUES: frozenset[str] = frozenset({
     "counter", "binary", "word", "vision", "promo", "generation", "timer",
     "checkin", "simple", "qa", "text", "polish", "embedding", "diet",
-    "video_blueprint", "recite", "page", "json_mode", "interview_report",
+    "video_blueprint", "recite", "page", "json_mode",
     "feedback_triage", "feedback_draft", "daily", "complex",
     "character_match", "business_custom", "bugfix",
     # yiwei 内容链结构化任务：全链显式传参（temp/max_tokens），只求归桶消告警；

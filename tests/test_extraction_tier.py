@@ -10,14 +10,14 @@ import time
 import types
 
 import pytest
+from ironman.types import LLMOptions
 
 import nexus.llm_probes as llm_mod
-from ironman.types import LLMOptions
 from nexus.llm import LLMService
 from nexus.llm_budget import (
-    OutputMode,
     TASK_ALIASES,
     TASK_BUDGETS,
+    OutputMode,
     canonicalize_task_type,
     resolve_effective_budget,
 )
@@ -116,11 +116,24 @@ async def test_extract_primitive_rides_tier(captured_llm) -> None:
 
 
 @pytest.mark.anyio
-async def test_extract_neutral_task_type_passes_through(captured_llm) -> None:
+async def test_extract_interview_report_rides_extraction_tier(captured_llm) -> None:
+    """r45：interview_report（resumeAI 语音面试复盘报告）从中性值归 extraction
+    档——中性态是 r40 调用点直传 max_tokens 死链的土壤；归档后网关禁思考+
+    二供路由全链生效，canonical 值上线（rerank/eval_batch r199 同型）。"""
     svc = LLMService()
     await svc.extract("抽取以下字段", task_type="interview_report")
     llm: LLMOptions = captured_llm["llm"]
-    assert llm.extra == {"task_type": "interview_report"}
+    assert llm.extra == {"task_type": "extraction"}
+    assert llm.temperature == 0.2
+    assert llm.max_tokens == 3000
+
+
+@pytest.mark.anyio
+async def test_extract_neutral_task_type_passes_through(captured_llm) -> None:
+    svc = LLMService()
+    await svc.extract("抽取以下字段", task_type="simple")
+    llm: LLMOptions = captured_llm["llm"]
+    assert llm.extra == {"task_type": "simple"}
     assert llm.temperature is None
     assert llm.max_tokens is None
 
