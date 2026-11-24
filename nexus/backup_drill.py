@@ -40,7 +40,7 @@ def _max_id(db_path: Path, table: str) -> Optional[int]:
             return int(row[0]) if row and row[0] is not None else None
         finally:
             conn.close()
-    except sqlite3.Error:
+    except (sqlite3.Error, ValueError):
         return None
 
 

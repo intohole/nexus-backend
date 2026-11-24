@@ -244,6 +244,27 @@ def test_restore_drill_without_source(src_db: Path, tmp_path: Path) -> None:
     assert report["table_checks"][0]["source_max_id"] is None
 
 
+def test_restore_drill_uuid_id_table_not_fatal(tmp_path: Path) -> None:
+    """WisePath 判例：TEXT UUID 主键表 MAX(id) 不可 int 化——演练照常 ok，max_id 如实 None。"""
+    src = tmp_path / "uuid.db"
+    conn = sqlite3.connect(str(src))
+    conn.execute("CREATE TABLE activities (id TEXT PRIMARY KEY, name TEXT)")
+    conn.executemany(
+        "INSERT INTO activities VALUES (?, ?)",
+        [
+            ("fd15a329-0682-43c7-9a53-62682b4a2816", "u1"),
+            ("0b2e6d05-1111-4111-8111-111111111111", "u2"),
+        ],
+    )
+    conn.commit()
+    conn.close()
+    bk = _make_backup(src, tmp_path / "backups")
+    report = backup_drill.restore_drill(bk, source_db=src, verify_tables=["activities"])
+    assert report["ok"] is True, report
+    assert report["table_checks"][0]["backup_rows"] == 2
+    assert report["table_checks"][0]["backup_max_id"] is None
+
+
 def test_restore_drill_missing_backup(tmp_path: Path) -> None:
     report = backup_drill.restore_drill(tmp_path / "backups" / "app_missing.db", verify_tables=["t"])
     assert report["ok"] is False
