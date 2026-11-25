@@ -74,12 +74,14 @@ class BrowserHubClient:
         wait_until: str = "networkidle",
         storage_state: Optional[dict] = None,
         asset_app: Optional[str] = None,
+        include_aria: bool = False,
     ) -> dict:
         payload: dict[str, Any] = {
             "url": url,
             "theme": theme,
             "full_page": full_page,
             "wait_until": wait_until,
+            "include_aria": include_aria,
         }
         if viewport:
             payload["viewport"] = viewport
@@ -88,6 +90,31 @@ class BrowserHubClient:
         if asset_app:
             payload["asset_app"] = asset_app
         return await self._post("/api/browser/v1/snapshot", payload)
+
+    async def aria(
+        self,
+        url: str,
+        *,
+        viewport: Optional[dict[str, int]] = None,
+        theme: str = "light",
+        wait_until: str = "networkidle",
+        storage_state: Optional[dict] = None,
+        aria_mode: str = "ai",
+        aria_depth: Optional[int] = None,
+    ) -> dict:
+        payload: dict[str, Any] = {
+            "url": url,
+            "theme": theme,
+            "wait_until": wait_until,
+            "aria_mode": aria_mode,
+        }
+        if viewport:
+            payload["viewport"] = viewport
+        if storage_state is not None:
+            payload["storage_state"] = storage_state
+        if aria_depth is not None:
+            payload["aria_depth"] = aria_depth
+        return await self._post("/api/browser/v1/aria", payload)
 
     async def matrix(
         self,
@@ -129,6 +156,10 @@ def get_browser_client() -> BrowserHubClient:
 
 async def snapshot(url: str, **kwargs: Any) -> dict:
     return await get_browser_client().snapshot(url, **kwargs)
+
+
+async def aria(url: str, **kwargs: Any) -> dict:
+    return await get_browser_client().aria(url, **kwargs)
 
 
 async def matrix(url: str, **kwargs: Any) -> dict:
