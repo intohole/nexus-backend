@@ -80,19 +80,24 @@ class UserTokenVerifier:
 
     async def verify_service(self, token: str) -> bool:
         """验签服务 JWT：仅放行 UC 签发的 role=service / sub=app_* 令牌。"""
+        return await self.verify_service_sub(token) is not None
+
+    async def verify_service_sub(self, token: str) -> Optional[str]:
+        """验签服务 JWT 并返回 sub（r249 R1 身份透出源）；失败/非服务令牌返回 None。"""
         if not token:
-            return False
-        if self._service_cache.get(token) is not None:
-            return True
+            return None
+        cached: object = self._service_cache.get(token)
+        if cached is not None:
+            return str(cached)
         payload: Optional[Dict[str, object]] = await self._decode(token)
         if payload is None:
-            return False
+            return None
         sub: str = str(payload.get("sub") or "")
         role: str = str(payload.get("role") or "")
         if role != "service" and not sub.startswith("app_"):
-            return False
-        self._service_cache.set(token, True)
-        return True
+            return None
+        self._service_cache.set(token, sub)
+        return sub
 
     async def _decode(self, token: str) -> Optional[Dict[str, object]]:
         try:
@@ -273,8 +278,17 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
 
         # UC 验签主通道不受静态 SERVICE_TOKEN 配置门控：空守卫原挡在验签前，
         # 按目标架构只配 UC 凭证（无 SERVICE_TOKEN）的服务会被整仓 403。
-        if token and await self._verifier.verify_service(token):
-            return await call_next(request)
+        # r249 R1：verify_service_sub 透出 sub 到 request.state.service_sub；
+        # 自定义 verifier 无此方法时回退旧 bool 通道（兼容嵌入方鸭子类型）。
+        if token:
+            verify_sub = getattr(self._verifier, "verify_service_sub", None)
+            if verify_sub is not None:
+                service_sub: str = await verify_sub(token) or ""
+                if service_sub:
+                    request.state.service_sub = service_sub
+                    return await call_next(request)
+            elif await self._verifier.verify_service(token):
+                return await call_next(request)
 
         if token and service_token and token.isascii() and hmac.compare_digest(token, service_token):
             return await call_next(request)

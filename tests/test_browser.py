@@ -106,6 +106,63 @@ async def test_error_face_non_json_body():
 
 
 @pytest.mark.asyncio
+async def test_busy_429_carries_structured_backoff():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            json={
+                "detail": {
+                    "code": "busy",
+                    "message": "渲染排队超过 20s",
+                    "retry_after_ms": 20000,
+                    "queue_depth": 8,
+                }
+            },
+        )
+
+    with pytest.raises(BrowserHubError) as exc:
+        await _client(handler).snapshot("https://a.com")
+    assert exc.value.status_code == 429
+    assert exc.value.retry_after_ms == 20000
+    assert exc.value.queue_depth == 8
+
+
+@pytest.mark.asyncio
+async def test_extract_html_mode_and_selector_passthrough():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"html": "<h1>x</h1>"})
+
+    client, captured = _capture(handler)
+    out = await client.extract(
+        "https://a.com",
+        fmt="html",
+        storage_state={"cookies": [], "origins": []},
+        wait_selector="#main",
+        allow_private=False,
+    )
+    assert captured["payload"]["format"] == "html"
+    assert captured["payload"]["storage_state"] == {"cookies": [], "origins": []}
+    assert captured["payload"]["wait_selector"] == "#main"
+    assert captured["payload"]["allow_private"] is False
+    assert "<h1>" in out["html"]
+
+
+@pytest.mark.asyncio
+async def test_block_media_and_allow_private_passthrough():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"asset_rel": "r"})
+
+    client, captured = _capture(handler)
+    await client.snapshot("https://a.com", block_media=True, allow_private=False)
+    assert captured["payload"]["block_media"] is True
+    assert captured["payload"]["allow_private"] is False
+    await client.aria("https://a.com", block_media=False)
+    assert captured["payload"]["block_media"] is False
+    await client.pdf("https://a.com", allow_private=True)
+    assert captured["payload"]["allow_private"] is True
+
+
+@pytest.mark.asyncio
 async def test_unreachable_raises():
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("boom")

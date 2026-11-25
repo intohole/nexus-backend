@@ -20,7 +20,24 @@ logger = get_logger("nexus.browser")
 
 
 class BrowserHubError(RuntimeError):
-    """browserHub 调用失败。调用方决定降级策略,本原语不静默吞错。"""
+    """browserHub 调用失败。调用方决定降级策略,本原语不静默吞错。
+
+    r249:429 busy 携带结构化退避面(status_code/retry_after_ms/queue_depth),
+    调用方可程序化退避;其余错误三字段为 None。
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: Optional[int] = None,
+        retry_after_ms: Optional[int] = None,
+        queue_depth: Optional[int] = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.retry_after_ms = retry_after_ms
+        self.queue_depth = queue_depth
 
 
 def get_browserhub_base_url() -> str:
@@ -45,7 +62,7 @@ class BrowserHubClient:
     def __init__(
         self,
         base_url: str = "",
-        timeout: float = 90.0,
+        timeout: float = 180.0,
         transport: httpx.AsyncBaseTransport | None = None,
     ):
         self._base_url = (base_url or get_browserhub_base_url()).rstrip("/")
@@ -61,7 +78,21 @@ class BrowserHubClient:
             except httpx.HTTPError as exc:
                 raise BrowserHubError(f"browserhub 不可达: {exc}") from exc
         if resp.status_code != 200:
-            raise BrowserHubError(f"browserhub {resp.status_code}: {_detail(resp)}")
+            retry_after: Optional[int] = None
+            queue_depth: Optional[int] = None
+            if resp.status_code == 429:
+                try:
+                    busy = resp.json().get("detail") or {}
+                    retry_after = busy.get("retry_after_ms")
+                    queue_depth = busy.get("queue_depth")
+                except Exception:
+                    pass
+            raise BrowserHubError(
+                f"browserhub {resp.status_code}: {_detail(resp)}",
+                status_code=resp.status_code,
+                retry_after_ms=retry_after,
+                queue_depth=queue_depth,
+            )
         return resp.json()
 
     async def snapshot(
@@ -75,6 +106,8 @@ class BrowserHubClient:
         storage_state: Optional[dict] = None,
         asset_app: Optional[str] = None,
         include_aria: bool = False,
+        block_media: Optional[bool] = None,
+        allow_private: Optional[bool] = None,
     ) -> dict:
         payload: dict[str, Any] = {
             "url": url,
@@ -89,6 +122,10 @@ class BrowserHubClient:
             payload["storage_state"] = storage_state
         if asset_app:
             payload["asset_app"] = asset_app
+        if block_media is not None:
+            payload["block_media"] = block_media
+        if allow_private is not None:
+            payload["allow_private"] = allow_private
         return await self._post("/api/browser/v1/snapshot", payload)
 
     async def aria(
@@ -101,6 +138,8 @@ class BrowserHubClient:
         storage_state: Optional[dict] = None,
         aria_mode: str = "ai",
         aria_depth: Optional[int] = None,
+        block_media: Optional[bool] = None,
+        allow_private: Optional[bool] = None,
     ) -> dict:
         payload: dict[str, Any] = {
             "url": url,
@@ -114,6 +153,10 @@ class BrowserHubClient:
             payload["storage_state"] = storage_state
         if aria_depth is not None:
             payload["aria_depth"] = aria_depth
+        if block_media is not None:
+            payload["block_media"] = block_media
+        if allow_private is not None:
+            payload["allow_private"] = allow_private
         return await self._post("/api/browser/v1/aria", payload)
 
     async def matrix(
@@ -124,24 +167,52 @@ class BrowserHubClient:
         themes: Optional[list[str]] = None,
         full_page: bool = False,
         wait_until: str = "networkidle",
+        block_media: Optional[bool] = None,
+        allow_private: Optional[bool] = None,
     ) -> dict:
         payload: dict[str, Any] = {"url": url, "full_page": full_page, "wait_until": wait_until}
         if viewports:
             payload["viewports"] = viewports
         if themes:
             payload["themes"] = themes
+        if block_media is not None:
+            payload["block_media"] = block_media
+        if allow_private is not None:
+            payload["allow_private"] = allow_private
         return await self._post("/api/browser/v1/matrix", payload)
 
     async def extract(
-        self, url: str, *, viewport: Optional[dict[str, int]] = None, wait_until: str = "networkidle"
+        self,
+        url: str,
+        *,
+        viewport: Optional[dict[str, int]] = None,
+        wait_until: str = "networkidle",
+        fmt: str = "text",
+        storage_state: Optional[dict] = None,
+        wait_selector: Optional[str] = None,
+        block_media: Optional[bool] = None,
+        allow_private: Optional[bool] = None,
     ) -> dict:
-        payload: dict[str, Any] = {"url": url, "wait_until": wait_until}
+        payload: dict[str, Any] = {"url": url, "wait_until": wait_until, "format": fmt}
         if viewport:
             payload["viewport"] = viewport
+        if storage_state is not None:
+            payload["storage_state"] = storage_state
+        if wait_selector:
+            payload["wait_selector"] = wait_selector
+        if block_media is not None:
+            payload["block_media"] = block_media
+        if allow_private is not None:
+            payload["allow_private"] = allow_private
         return await self._post("/api/browser/v1/extract", payload)
 
-    async def pdf(self, url: str) -> dict:
-        return await self._post("/api/browser/v1/pdf", {"url": url})
+    async def pdf(
+        self, url: str, *, allow_private: Optional[bool] = None
+    ) -> dict:
+        payload: dict[str, Any] = {"url": url}
+        if allow_private is not None:
+            payload["allow_private"] = allow_private
+        return await self._post("/api/browser/v1/pdf", payload)
 
 
 _client: Optional[BrowserHubClient] = None
