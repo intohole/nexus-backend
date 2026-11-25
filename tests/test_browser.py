@@ -163,6 +163,56 @@ async def test_block_media_and_allow_private_passthrough():
 
 
 @pytest.mark.asyncio
+async def test_session_open_act_close_paths():
+    payloads: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payloads.append(json.loads(request.content) if request.content else {})
+        if request.method == "POST" and request.url.path.endswith("/sessions"):
+            return httpx.Response(200, json={"session_id": "abc123", "aria_yaml": "- heading [ref=e1]"})
+        if request.url.path.endswith("/act"):
+            return httpx.Response(200, json={"session_id": "abc123", "action": "click", "aria_yaml": "- heading [ref=e1]"})
+        if request.method == "DELETE":
+            return httpx.Response(200, json={"closed": True})
+        return httpx.Response(404, json={"detail": "nope"})
+
+    client = _client(handler)
+    opened = await client.open_session("https://a.com", storage_state={"cookies": [], "origins": []})
+    assert opened["session_id"] == "abc123"
+    acted = await client.act("abc123", "click", ref="e1")
+    assert acted["action"] == "click"
+    assert await client.close_session("abc123") == {"closed": True}
+    assert payloads[0]["storage_state"] == {"cookies": [], "origins": []}
+
+
+@pytest.mark.asyncio
+async def test_session_act_payload_fields():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ok": True})
+
+    client, captured = _capture(handler)
+    await client.act("abc123", "navigate", url="https://b.com")
+    assert captured["payload"] == {"action": "navigate", "url": "https://b.com"}
+    await client.act("abc123", "wait", wait_ms=500)
+    assert captured["payload"] == {"action": "wait", "wait_ms": 500}
+    await client.act("abc123", "scroll", direction="up", amount=300)
+    assert captured["payload"]["direction"] == "up"
+
+
+@pytest.mark.asyncio
+async def test_session_gone_410_carries_status():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            410,
+            json={"detail": {"code": "session_gone", "message": "session 已失效", "hint": "请重建会话"}},
+        )
+
+    with pytest.raises(BrowserHubError) as exc:
+        await _client(handler).act("dead", "click", ref="e1")
+    assert exc.value.status_code == 410
+
+
+@pytest.mark.asyncio
 async def test_unreachable_raises():
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("boom")
