@@ -3,12 +3,11 @@ import asyncio
 
 import pytest
 
+from nexus.harness_working import render_working_context, working_context
 from nexus.memory import (
     empty_reason_of,
     recall_context,
     render_memory_context,
-    render_working_context,
-    working_context,
 )
 
 RECALL_ENVELOPE = {

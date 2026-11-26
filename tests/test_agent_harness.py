@@ -95,6 +95,7 @@ def test_harness_spawns_react_and_team(tmp_path: Path):
     assert agent._system_prompt
     assert "reviewer" in harness.team.members
     assert harness.team.members["reviewer"].inner.tools.list_tools() == ["lookup"]
+    assert agent._steering is harness.collab.steering
 
 
 def test_nexus_top_level_reexport():

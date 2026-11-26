@@ -2,10 +2,24 @@
 from __future__ import annotations
 
 import pytest
-
 from ironman.memory.layers import MemoryScope
+
 from nexus.agent_harness import HarnessProfile, build_agent_harness
 from nexus.bee_memory import BeeMemoryBackend
+from nexus.memory_contract import (
+    MemoryBudget,
+    MemoryOverflowError,
+    MemoryUnavailableError,
+)
+
+
+class _FakeDescriber:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, str]] = []
+
+    async def describe(self, image: str | bytes, prompt: str = "") -> str:
+        self.calls.append((image, prompt))
+        return "一只橘猫趴在键盘上，屏幕显示行情图"
 
 
 class _FakeSDK:
@@ -118,4 +132,54 @@ async def test_add_forwards_scope_session_and_channel():
     call = [item for item in sdk.calls if item[0] == "add"][0][1]
     assert call["session_id"] == "s2"
     assert call["channel"] == "chat"
+
+
+@pytest.mark.asyncio
+async def test_recall_fail_query_raises_when_backend_down():
+    sdk = _FakeSDK()
+    sdk.fail = True
+    backend = BeeMemoryBackend(
+        "u1", "demo", sdk=sdk, budget=MemoryBudget(failure_mode="fail_query")
+    )
+    with pytest.raises(MemoryUnavailableError):
+        await backend.recall("任意")
+
+
+@pytest.mark.asyncio
+async def test_snapshot_overflow_fail_query_raises():
+    sdk = _FakeSDK()
+    sdk.snapshot_payload = {
+        "memories": [{"content": "很长的记忆" * 40, "source_app": "other"}]
+    }
+    backend = BeeMemoryBackend("u1", "demo", sdk=sdk)
+    with pytest.raises(MemoryOverflowError):
+        await backend.render_snapshot(
+            budget=MemoryBudget(max_tokens=5, overflow="fail_query")
+        )
+
+
+@pytest.mark.asyncio
+async def test_add_image_composes_memory_and_forwards():
+    sdk = _FakeSDK()
+    describer = _FakeDescriber()
+    backend = BeeMemoryBackend("u1", "demo", sdk=sdk, describer=describer)
+    result = await backend.add_image("data:image/png;base64,xx", prompt="记住我的猫")
+    assert result["success"] is True
+    assert str(result["description"]).startswith("一只橘猫")
+    call = [item for item in sdk.calls if item[0] == "add"][0][1]
+    assert str(call["content"]).startswith("[图片记忆]记住我的猫：")
+    assert call["channel"] == "image"
+    assert describer.calls[0][1] == "记住我的猫"
+
+
+@pytest.mark.asyncio
+async def test_recall_image_uses_description_as_query():
+    sdk = _FakeSDK()
+    describer = _FakeDescriber()
+    backend = BeeMemoryBackend("u1", "demo", sdk=sdk, describer=describer)
+    items = await backend.recall_image("data:image/png;base64,xx", prompt="这是什么")
+    assert items
+    call = [item for item in sdk.calls if item[0] == "recall"][0][1]
+    assert "一只橘猫" in str(call["content"])
+    assert "这是什么" in str(call["content"])
     assert call["app_name"] == "demo"

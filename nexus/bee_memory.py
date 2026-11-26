@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
 from ironman.memory.layers import MemoryItem, MemoryScope
+from ironman.memory.writeback import (
+    MemoryGate,
+    MemoryTurn,
+    MemoryWriteback,
+    MemoryWriteReport,
+)
+
+from nexus.bee_memory_items import payload_items
 from nexus.bm_sdk import BeeMemorySDK, get_bm_sdk
 from nexus.memory import render_memory_context_bounded
+from nexus.memory_contract import MemoryBudget
+from nexus.memory_media import MediaDescriber, VisionDescriber, compose_image_memory
 
 logger = logging.getLogger(__name__)
 
-_PRIORITY_IMPORTANCE = {"high": 0.8, "medium": 0.5, "low": 0.2}
+IMAGE_DESCRIPTION_MAX_CHARS = 2000
 
 
 class BeeMemoryBackend:
@@ -21,6 +30,10 @@ class BeeMemoryBackend:
         session_id: str = "",
         tenant_id: str = "",
         memory_scope: str = "",
+        write_gate: MemoryGate | None = None,
+        min_write_chars: int = 32,
+        describer: MediaDescriber | None = None,
+        budget: MemoryBudget | None = None,
     ) -> None:
         self._user_id = user_id
         self._app_name = app_name
@@ -28,6 +41,13 @@ class BeeMemoryBackend:
         self._session_id = session_id
         self._tenant_id = tenant_id
         self._memory_scope = memory_scope
+        self._describer = describer
+        self._budget = budget or MemoryBudget()
+        self._writeback = MemoryWriteback(
+            writer=self._write_turn,
+            gate=write_gate,
+            min_chars=min_write_chars,
+        )
 
     @property
     def user_id(self) -> str:
@@ -37,9 +57,20 @@ class BeeMemoryBackend:
     def app_name(self) -> str:
         return self._app_name
 
-    async def recall(self, query: str, scope: MemoryScope | None = None, limit: int = 5) -> list[MemoryItem]:
+    @property
+    def budget(self) -> MemoryBudget:
+        return self._budget
+
+    async def recall(
+        self,
+        query: str,
+        scope: MemoryScope | None = None,
+        limit: int = 5,
+        budget: MemoryBudget | None = None,
+    ) -> list[MemoryItem]:
         if not self._user_id or not query.strip() or limit <= 0:
             return []
+        contract = budget or self._budget
         try:
             payload = await self._sdk.recall_memories(
                 content=query,
@@ -47,33 +78,49 @@ class BeeMemoryBackend:
                 app_name=self._app_name,
                 top_k=limit,
                 smart=True,
+                max_chars=contract.max_chars or None,
             )
         except Exception as exc:
-            logger.warning("beeMemory recall 失败，降级为空: %s", exc)
+            logger.warning("beeMemory recall 失败: %s", exc)
+            contract.on_failure(str(exc))
             return []
-        return self._items(payload if isinstance(payload, dict) else {}, scope or MemoryScope.USER)
+        return payload_items(payload if isinstance(payload, dict) else {}, scope or MemoryScope.USER)
 
-    async def snapshot(self, top_k: int = 10, max_chars: int = 1200) -> dict[str, object]:
+    async def snapshot(
+        self,
+        top_k: int = 10,
+        max_chars: int = 1200,
+        budget: MemoryBudget | None = None,
+    ) -> dict[str, object]:
+        contract = budget or self._budget
         try:
             payload = await self._sdk.snapshot_memories(
                 user_id=self._user_id,
                 app_name=self._app_name,
                 top_k=top_k,
-                max_chars=max_chars,
+                max_chars=contract.max_chars or max_chars,
             )
         except Exception as exc:
-            logger.warning("beeMemory snapshot 失败，降级为空: %s", exc)
+            logger.warning("beeMemory snapshot 失败: %s", exc)
+            contract.on_failure(str(exc))
             return {}
         return payload if isinstance(payload, dict) else {}
 
-    async def render_snapshot(self, top_k: int = 10, max_chars: int = 1200) -> str:
-        payload = await self.snapshot(top_k=top_k, max_chars=max_chars)
-        text, _readout = render_memory_context_bounded(
+    async def render_snapshot(
+        self,
+        top_k: int = 10,
+        max_chars: int = 1200,
+        budget: MemoryBudget | None = None,
+    ) -> str:
+        contract = budget or self._budget
+        payload = await self.snapshot(top_k=top_k, max_chars=max_chars, budget=contract)
+        text, readout = render_memory_context_bounded(
             payload,
             self_app=self._app_name,
             kind="snapshot",
-            budget_chars=max_chars,
+            budget_chars=contract.max_chars or max_chars,
         )
+        contract.ensure(readout)
         return text
 
     async def context(
@@ -82,7 +129,9 @@ class BeeMemoryBackend:
         top_k: int = 10,
         max_chars: int = 1200,
         history_max_chars: int | None = None,
+        budget: MemoryBudget | None = None,
     ) -> dict[str, object]:
+        contract = budget or self._budget
         try:
             payload = await self._sdk.get_context(
                 user_id=self._user_id,
@@ -90,11 +139,12 @@ class BeeMemoryBackend:
                 session_id=self._session_id,
                 history_turns=history_turns,
                 top_k=top_k,
-                max_chars=max_chars,
+                max_chars=contract.max_chars or max_chars,
                 history_max_chars=history_max_chars,
             )
         except Exception as exc:
-            logger.warning("beeMemory context 失败，降级为空: %s", exc)
+            logger.warning("beeMemory context 失败: %s", exc)
+            contract.on_failure(str(exc))
             return {}
         return payload if isinstance(payload, dict) else {}
 
@@ -120,6 +170,71 @@ class BeeMemoryBackend:
             return {"success": False, "message": str(exc)}
         return payload if isinstance(payload, dict) else {}
 
+    async def add_image(
+        self,
+        image: str | bytes,
+        prompt: str = "",
+        channel: str = "image",
+        session_id: str = "",
+        budget: MemoryBudget | None = None,
+    ) -> dict[str, object]:
+        description = await self._describe(image, prompt, budget)
+        content = compose_image_memory(description[:IMAGE_DESCRIPTION_MAX_CHARS], prompt)
+        if not content:
+            return {"success": False, "message": "empty_image_description"}
+        payload = await self.add(content, session_id=session_id, channel=channel)
+        result = dict(payload)
+        result.setdefault("description", description)
+        return result
+
+    async def recall_image(
+        self,
+        image: str | bytes,
+        prompt: str = "",
+        limit: int = 5,
+        scope: MemoryScope | None = None,
+        budget: MemoryBudget | None = None,
+    ) -> list[MemoryItem]:
+        description = await self._describe(image, prompt, budget)
+        if not description:
+            return []
+        query = f"{prompt}\n{description}" if prompt.strip() else description
+        return await self.recall(query, scope=scope, limit=limit, budget=budget)
+
+    async def _describe(
+        self,
+        image: str | bytes,
+        prompt: str,
+        budget: MemoryBudget | None,
+    ) -> str:
+        contract = budget or self._budget
+        try:
+            return (await self._resolve_describer().describe(image, prompt)).strip()
+        except Exception as exc:
+            logger.warning("beeMemory 图片描述失败: %s", exc)
+            contract.on_failure(f"图片描述失败: {exc}")
+            return ""
+
+    def _resolve_describer(self) -> MediaDescriber:
+        if self._describer is None:
+            self._describer = VisionDescriber()
+        return self._describer
+
+    async def remember_turn(self, turn: MemoryTurn) -> MemoryWriteReport:
+        scoped = MemoryTurn(
+            session_id=turn.session_id or self._session_id,
+            turn_index=turn.turn_index,
+            user_text=turn.user_text,
+            assistant_text=turn.assistant_text,
+            app_name=turn.app_name or self._app_name,
+            kind=turn.kind,
+            metadata=turn.metadata,
+        )
+        return await self._writeback.run(scoped)
+
+    async def _write_turn(self, turn: MemoryTurn, content: str) -> dict[str, object]:
+        return await self.add(content, session_id=turn.session_id, channel=turn.kind)
+
     async def save_history(self, messages: list[dict[str, str]], channel: str = "") -> dict[str, object]:
         try:
             payload = await self._sdk.save_history(
@@ -140,51 +255,5 @@ class BeeMemoryBackend:
         except Exception:
             return False
 
-    def _items(self, payload: dict[str, object], scope: MemoryScope) -> list[MemoryItem]:
-        if payload.get("unavailable") or payload.get("success") is False or payload.get("error"):
-            return []
-        raw = payload.get("memories")
-        if not isinstance(raw, list):
-            return []
-        items: list[MemoryItem] = []
-        for entry in raw:
-            if not isinstance(entry, dict):
-                continue
-            content = str(entry.get("content") or entry.get("memory_content") or "").strip()
-            if not content:
-                continue
-            importance = self._importance(entry)
-            items.append(
-                MemoryItem(
-                    content=content,
-                    scope=scope,
-                    key=str(entry.get("id") or ""),
-                    importance=importance,
-                    created_at=self._timestamp(entry.get("created_at")),
-                    metadata={
-                        "source_app": str(entry.get("source_app") or ""),
-                        "score": str(entry.get("score") or ""),
-                        "priority": str(entry.get("priority") or ""),
-                        "superseded": str(bool(entry.get("superseded"))),
-                        "revived": str(bool(entry.get("revived"))),
-                    },
-                )
-            )
-        return items
 
-    def _importance(self, entry: dict[str, object]) -> float:
-        score = entry.get("score")
-        if isinstance(score, (int, float)):
-            return max(0.0, min(1.0, float(score)))
-        priority = str(entry.get("priority") or "medium").lower()
-        return _PRIORITY_IMPORTANCE.get(priority, 0.5)
-
-    def _timestamp(self, value: object) -> float:
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str) and value:
-            try:
-                return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
-            except ValueError:
-                return 0.0
-        return 0.0
+__all__ = ["BeeMemoryBackend"]
