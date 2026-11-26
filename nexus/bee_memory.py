@@ -114,10 +114,11 @@ class BeeMemoryBackend:
     ) -> dict[str, object]:
         contract = budget or self._budget
         try:
+            # r257：适配器对外参数维持 top_k（既有消费面），传输键改 top_n（snapshot 端点服务端契约名，top_k 曾被静默忽略恒走默认 10）
             payload = await self._sdk.snapshot_memories(
                 user_id=self._user_id,
                 app_name=self._app_name,
-                top_k=top_k,
+                top_n=top_k,
                 max_chars=contract.max_chars or max_chars,
             )
         except Exception as exc:
@@ -164,7 +165,7 @@ class BeeMemoryBackend:
                 app_name=self._app_name,
                 session_id=self._session_id,
                 history_turns=history_turns,
-                top_k=top_k,
+                top_n=top_k,
                 max_chars=contract.max_chars or max_chars,
                 history_max_chars=history_max_chars,
             )

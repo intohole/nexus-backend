@@ -129,13 +129,14 @@ class BeeMemorySDK(BaseAsyncClient):
         self,
         user_id: str,
         app_name: Optional[str] = None,
-        top_k: int = 10,
+        top_n: int = 10,
         max_chars: Optional[int] = None,
     ) -> Dict:
+        # r257：snapshot 端点服务端契约名 top_n（beeMemory schemas/memory.py 无 alias，top_k 被静默忽略恒走默认 10）；recall/search 仍为 top_k 勿改
         payload: Dict = {
             "user_id": user_id,
             "app_name": app_name or self.app_name,
-            "top_k": top_k,
+            "top_n": top_n,
         }
         if max_chars is not None:
             payload["max_chars"] = max_chars
@@ -148,15 +149,16 @@ class BeeMemorySDK(BaseAsyncClient):
         session_id: Optional[str] = None,
         history_turns: int = 12,
         history_max_chars: Optional[int] = None,
-        top_k: int = 10,
+        top_n: int = 10,
         max_chars: Optional[int] = None,
     ) -> Dict:
         """工作上下文聚合（r27）：近 N 条对话窗口 + 热记忆快照一次装填（确定性 0 LLM）。"""
+        # r257：context 端点同 snapshot 契约名 top_n（top_k 被服务端忽略）；recall/search 仍为 top_k 勿改
         payload: Dict = {
             "user_id": user_id,
             "app_name": app_name or self.app_name,
             "history_turns": history_turns,
-            "top_k": top_k,
+            "top_n": top_n,
         }
         if session_id:
             payload["session_id"] = session_id

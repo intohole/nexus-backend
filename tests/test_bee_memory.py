@@ -223,3 +223,20 @@ async def test_recall_image_uses_description_as_query():
     assert "一只橘猫" in str(call["content"])
     assert "这是什么" in str(call["content"])
     assert call["app_name"] == "demo"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_context_wire_keys_top_n_r257():
+    """r257 契约漂移守底：snapshot/context 传输键必须为 top_n（服务端 schemas 只收 top_n，旧 top_k 被静默忽略恒走默认 10）；recall 维持 top_k。"""
+    sdk = _FakeSDK()
+    backend = BeeMemoryBackend("u1", "demo", sdk=sdk)
+    await backend.snapshot(top_k=7)
+    await backend.context(history_turns=6, top_k=5)
+    await backend.recall("任意", limit=3)
+    by_kind = {call[0]: call[1] for call in sdk.calls}
+    assert by_kind["snapshot"]["top_n"] == 7
+    assert "top_k" not in by_kind["snapshot"]
+    assert by_kind["context"]["top_n"] == 5
+    assert "top_k" not in by_kind["context"]
+    assert by_kind["recall"]["top_k"] == 3
+    assert "top_n" not in by_kind["recall"]
