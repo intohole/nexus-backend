@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-
+from ironman.kernel import LLMExecutor
 from ironman.types import LLMRequest, LLMResponse
 
-LLMExecutor = Callable[[LLMRequest], Awaitable[LLMResponse]]
+LLMExecutor = LLMExecutor  # re-export：r260 B1 单源=ironman.kernel.ports（契约面不变）
 
 
 class HarnessGatewayError(RuntimeError):

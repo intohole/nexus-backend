@@ -1,0 +1,7 @@
+{
+ "system_prompt": "## project_instructions\n项目规则：先测试后提交\n\n## skills\n可按需加载的技能目录（先按名称判断相关性，需要时再加载正文）：\n- deploy: 部署灰度与回滚",
+ "spawn_prompt": "## project_instructions\n项目规则：先测试后提交\n\n## skills\n可按需加载的技能目录（先按名称判断相关性，需要时再加载正文）：\n- deploy: 部署灰度与回滚",
+ "memory_query_prompt": "## project_instructions\n项目规则：先测试后提交\n\n## skills\n可按需加载的技能目录（先按名称判断相关性，需要时再加载正文）：\n- deploy: 部署灰度与回滚",
+ "config_model": "test-model",
+ "config_system": "sysx"
+}

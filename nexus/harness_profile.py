@@ -1,34 +1,15 @@
+"""nexus HarnessProfile：r260 B1 薄壳化——装配基座上收 ironman.kernel.KernelProfile（contracts.md §5）。
+
+本类保留为继承扩展点（nexus 未来可在子类加业务字段）；字段集与 ironman 基座
+逐字段等价（行为等价不变式=tests/test_r260_kernel_equivalence.py 金样对表）。
+"""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
-from ironman.agents.sub_agent import SubAgentSpec
-from ironman.memory.layers import MemoryScope
-from ironman.prompt.sections import PromptSection
-from ironman.tools.registry import ToolRegistry
+from ironman.kernel.profile import KernelProfile
 
 
-@dataclass
-class HarnessProfile:
-    app_name: str
-    model: str | None = None
-    task_type: str = ""
-    max_context_tokens: int = 32000
-    reserve_tokens: int = 512
-    keep_recent_tokens: int = 0
-    max_tool_result_chars: int | None = None
-    max_prompt_chars: int = 16000
-    memory_tokens: int = 8000
-    episode_limit: int = 50
-    instruction_dirs: tuple[str, ...] = ()
-    instruction_filenames: tuple[str, ...] = ("AGENTS.md",)
-    max_instruction_bytes: int = 32768
-    skill_dirs: tuple[str, ...] = ()
-    sections: tuple[PromptSection, ...] = ()
-    subagents: tuple[SubAgentSpec, ...] = ()
-    max_parallel_subagents: int = 0
-    memory_scope: MemoryScope = MemoryScope.SESSION
-    tools: ToolRegistry = field(default_factory=ToolRegistry)
+class HarnessProfile(KernelProfile):
+    pass
 
 
 __all__ = ["HarnessProfile"]

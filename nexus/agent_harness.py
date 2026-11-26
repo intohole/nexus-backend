@@ -1,40 +1,41 @@
-"""AgentHarness：ironman agents 编排的 nexus 业务薄壳（profile→spawn/team/记忆读写）。
+"""AgentHarness：r260 B1 薄壳化——spawn/team/记忆读写面上收 ironman.kernel.KernelHarness。
 
-B5 记忆接线（r259）：spawn prompt 走 _build_spawn_prompt 灰度旗通道；
-LLM executor 经 gateway_executor(app_name) 注入（三道门校验后委托 ironman facade）。
+nexus 侧只留四缝：①working 上下文读写（接 nexus.harness_working+bee payload 方言）
+②payload 渲染缝（render_memory_context_bounded，围栏镜像契约 7 nexus 侧守底）
+③B5 旗读缝（memory_injection_enabled 接 nexus feature_flags；旗关=素版逐字节零漂移）
+④executor 网关缺省（gateway_executor 三道门）。金样等价不变式=tests/test_r260_kernel_equivalence.py。
 """
 from __future__ import annotations
 
 from typing import Sequence
 
-from ironman.agents.collaboration import CollabSession
-from ironman.agents.react_agent import ReActAgent
-from ironman.agents.sub_agent import SubAgent
-from ironman.agents.sub_agent_team import SubAgentTeam
-from ironman.agents.super_agent import SuperAgent
 from ironman.context_assembly import ContextAssembler
-from ironman.memory.buffer_memory import BufferMemory
-from ironman.memory.compaction import CompactionStrategy
+from ironman.kernel.capabilities import KernelHarness
 from ironman.memory.layers import LayeredMemory, MemoryItem, MemoryScope
 from ironman.memory.summarizer import StructuredSummarizer
-from ironman.memory.writeback import MemoryTurn, MemoryTurnKind, MemoryWriteReport
-from ironman.prompt.instructions import InstructionBundle, InstructionFile, load_instruction_chain
+from ironman.prompt.instructions import InstructionBundle
 from ironman.prompt.lifecycle import PromptLifecycle
 from ironman.prompt.sections import PromptAssembler, PromptSection
 from ironman.skills.evolution import SkillEvolutionReview
 from ironman.skills.source import SkillCatalog
 from ironman.tools.registry import ToolRegistry
-from ironman.types import AgentConfig
 
 from nexus.bee_memory import BeeMemoryBackend
-from nexus.harness_capabilities import HarnessCapabilities
 from nexus.harness_llm import LLMExecutor, gateway_executor
 from nexus.harness_profile import HarnessProfile
+from nexus.harness_working import (
+    read_working_context as _read_working_context,
+)
+from nexus.harness_working import (
+    restore_working_memory as _restore_working_memory,
+)
+from nexus.memory import render_memory_context_bounded
+from nexus.memory_contract import MemoryBudget
 from nexus.skill_source import NexusSkillSource
 from nexus.skills import SkillDirSpec, SkillRegistry
 
 
-class AgentHarness(HarnessCapabilities):
+class AgentHarness(KernelHarness):
     def __init__(
         self,
         profile: HarnessProfile,
@@ -45,7 +46,7 @@ class AgentHarness(HarnessCapabilities):
         registry: SkillRegistry,
         instructions: InstructionBundle,
         tools: ToolRegistry,
-        collab: CollabSession,
+        collab,
         memory_backend: BeeMemoryBackend | None = None,
         evolution: SkillEvolutionReview | None = None,
         lifecycle: PromptLifecycle | None = None,
@@ -54,79 +55,121 @@ class AgentHarness(HarnessCapabilities):
         super().__init__(
             profile=profile,
             prompt_assembler=prompt_assembler,
+            context_assembler=context_assembler,
             memory=memory,
             catalog=catalog,
             instructions=instructions,
+            tools=tools,
+            collab=collab,
+            skill_registry=registry,
             memory_backend=memory_backend,
             evolution=evolution,
             lifecycle=lifecycle,
+            llm_executor=llm_executor,
+            memory_payload_renderer=render_memory_context_bounded,
         )
-        self._context_assembler = context_assembler
-        self._registry = registry
-        self._tools = tools
-        self._collab = collab
-        self._llm_executor = llm_executor
-        self._team: SubAgentTeam | None = None
-        # r259 B5 注入观测（harness 级计数，非 ironman RunCensus——注入发生在装配期，
-        # 早于 run() 的 ContextVar 生命周期；r259 台账登记此偏离锚）
-        self._spawn_memory_injections = 0
-        self._spawn_memory_hits = 0
+        self._nexus_registry = registry
 
     @property
     def profile(self) -> HarnessProfile:
-        return self._profile
-
-    @property
-    def memory(self) -> LayeredMemory:
-        return self._memory
-
-    @property
-    def skills(self) -> SkillCatalog:
-        return self._catalog
+        return self._profile  # type: ignore[return-value]
 
     @property
     def registry(self) -> SkillRegistry:
-        return self._registry
-
-    @property
-    def instructions(self) -> InstructionBundle:
-        return self._instructions
-
-    @property
-    def context_assembler(self) -> ContextAssembler:
-        return self._context_assembler
-
-    @property
-    def collab(self) -> CollabSession:
-        return self._collab
+        return self._nexus_registry
 
     @property
     def memory_backend(self) -> BeeMemoryBackend | None:
-        return self._memory_backend
+        return self._memory_backend  # type: ignore[return-value]
 
-    @property
-    def team(self) -> SubAgentTeam:
-        if self._team is None:
-            self._team = self._build_team()
-        return self._team
-
-    @property
-    def lifecycle(self) -> PromptLifecycle:
-        return self._lifecycle
-
-    def _resolve_executor(self) -> LLMExecutor:
+    def resolve_llm_executor(self) -> LLMExecutor:
         if self._llm_executor is not None:
             return self._llm_executor
         return gateway_executor(self._profile.app_name)
 
-    def _agent_config(self, system_prompt: str, max_steps: int | None = None) -> AgentConfig:
-        extra: dict[str, object] = {}
-        if self._profile.task_type:
-            extra["task_type"] = self._profile.task_type
-        config = AgentConfig(model=self._profile.model, system_prompt=system_prompt, llm_extra=extra)
-        if max_steps is not None:
-            config = config.model_copy(update={"max_steps": max_steps})
-        return config
+    def memory_injection_enabled(self) -> bool:
+        from nexus.feature_flags import get_feature_flags
+
+        return get_feature_flags().harness_memory_injection
+
+    # ---- working 上下文缝（nexus.harness_working 接线，kernel 缺省空实现的覆写）----
+
+    async def read_working_context(
+        self,
+        history_turns: int = 12,
+        top_k: int = 10,
+        max_chars: int = 1200,
+        history_max_chars: int | None = None,
+        budget: MemoryBudget | None = None,
+    ):
+        from ironman.kernel.ports import KernelWorkingContext
+
+        context = await _read_working_context(
+            self._memory_backend,
+            self._profile.app_name,
+            history_turns=history_turns,
+            top_k=top_k,
+            max_chars=max_chars,
+            history_max_chars=history_max_chars,
+            budget=budget,
+        )
+        return KernelWorkingContext(
+            history=context.history,
+            text=context.text,
+            history_count=context.history_count,
+            truncated=context.truncated,
+        )
+
+    async def restore_working_memory(
+        self,
+        history_turns: int = 12,
+        top_k: int = 10,
+        max_chars: int = 1200,
+        history_max_chars: int | None = None,
+        budget: MemoryBudget | None = None,
+    ) -> int:
+        return await _restore_working_memory(
+            self._memory,
+            self._memory_backend,
+            self._profile.app_name,
+            history_turns=history_turns,
+            top_k=top_k,
+            max_chars=max_chars,
+            history_max_chars=history_max_chars,
+            budget=budget,
+        )
+
+    # ---- 显式类型面（kernel 侧鸭子协议的 nexus 签名投影）----
+
+    async def remember_image(
+        self,
+        image: str | bytes,
+        prompt: str = "",
+        channel: str = "image",
+        session_id: str = "",
+        budget: MemoryBudget | None = None,
+    ) -> dict[str, object] | None:
+        if self._memory_backend is None:
+            return None
+        return await self._memory_backend.add_image(
+            image, prompt=prompt, channel=channel, session_id=session_id, budget=budget
+        )
+
+    async def recall_image(
+        self,
+        image: str | bytes,
+        prompt: str = "",
+        limit: int = 5,
+        scope: MemoryScope | None = None,
+        budget: MemoryBudget | None = None,
+    ) -> list[MemoryItem]:
+        if self._memory_backend is None:
+            return []
+        return await self._memory_backend.recall_image(
+            image, prompt=prompt, limit=limit, scope=scope, budget=budget
+        )
+
+    # ---- spawn 兼容缝（r259 形态：旗读缝在 nexus，kernel 收显式参数）----
 
     async def spawn_react(
         self,
@@ -135,19 +178,14 @@ class AgentHarness(HarnessCapabilities):
         tools: ToolRegistry | None = None,
         max_steps: int = 10,
         extra_sections: Sequence[PromptSection] = (),
-    ) -> ReActAgent:
-        """r259 B5：prompt 走 _build_spawn_prompt（旗关=与既往 sync 版逐字节一致）。"""
-        config = self._agent_config(
-            system_prompt if system_prompt is not None else await self._build_spawn_prompt(extra_sections),
-            max_steps=max_steps,
-        )
-        return ReActAgent(
+    ):
+        return await super().spawn_react(
             name=name,
-            config=config,
-            memory=self._memory,
-            tools=(tools or self._tools).copy(),
-            steering=self._collab.steering,
-            llm_executor=self._resolve_executor(),
+            system_prompt=system_prompt,
+            tools=tools,
+            max_steps=max_steps,
+            extra_sections=extra_sections,
+            inject_memory=self.memory_injection_enabled(),
         )
 
     async def spawn_super(
@@ -155,126 +193,19 @@ class AgentHarness(HarnessCapabilities):
         name: str = "super_agent",
         system_prompt: str | None = None,
         extra_sections: Sequence[PromptSection] = (),
-    ) -> SuperAgent:
-        config = self._agent_config(
-            system_prompt if system_prompt is not None else await self._build_spawn_prompt(extra_sections)
-        )
-        workers = {worker_name: member for worker_name, member in self.team.members.items()}
-        return SuperAgent(
+    ):
+        return await super().spawn_super(
             name=name,
-            config=config,
-            memory=self._memory,
-            tools=self._tools.copy(),
-            workers=workers or None,
-            llm_executor=self._resolve_executor(),
+            system_prompt=system_prompt,
+            extra_sections=extra_sections,
+            inject_memory=self.memory_injection_enabled(),
         )
 
     async def _build_spawn_prompt(self, extra_sections: Sequence[PromptSection] = ()) -> str:
-        """B5 记忆接线（默认 off）：旗开且 memory_backend 在位时走带记忆装配变体，
-        其余路径与素版 build_system_prompt 逐字节一致（回滚=关旗零漂移）。"""
-        from nexus.feature_flags import get_feature_flags
-
-        if not get_feature_flags().harness_memory_injection or self._memory_backend is None:
-            return self.build_system_prompt(extra_sections)
-        self._spawn_memory_injections += 1
-        text = await self.build_system_prompt_with_memory(extra_sections=extra_sections)
-        if "<memory_context" in text:
-            self._spawn_memory_hits += 1
-        return text
-
-    def memory_injection_census(self) -> dict[str, int]:
-        """B5 注入观测面：装配期计数（尝试/命中=围栏标记实际出现）。"""
-        return {
-            "spawn_memory_injections": self._spawn_memory_injections,
-            "spawn_memory_hits": self._spawn_memory_hits,
-        }
-
-    async def remember(
-        self,
-        content: str,
-        scope: MemoryScope | None = None,
-        key: str = "",
-        importance: float = 0.5,
-    ) -> MemoryItem:
-        item = await self._memory.remember(
-            content,
-            scope=scope or self._profile.memory_scope,
-            key=key,
-            importance=importance,
+        """兼容缝（r259 形态）：=_resolve_spawn_prompt 的旗读包装。"""
+        return await self._resolve_spawn_prompt(
+            None, extra_sections, inject_memory=self.memory_injection_enabled()
         )
-        if self._memory_backend is not None:
-            await self._memory_backend.add(content, scope=item.scope)
-        return item
-
-    async def remember_turn(
-        self,
-        user_text: str,
-        assistant_text: str,
-        session_id: str = "",
-        turn_index: int = 0,
-        kind: MemoryTurnKind = "turn_complete",
-    ) -> MemoryWriteReport | None:
-        if self._memory_backend is None:
-            return None
-        turn = MemoryTurn(
-            session_id=session_id,
-            turn_index=turn_index,
-            user_text=user_text,
-            assistant_text=assistant_text,
-            app_name=self._profile.app_name,
-            kind=kind,
-        )
-        return await self._memory_backend.remember_turn(turn)
-
-    async def recall(self, query: str, scope: MemoryScope | None = None, limit: int = 5) -> list[MemoryItem]:
-        return await self._memory.recall(query, scope=scope, limit=limit)
-
-    async def close(self) -> None:
-        await self._collab.close()
-
-    def _build_team(self) -> SubAgentTeam:
-        # B5 边界登记（r259）：team 成员仍走素版 prompt——本方法被 team property 在
-        # 同步 __init__ 链里调用，无法 await 记忆变体；成员记忆注入=异步 build 形态，
-        # 首接随行（contracts.md §6 余量）。
-        executor = self._resolve_executor()
-        members: list[SubAgent] = []
-        for spec in self._profile.subagents:
-            tools = self._tools.subset(spec.tools) if spec.tools is not None else self._tools.copy()
-            config = self._agent_config(
-                spec.system_prompt if spec.system_prompt is not None else self.build_system_prompt(),
-                max_steps=spec.max_steps or 10,
-            )
-            if spec.model:
-                config = config.model_copy(update={"model": spec.model})
-            inner = ReActAgent(
-                name=spec.name,
-                config=config,
-                tools=tools,
-                llm_executor=executor,
-            )
-            members.append(SubAgent(name=spec.name, description=spec.description, agent=inner, spec=spec))
-        return SubAgentTeam(members, collab=self._collab, max_parallel=self._profile.max_parallel_subagents)
-
-
-def _load_instructions(profile: HarnessProfile) -> InstructionBundle:
-    files: list[InstructionFile] = []
-    skipped: list[tuple[str, str]] = []
-    texts: list[str] = []
-    seen: set[str] = set()
-    for directory in profile.instruction_dirs:
-        bundle = load_instruction_chain(
-            directory,
-            filenames=profile.instruction_filenames,
-            max_bytes_per_file=profile.max_instruction_bytes,
-        )
-        for instruction_file in bundle.files:
-            if instruction_file.path in seen:
-                continue
-            seen.add(instruction_file.path)
-            files.append(instruction_file)
-            texts.append(instruction_file.text)
-        skipped.extend(bundle.skipped)
-    return InstructionBundle(files=files, skipped=skipped, text="\n\n".join(texts))
 
 
 def build_agent_harness(
@@ -286,13 +217,18 @@ def build_agent_harness(
     lifecycle: PromptLifecycle | None = None,
     llm_executor: LLMExecutor | None = None,
 ) -> AgentHarness:
+    """薄壳组装：nexus 业务件（SkillRegistry/catalog）+kernel 基座件（构造序与 r259 逐行同形）。"""
     skill_registry = registry or SkillRegistry(
         [SkillDirSpec(path=directory, source=profile.app_name) for directory in profile.skill_dirs]
     )
     if registry is None and profile.skill_dirs:
         skill_registry.reload()
     catalog = SkillCatalog([NexusSkillSource(skill_registry, source=profile.app_name)])
-    instructions = _load_instructions(profile)
+    from ironman.agents.collaboration import CollabSession
+    from ironman.kernel.builder import load_instruction_bundle
+    from ironman.memory.buffer_memory import BufferMemory
+    from ironman.memory.compaction import CompactionStrategy
+
     working = BufferMemory(
         max_tokens=profile.memory_tokens,
         strategy=CompactionStrategy.SUMMARY if summarizer else CompactionStrategy.SLIDING_WINDOW,
@@ -318,7 +254,7 @@ def build_agent_harness(
         memory=memory,
         catalog=catalog,
         registry=skill_registry,
-        instructions=instructions,
+        instructions=load_instruction_bundle(profile),
         tools=profile.tools,
         collab=collab,
         memory_backend=memory_backend,
