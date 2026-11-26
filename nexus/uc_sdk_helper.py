@@ -36,6 +36,14 @@ def set_auth_injector(fn: Callable[[object], None]) -> None:
     _auth_injector = fn
 
 
+def _env_first(*names: str) -> tuple[str, str]:
+    for n in names:
+        v = os.getenv(n, "")
+        if v:
+            return v, n
+    return "", ""
+
+
 def init_uc_sdk(
     base_url: str = "",
     app_key: str = "",
@@ -47,8 +55,14 @@ def init_uc_sdk(
 
     base_url = base_url or os.getenv("UC__BASE_URL", "") or _default_uc_base_url()
     app_key = app_key or os.getenv("UC__APP_KEY", "")
-    app_secret = app_secret or os.getenv("UC__APP_SECRET", "")
-    jwt_secret = jwt_secret or os.getenv("UC__JWT_SECRET", "")
+    app_secret, app_secret_key = ((app_secret, "explicit") if app_secret
+                                  else _env_first("UC__APP_SECRET", "UC_APP_SECRET"))
+    jwt_secret, jwt_secret_key = ((jwt_secret, "explicit") if jwt_secret
+                                  else _env_first("UC__JWT_SECRET", "UC_JWT_SECRET"))
+    logger.info(
+        f"UC SDK env 形态: jwt_secret键={jwt_secret_key or '未配'} app_secret键={app_secret_key or '未配'}"
+        "（嵌套 UC__* 正典，扁平 UC_* 兼容兜底）"
+    )
 
     _sdk = UserCenterSDK(
         base_url=base_url,

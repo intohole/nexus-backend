@@ -201,6 +201,9 @@ class UserCenterSDK(BaseAsyncClient, AuthMixin, UserMixin, AppMixin, VipMixin, I
         await self._refresh_jwks()
 
     async def _refresh_jwks(self) -> None:
+        # 先置时钟（S202 F6/IA11 对齐 middleware_auth 同纪律）：失败也进限频窗，
+        # UC JWKS 端点故障时限频闸闭合而非逐请求重试（合法轮换传播延迟上界=60s）。
+        self._jwks_fetched_at = time.time()
         try:
             client = await self._get_client()
             response = await client.get("/.well-known/jwks.json")
@@ -211,7 +214,6 @@ class UserCenterSDK(BaseAsyncClient, AuthMixin, UserMixin, AppMixin, VipMixin, I
             keys = data.get("keys", [])
             self._jwks_keys = keys
             self._jwks_by_kid = {k.get("kid"): k for k in keys if k.get("kid")}
-            self._jwks_fetched_at = time.time()
             logger.info(f"UC JWKS已缓存: keys={len(keys)}")
         except Exception as exc:
             logger.warning(f"JWKS拉取异常: {exc}")
