@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import base64
+import logging
 import time
+from collections import defaultdict
 from types import SimpleNamespace
 from typing import Iterable, Optional, Sequence, Union
 
@@ -19,6 +21,10 @@ from nexus.llm_config import resolve_app_name
 from nexus.llm_json import parse_llm_json
 from nexus.vision_cache import VisionCache, build_key, get_vision_cache
 from nexus.vision_profiles import detail_for, plan_for, resolve_profile
+
+logger = logging.getLogger(__name__)
+
+_FALLBACK_CENSUS: dict[str, int] = defaultdict(int)
 
 DEFAULT_VISION_MODEL = "glm-4.6v-flash"
 JSON_HINT = "只输出一个 JSON 对象，不要包含解释、markdown 代码块或其他文字。"
@@ -58,8 +64,8 @@ async def _vision_preflight(model: str) -> None:
         await get_credits_service().gateway_preflight("vision", model=model)
     except CreditsInsufficientError:
         raise
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("vision preflight 跳过（非欠费异常）: %s", exc)
 
 
 def _usage_shim(data: dict) -> SimpleNamespace:
@@ -102,8 +108,9 @@ async def _vision_charge(app_name: str, request_id: str, model: str,
         await get_credits_service().auto_charge_llm(
             kind="vision", app_name=app_name, request_id=request_id, model=model, usage=usage
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        # 计费失败显影（旧形态静默=白嫖用量无 census；不抛以免反转主链路语义）
+        logger.error("vision auto_charge 失败（用量未计费）: app=%s model=%s %s", app_name, model, exc)
 
 
 class VisionService(_GatewayServiceBase):
@@ -150,6 +157,11 @@ class VisionService(_GatewayServiceBase):
         if start.startswith("glm-4.6v-flash"):
             for candidate in ("glm-4.6v-flashx", "glm-4.6v"):
                 if candidate != start:
+                    chain.append(candidate)
+        elif start.startswith("deepseek-flash"):
+            # r256：deepseek-flash 记忆图像链补升档回退（旧形态单元素链=零回退带病）
+            for candidate in ("glm-4.6v-flash", "glm-4.6v"):
+                if candidate not in chain:
                     chain.append(candidate)
         return chain
 
@@ -280,6 +292,9 @@ class VisionService(_GatewayServiceBase):
         last_error = ""
         for candidate in self._model_chain(start_model):
             try:
+                if candidate != start_model:
+                    logger.warning("vision 升档回退: %s -> %s", start_model, candidate)
+                    _FALLBACK_CENSUS[f"{start_model}->{candidate}"] += 1
                 raw = await self._chat_vision(
                     merged_system, prompt, image_urls, temperature,
                     feature=feature, profile=profile, model=candidate, no_cache=no_cache,

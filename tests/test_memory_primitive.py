@@ -57,17 +57,19 @@ SNAPSHOT_ENVELOPE = {
 
 def test_render_recall_block_structured():
     block = render_memory_context(RECALL_ENVELOPE, self_app="nexus-agent")
-    assert block.startswith("以下是用户的历史记忆（命中 3 条）")
+    assert block.startswith("<memory_context")
+    assert "以下是用户的历史记忆（命中 3 条）" in block
     assert "- 用户对花生过敏（来自应用「aipet」·2026-10-28）" in block
     assert "- 用户在规划北海道旅行（2026-10-01·已被用户后来的表述更新）" in block
     assert "- 用户偏好简洁回答（2026-09-15·重新启用的较早记忆）" in block
-    assert block.endswith("以本轮表述为准。")
+    assert block.endswith("以本轮表述为准。\n</memory_context>")
     assert "0.83" not in block
 
 
 def test_render_snapshot_kind_autodetect():
     block = render_memory_context(SNAPSHOT_ENVELOPE)
-    assert block.startswith("以下是用户的长期记忆画像（最相关 1 条）")
+    assert block.startswith("<memory_context")
+    assert "以下是用户的长期记忆画像（最相关 1 条）" in block
     assert "来自应用「aipet」" in block
 
 
@@ -165,13 +167,14 @@ CONTEXT_ENVELOPE = {
 
 def test_render_working_context_two_sections():
     block = render_working_context(CONTEXT_ENVELOPE, self_app="nexus-agent")
-    assert block.startswith("以下是用户近期对话的记录（2 条）")
+    assert block.startswith("<memory_context")
+    assert "以下是用户近期对话的记录（2 条）" in block
     assert "- user: 我下周要去北海道" in block
     assert "- assistant: 好的，需要我推荐行程吗" in block
     assert "以下是用户的长期记忆画像（最相关 2 条）" in block
     assert "- 用户喜欢滑雪" in block, "同源记忆不标注来源"
     assert "- 用户有花粉过敏史（来自应用「aipet」·2026-10-20）" in block
-    assert block.endswith("以本轮表述为准。")
+    assert block.endswith("以本轮表述为准。\n</memory_context>")
     assert "08:00:05" not in block, "字节稳定纪律：块内不含时变值"
 
 

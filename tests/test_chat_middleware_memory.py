@@ -59,7 +59,8 @@ def test_before_forces_recall_kind_without_envelope_markers():
     middleware = MemoryMiddleware(sdk)
     context = build_context()
     asyncio.run(middleware.before(context))
-    assert context.context_parts and context.context_parts[0].startswith("以下是用户的历史记忆")
+    assert context.context_parts and context.context_parts[0].startswith("<memory_context")
+    assert "以下是用户的历史记忆" in context.context_parts[0]
 
 
 def test_before_guest_and_blank_short_circuit():

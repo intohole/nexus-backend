@@ -64,6 +64,17 @@ class BeeMemoryBackend:
     def budget(self) -> MemoryBudget:
         return self._budget
 
+    @staticmethod
+    def _payload_failure(payload: object) -> str:
+        """bm_sdk 吞错返回 unavailable/success=False 载荷（不抛异常），在此显式接回契约 failure 通道。"""
+        if not isinstance(payload, dict):
+            return ""
+        if payload.get("unavailable"):
+            return str(payload.get("message") or "beeMemory 服务不可用")
+        if payload.get("success") is False:
+            return str(payload.get("message") or "beeMemory 返回失败")
+        return ""
+
     async def recall(
         self,
         query: str,
@@ -87,7 +98,13 @@ class BeeMemoryBackend:
             logger.warning("beeMemory recall 失败: %s", exc)
             contract.on_failure(str(exc))
             return []
-        return payload_items(payload if isinstance(payload, dict) else {}, scope or MemoryScope.USER)
+        payload = payload if isinstance(payload, dict) else {}
+        failure = self._payload_failure(payload)
+        if failure:
+            logger.warning("beeMemory recall 失败: %s", failure)
+            contract.on_failure(failure)
+            return []
+        return payload_items(payload, scope or MemoryScope.USER)
 
     async def snapshot(
         self,
@@ -107,7 +124,13 @@ class BeeMemoryBackend:
             logger.warning("beeMemory snapshot 失败: %s", exc)
             contract.on_failure(str(exc))
             return {}
-        return payload if isinstance(payload, dict) else {}
+        payload = payload if isinstance(payload, dict) else {}
+        failure = self._payload_failure(payload)
+        if failure:
+            logger.warning("beeMemory snapshot 失败: %s", failure)
+            contract.on_failure(failure)
+            return {}
+        return payload
 
     async def render_snapshot(
         self,
@@ -149,7 +172,13 @@ class BeeMemoryBackend:
             logger.warning("beeMemory context 失败: %s", exc)
             contract.on_failure(str(exc))
             return {}
-        return payload if isinstance(payload, dict) else {}
+        payload = payload if isinstance(payload, dict) else {}
+        failure = self._payload_failure(payload)
+        if failure:
+            logger.warning("beeMemory context 失败: %s", failure)
+            contract.on_failure(failure)
+            return {}
+        return payload
 
     async def add(
         self,

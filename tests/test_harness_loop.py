@@ -146,7 +146,9 @@ def test_tool_result_truncated() -> None:
         initial_state="a" * 50,
         limits=LoopLimits(max_result_chars=100),
     ))
-    assert len(outcome.steps[0].result) == 100
+    # r256 修订：截断必须带尾标（静默中切会误导模型把残废 JSON 当完整读），原始载荷 100 字符封顶
+    assert len(outcome.steps[0].result) == 100 + len("…[已截断，共5000字符]")
+    assert "已截断" in outcome.steps[0].result
 
 
 def test_custom_state_field() -> None:

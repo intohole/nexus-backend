@@ -2,13 +2,17 @@
 
 业务侧只提供三件事：ask（一次模型调用）、tools（工具名+处理器）、render_prompt
 （协议文本）。步数/修订/墙钟/非法动作/结果截断全部由本原语守底，失败一律显式
-停止原因，不静默放行。
+停止原因，不静默放行。readonly 为声明性元数据（观测面用），超时由调用方窗口控制。
 """
 from __future__ import annotations
 
+import json
+import logging
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
+
+logger = logging.getLogger("nexus.harness")
 
 AskFn = Callable[[str], Awaitable[dict[str, object]]]
 ToolHandler = Callable[[str, str], Awaitable[str]]
@@ -88,9 +92,26 @@ class LoopHooks:
     tools_for_step: ToolProvider | None = None
 
 
-async def _emit_step(hooks: LoopHooks | None, step: LoopStep) -> None:
+_TOOL_RESULT_FENCE_OPEN = "<<<TOOL_RESULT>>>"
+_TOOL_RESULT_FENCE_CLOSE = "<<<END_TOOL_RESULT>>>"
+_FENCE_TOKENS = ("<<<STATE>>>", "<<<END>>>", _TOOL_RESULT_FENCE_OPEN, _TOOL_RESULT_FENCE_CLOSE)
+
+
+def _sanitize_tool_result(text: str) -> str:
+    for token in _FENCE_TOKENS:
+        text = text.replace(token, f"〈{token.strip('<>')}〉")
+    return text
+
+
+async def _emit_step(hooks: LoopHooks | None, step: LoopStep) -> bool:
+    """hook 异常不击穿循环：返回 False 供调用方以 hook_error 停止并保留全部账本。"""
     if hooks is not None and hooks.on_step is not None:
-        await hooks.on_step(step)
+        try:
+            await hooks.on_step(step)
+        except Exception as exc:
+            logger.warning("on_step hook 异常，循环将以 hook_error 终止: %s", exc)
+            return False
+    return True
 
 
 def parse_action(
@@ -102,7 +123,11 @@ def parse_action(
     kind = str(data.get("action") or "").strip()
     if kind not in tools and kind not in RESERVED_ACTIONS:
         raise ValueError(f"unknown action: {kind or '(empty)'}")
-    arg = str(data.get("arg") or "").strip()
+    raw_arg = data.get("arg")
+    if isinstance(raw_arg, (dict, list)):
+        arg = json.dumps(raw_arg, ensure_ascii=False)
+    else:
+        arg = str(raw_arg or "").strip()
     state = str(data.get(state_field) or "")
     if kind in RESERVED_ACTIONS:
         if len(state) < limits.min_state_chars:
@@ -162,6 +187,8 @@ async def run_tool_loop(
             return LoopOutcome(state, steps, "wall_limit", illegal, tool_uses, revised, elapsed_ms())
         active_tools = tuple(hooks.tools_for_step(step)) if hooks and hooks.tools_for_step else tuple(tools)
         tool_map = {tool.name: tool for tool in active_tools}
+        if not active_tools:
+            history.append(f"[{step}] 本步无可用工具，请 revise 或 final 结束")
         view = LoopView(
             step=step,
             limits=limits,
@@ -184,7 +211,8 @@ async def run_tool_loop(
             history.append(f"[illegal] {detail}")
             step_record = LoopStep(step, _ILLEGAL_ACTION, "", detail)
             steps.append(step_record)
-            await _emit_step(hooks, step_record)
+            if not await _emit_step(hooks, step_record):
+                return LoopOutcome(state, steps, "hook_error", illegal, tool_uses, revised, elapsed_ms())
             if illegal >= limits.max_illegal:
                 return LoopOutcome(state, steps, "illegal_limit", illegal, tool_uses, revised, elapsed_ms())
             continue
@@ -193,7 +221,8 @@ async def run_tool_loop(
                 state = action.state
             step_record = LoopStep(step, "final", "", f"{len(state)} chars")
             steps.append(step_record)
-            await _emit_step(hooks, step_record)
+            if not await _emit_step(hooks, step_record):
+                return LoopOutcome(state, steps, "hook_error", illegal, tool_uses, revised, elapsed_ms())
             return LoopOutcome(state, steps, "final", illegal, tool_uses, revised, elapsed_ms())
         if action.kind == "revise":
             if revised >= limits.max_revise:
@@ -202,7 +231,8 @@ async def run_tool_loop(
                 history.append(f"[{step}] {detail}")
                 step_record = LoopStep(step, _REVISE_REJECTED, "", detail)
                 steps.append(step_record)
-                await _emit_step(hooks, step_record)
+                if not await _emit_step(hooks, step_record):
+                    return LoopOutcome(state, steps, "hook_error", illegal, tool_uses, revised, elapsed_ms())
                 if illegal >= limits.max_illegal:
                     return LoopOutcome(state, steps, "illegal_limit", illegal, tool_uses, revised, elapsed_ms())
                 continue
@@ -212,14 +242,17 @@ async def run_tool_loop(
             history.append(f"[{step}] revise -> {detail}")
             step_record = LoopStep(step, "revise", "", detail)
             steps.append(step_record)
-            await _emit_step(hooks, step_record)
+            if not await _emit_step(hooks, step_record):
+                return LoopOutcome(state, steps, "hook_error", illegal, tool_uses, revised, elapsed_ms())
             continue
         tool = tool_map[action.kind]
         try:
             result = await tool.handler(action.arg, state)
         except Exception as exc:
             result = f"tool error: {str(exc)[:200]}"
-        result = result[: limits.max_result_chars]
+        result = _sanitize_tool_result(result)
+        if len(result) > limits.max_result_chars:
+            result = result[: limits.max_result_chars] + f"…[已截断，共{len(result)}字符]"
         signature = f"{action.kind}|{action.arg}|{result}"
         if signature == last_signature:
             repeat_count += 1
@@ -228,10 +261,13 @@ async def run_tool_loop(
             repeat_count = 0
         last_signature = signature
         tool_uses.append(action.kind)
-        history.append(f"[{step}] {action.kind} -> {result}")
+        history.append(
+            f"[{step}] {action.kind} -> {_TOOL_RESULT_FENCE_OPEN}\n{result}\n{_TOOL_RESULT_FENCE_CLOSE}"
+        )
         step_record = LoopStep(step, action.kind, action.arg, result)
         steps.append(step_record)
-        await _emit_step(hooks, step_record)
+        if not await _emit_step(hooks, step_record):
+            return LoopOutcome(state, steps, "hook_error", illegal, tool_uses, revised, elapsed_ms())
         if limits.max_repeat > 0 and repeat_count >= limits.max_repeat:
             return LoopOutcome(
                 state, steps, "repeat_limit", illegal, tool_uses, revised, elapsed_ms())

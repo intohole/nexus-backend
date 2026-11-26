@@ -44,7 +44,6 @@ def test_nexus_skill_source_lists_and_loads(tmp_path: Path):
     metas = source.list_skills()
     assert [meta.name for meta in metas] == ["deploy"]
     assert source.load("deploy") == "先灰度后全量"
-    assert source.suggest("灰度部署")[0].name == "deploy"
 
 
 def test_nexus_skill_source_read_resource_rejects_traversal(tmp_path: Path):

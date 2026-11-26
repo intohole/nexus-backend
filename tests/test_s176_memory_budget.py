@@ -30,7 +30,8 @@ def test_bounded_truncates_with_marker():
     assert readout["truncated"] is True
     assert readout["n_items"] < 3
     assert "另有" in text and "条记忆因预算截断" in text
-    assert len(text) <= 80 + 60
+    from nexus.memory_common import MEMORY_FENCE_CLOSE, MEMORY_FENCE_OPEN
+    assert len(text) <= 80 + 60 + len(MEMORY_FENCE_OPEN) + len(MEMORY_FENCE_CLOSE) + 2
 
 
 def test_bounded_zero_budget_keeps_header_marker_only():

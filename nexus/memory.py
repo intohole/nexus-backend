@@ -9,11 +9,14 @@ import logging
 
 from nexus.memory_common import (
     FOOTER,
+    MEMORY_FENCE_CLOSE,
+    MEMORY_FENCE_OPEN,
     RECALL_HEADER,
     SNAPSHOT_HEADER,
     as_date,
     as_str,
     extract_memories,
+    fence_memory_block,
     is_guest,
     item_note,
 )
@@ -68,10 +71,11 @@ def render_memory_context_bounded(
         return "", readout
     header = SNAPSHOT_HEADER if kind == "snapshot" else RECALL_HEADER
     footer_len = len(FOOTER)
+    fence_cost = len(MEMORY_FENCE_OPEN) + len(MEMORY_FENCE_CLOSE) + 2
     kept = lines
     dropped = 0
     if budget_chars is not None and budget_chars > 0:
-        overhead = len(header.format(count=len(lines))) + footer_len + 8
+        overhead = len(header.format(count=len(lines))) + footer_len + fence_cost + 8
         room = budget_chars - overhead
         kept = []
         used = 0
@@ -92,7 +96,7 @@ def render_memory_context_bounded(
     if dropped > 0:
         parts.append(_TRUNCATION_NOTE.format(dropped=dropped))
     parts.append(FOOTER)
-    text = "\n".join(parts)
+    text = fence_memory_block("\n".join(parts))
     readout = {
         "n_items": len(kept),
         "n_chars": len(text),

@@ -10,7 +10,8 @@ from nexus.memory_contract import (
 
 
 def test_budget_converts_tokens_to_chars():
-    assert MemoryBudget(max_tokens=100).max_chars == 400
+    # r256 口径：中文主导保守换算 1 字/token
+    assert MemoryBudget(max_tokens=100).max_chars == 100
     assert MemoryBudget(max_tokens=0).max_chars == 0
 
 

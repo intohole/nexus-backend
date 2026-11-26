@@ -9,10 +9,13 @@ from ironman.types import Message, Role
 from nexus.bee_memory import BeeMemoryBackend
 from nexus.memory_common import (
     FOOTER,
+    MEMORY_FENCE_CLOSE,
+    MEMORY_FENCE_OPEN,
     SNAPSHOT_HEADER,
     as_date,
     as_str,
     extract_memories,
+    fence_memory_block,
     is_guest,
     item_note,
 )
@@ -87,8 +90,9 @@ def render_working_context_bounded(
     kept_history = history_lines
     kept_memory = memory_lines
     dropped = 0
+    fence_cost = len(MEMORY_FENCE_OPEN) + len(MEMORY_FENCE_CLOSE) + 2
     if budget_chars is not None and budget_chars > 0:
-        room = budget_chars - len(FOOTER) - 2
+        room = budget_chars - len(FOOTER) - fence_cost - 2
         if history_lines:
             room -= len(HISTORY_HEADER.format(count=len(history_lines))) + 1
         if memory_lines:
@@ -121,6 +125,7 @@ def render_working_context_bounded(
     if dropped > 0:
         text += WORKING_TRUNCATION_NOTE.format(dropped=dropped) + "\n"
     text += FOOTER
+    text = fence_memory_block(text)
     readout["n_chars"] = len(text)
     readout["truncated"] = dropped > 0
     return text, readout

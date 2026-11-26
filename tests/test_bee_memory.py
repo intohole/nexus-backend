@@ -104,7 +104,8 @@ async def test_snapshot_renders_stable_memory_block():
     backend = BeeMemoryBackend("u1", "demo", sdk=_FakeSDK())
     text = await backend.render_snapshot(max_chars=400)
     assert "长期偏好中文" in text
-    assert text.startswith("以下是")
+    # r256：注入块围栏化
+    assert text.startswith("<memory_context")
 
 
 @pytest.mark.asyncio

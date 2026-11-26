@@ -5,7 +5,11 @@ from typing import Literal
 
 OverflowMode = Literal["truncate", "fail_query"]
 FailureMode = Literal["best_effort", "fail_query"]
-CHARS_PER_TOKEN = 4
+
+# r256 口径修订（原 4）：max_tokens→chars 换算按中文主导内容取保守值 1 字/token。
+# 文本级 token 估算单源在 ironman.memory.base.estimate_text_tokens（脚本感知）；
+# 此处是预算换算常数，语义不同源，勿与估算常数互相「对齐」。
+CHARS_PER_TOKEN = 1
 
 
 class MemoryUnavailableError(RuntimeError):

@@ -39,6 +39,8 @@ def gateway_executor(app_name: str) -> LLMExecutor:
     ensure_gateway_route(app_name)
 
     async def _execute(request: LLMRequest) -> LLMResponse:
+        # 长生命周期 executor 每次调用复核：bootstrap 换 app / 网关模式翻转后身份门不失效（纯内存检查）
+        ensure_gateway_route(app_name)
         from ironman._facade import _execute
 
         return await _execute(request)

@@ -80,7 +80,7 @@ async def test_working_context_reports_budget_truncation():
     backend = BeeMemoryBackend("u1", "demo", sdk=_FakeSDK(), session_id="s1")
     harness = build_agent_harness(HarnessProfile(app_name="demo"), memory_backend=backend)
     context = await harness.read_working_context(
-        budget=MemoryBudget(max_tokens=40)
+        budget=MemoryBudget(max_tokens=200)
     )
     assert context.truncated is True
     assert "预算截断" in context.text
