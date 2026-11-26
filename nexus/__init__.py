@@ -13,6 +13,11 @@ except Exception:  # source-tree import without installed metadata
     __version__ = "unknown"
 
 _REEXPORTS: dict[str, str] = {
+    "AgentHarness": "nexus.agent_harness",
+    "HarnessProfile": "nexus.agent_harness",
+    "BeeMemoryBackend": "nexus.bee_memory",
+    "build_agent_harness": "nexus.agent_harness",
+    "NexusSkillSource": "nexus.skill_source",
     "handle_api_errors": "nexus.api_decorators",
     "asr_transcribe": "nexus.asr",
     "AuditMiddleware": "nexus.audit_middleware",
