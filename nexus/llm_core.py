@@ -236,11 +236,15 @@ class LLMCore:
         no_cache: bool = False,
         images: Optional[list[str]] = None,
         vision_meta: Optional[dict[str, object]] = None,
+        tools: Optional[list[object]] = None,
         _want_usage: bool = False,
     ) -> str | dict[str, object]:
         """images（r30 additive）：data URL/URL 列表，挂到末条 user 消息尾部
         （convert_messages 位置契约）；带图调用恒绕 PromptCache——缓存 key 只拼
-        消息文本，同 prompt 不同截图会命中旧答案串图（视觉修复环每轮换图=必须 bypass）。"""
+        消息文本，同 prompt 不同截图会命中旧答案串图（视觉修复环每轮换图=必须 bypass）。
+        tools（r259 additive）：ironman ToolDef 列表直透（r259 勘察 P0#1 断点修复：
+        chat 签名此前无 tools，nexus 单轮面承载不了工具调用）；带 tools 同判例恒绕
+        PromptCache——key 不含 tools 且缓存值无法表达 tool_calls 轮。"""
         opts, temp, eff_max, budget_mode = await self._prepare_call(
             temperature=temperature, max_tokens=max_tokens, task_type=task_type,
             output_mode=output_mode, json_mode=json_mode, namespace=namespace,
@@ -250,7 +254,7 @@ class LLMCore:
         )
         system, _ = apply_output_discipline(system, "", concise, json_mode, budget_mode)
         ironman_messages = convert_messages(messages, system, images)
-        cache = None if (no_cache or images) else (get_prompt_cache() if temp <= 0.0 else None)
+        cache = None if (no_cache or images or tools) else (get_prompt_cache() if temp <= 0.0 else None)
         if cache is not None:
             key: str = PromptCache.make_messages_key(
                 system, messages, temp, eff_max,
@@ -268,7 +272,7 @@ class LLMCore:
 
         async def _do() -> object:
             with credits_gateway_handled():
-                return await _chat(messages=ironman_messages, llm=opts)
+                return await _chat(messages=ironman_messages, llm=opts, tools=tools)
 
         result, response = await self._execute(_do, timeout, max_retries, app_name, request_id, "chat", feature=feature, llm_opts=opts)
         await _charge("chat", app_name, request_id, model=str(getattr(response, "model", "") or ""),

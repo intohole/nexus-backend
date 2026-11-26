@@ -50,7 +50,7 @@ def captured_chat(monkeypatch):
         cached = False
         usage = None
 
-    async def fake_chat(messages, llm):
+    async def fake_chat(messages, llm, tools=None):
         captured["llm"] = llm
         return _FakeResp()
 

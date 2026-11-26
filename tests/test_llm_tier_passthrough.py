@@ -87,12 +87,12 @@ def captured_chat(monkeypatch):
         cached = False
         usage = None
 
-    async def fake_chat(messages, llm):
+    async def fake_chat(messages, llm, tools=None):
         captured["llm"] = llm
         captured["messages"] = messages
         return _FakeResp()
 
-    async def fake_chat_stream(messages, llm):
+    async def fake_chat_stream(messages, llm, tools=None):
         captured["llm"] = llm
         captured["messages"] = messages
 

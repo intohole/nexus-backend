@@ -94,7 +94,7 @@ def captured_chat(monkeypatch):
     captured: dict = {}
     cache_calls: list = []
 
-    async def fake_chat(messages, llm):
+    async def fake_chat(messages, llm, tools=None):
         captured["messages"] = messages
         return _FakeResp()
 

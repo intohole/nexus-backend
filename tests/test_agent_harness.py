@@ -88,7 +88,9 @@ async def test_harness_memory_scope_and_recall(tmp_path: Path):
     await harness.close()
 
 
-def test_harness_spawns_react_and_team(tmp_path: Path):
+@pytest.mark.anyio
+async def test_harness_spawns_react_and_team(tmp_path: Path):
+    """r259 B5：spawn_react 升 async（记忆接线变体通道），旗关=行为零漂移。"""
     from ironman.agents.sub_agent import SubAgentSpec
     from ironman.tools.function_tool import FunctionTool
 
@@ -104,7 +106,7 @@ def test_harness_spawns_react_and_team(tmp_path: Path):
     )
     profile.tools.register(FunctionTool(name="lookup", description="查询", handler=handler))
     harness = build_agent_harness(profile, llm_executor=_Executor())
-    agent = harness.spawn_react(name="lead")
+    agent = await harness.spawn_react(name="lead")
     assert agent.name == "lead"
     assert agent.model == "test-model"
     assert agent._system_prompt
@@ -146,11 +148,12 @@ async def test_harness_team_end_to_end_with_executor(tmp_path: Path):
     await harness.close()
 
 
-def test_spawn_requires_gateway_route(monkeypatch: pytest.MonkeyPatch):
+@pytest.mark.asyncio
+async def test_spawn_requires_gateway_route(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("nexus.ironman.is_ironman_available", lambda: False)
     harness = build_agent_harness(HarnessProfile(app_name="demo"))
     with pytest.raises(HarnessGatewayError):
-        harness.spawn_react()
+        await harness.spawn_react()
 
 
 def test_spawn_requires_gateway_mode(monkeypatch: pytest.MonkeyPatch):
@@ -161,13 +164,14 @@ def test_spawn_requires_gateway_mode(monkeypatch: pytest.MonkeyPatch):
         harness.team
 
 
-def test_spawn_rejects_app_name_mismatch(monkeypatch: pytest.MonkeyPatch):
+@pytest.mark.asyncio
+async def test_spawn_rejects_app_name_mismatch(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("nexus.ironman.is_ironman_available", lambda: True)
     monkeypatch.setattr("nexus.ironman_config.is_gateway_mode", lambda: True)
     monkeypatch.setattr("ironman.bootstrap.current_app_name", lambda: "other")
     harness = build_agent_harness(HarnessProfile(app_name="demo"))
     with pytest.raises(HarnessGatewayError):
-        harness.spawn_react()
+        await harness.spawn_react()
 
 
 @pytest.mark.asyncio
@@ -192,7 +196,7 @@ async def test_gateway_executor_delegates_to_facade(monkeypatch: pytest.MonkeyPa
 async def test_task_type_flows_to_executor():
     executor = _Executor()
     harness = build_agent_harness(HarnessProfile(app_name="demo", model="test-model", task_type="assistant"), llm_executor=executor)
-    agent = harness.spawn_react()
+    agent = await harness.spawn_react()
     result = await agent.run("问点事")
     assert result.success is True
     assert executor.requests

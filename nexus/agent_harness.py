@@ -1,3 +1,8 @@
+"""AgentHarness：ironman agents 编排的 nexus 业务薄壳（profile→spawn/team/记忆读写）。
+
+B5 记忆接线（r259）：spawn prompt 走 _build_spawn_prompt 灰度旗通道；
+LLM executor 经 gateway_executor(app_name) 注入（三道门校验后委托 ironman facade）。
+"""
 from __future__ import annotations
 
 from typing import Sequence
@@ -62,6 +67,10 @@ class AgentHarness(HarnessCapabilities):
         self._collab = collab
         self._llm_executor = llm_executor
         self._team: SubAgentTeam | None = None
+        # r259 B5 注入观测（harness 级计数，非 ironman RunCensus——注入发生在装配期，
+        # 早于 run() 的 ContextVar 生命周期；r259 台账登记此偏离锚）
+        self._spawn_memory_injections = 0
+        self._spawn_memory_hits = 0
 
     @property
     def profile(self) -> HarnessProfile:
@@ -119,7 +128,7 @@ class AgentHarness(HarnessCapabilities):
             config = config.model_copy(update={"max_steps": max_steps})
         return config
 
-    def spawn_react(
+    async def spawn_react(
         self,
         name: str = "agent",
         system_prompt: str | None = None,
@@ -127,8 +136,9 @@ class AgentHarness(HarnessCapabilities):
         max_steps: int = 10,
         extra_sections: Sequence[PromptSection] = (),
     ) -> ReActAgent:
+        """r259 B5：prompt 走 _build_spawn_prompt（旗关=与既往 sync 版逐字节一致）。"""
         config = self._agent_config(
-            system_prompt if system_prompt is not None else self.build_system_prompt(extra_sections),
+            system_prompt if system_prompt is not None else await self._build_spawn_prompt(extra_sections),
             max_steps=max_steps,
         )
         return ReActAgent(
@@ -140,14 +150,14 @@ class AgentHarness(HarnessCapabilities):
             llm_executor=self._resolve_executor(),
         )
 
-    def spawn_super(
+    async def spawn_super(
         self,
         name: str = "super_agent",
         system_prompt: str | None = None,
         extra_sections: Sequence[PromptSection] = (),
     ) -> SuperAgent:
         config = self._agent_config(
-            system_prompt if system_prompt is not None else self.build_system_prompt(extra_sections)
+            system_prompt if system_prompt is not None else await self._build_spawn_prompt(extra_sections)
         )
         workers = {worker_name: member for worker_name, member in self.team.members.items()}
         return SuperAgent(
@@ -158,6 +168,26 @@ class AgentHarness(HarnessCapabilities):
             workers=workers or None,
             llm_executor=self._resolve_executor(),
         )
+
+    async def _build_spawn_prompt(self, extra_sections: Sequence[PromptSection] = ()) -> str:
+        """B5 记忆接线（默认 off）：旗开且 memory_backend 在位时走带记忆装配变体，
+        其余路径与素版 build_system_prompt 逐字节一致（回滚=关旗零漂移）。"""
+        from nexus.feature_flags import get_feature_flags
+
+        if not get_feature_flags().harness_memory_injection or self._memory_backend is None:
+            return self.build_system_prompt(extra_sections)
+        self._spawn_memory_injections += 1
+        text = await self.build_system_prompt_with_memory(extra_sections=extra_sections)
+        if "<memory_context" in text:
+            self._spawn_memory_hits += 1
+        return text
+
+    def memory_injection_census(self) -> dict[str, int]:
+        """B5 注入观测面：装配期计数（尝试/命中=围栏标记实际出现）。"""
+        return {
+            "spawn_memory_injections": self._spawn_memory_injections,
+            "spawn_memory_hits": self._spawn_memory_hits,
+        }
 
     async def remember(
         self,
@@ -203,6 +233,9 @@ class AgentHarness(HarnessCapabilities):
         await self._collab.close()
 
     def _build_team(self) -> SubAgentTeam:
+        # B5 边界登记（r259）：team 成员仍走素版 prompt——本方法被 team property 在
+        # 同步 __init__ 链里调用，无法 await 记忆变体；成员记忆注入=异步 build 形态，
+        # 首接随行（contracts.md §6 余量）。
         executor = self._resolve_executor()
         members: list[SubAgent] = []
         for spec in self._profile.subagents:
