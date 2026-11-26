@@ -244,7 +244,11 @@ class LLMCore:
         消息文本，同 prompt 不同截图会命中旧答案串图（视觉修复环每轮换图=必须 bypass）。
         tools（r259 additive）：ironman ToolDef 列表直透（r259 勘察 P0#1 断点修复：
         chat 签名此前无 tools，nexus 单轮面承载不了工具调用）；带 tools 同判例恒绕
-        PromptCache——key 不含 tools 且缓存值无法表达 tool_calls 轮。"""
+        PromptCache——key 不含 tools 且缓存值无法表达 tool_calls 轮。
+        tools×json_mode 互斥（r260 刀I 加固）：response_format 与 function calling
+        在 deepseek wire 上组合行为未定义，主环/judge/抽取三面均无此组合，命中即拦。"""
+        if tools and json_mode:
+            raise ValueError("tools 与 json_mode 互斥：json_object 响应格式与 function calling 组合在网关侧行为未定义")
         opts, temp, eff_max, budget_mode = await self._prepare_call(
             temperature=temperature, max_tokens=max_tokens, task_type=task_type,
             output_mode=output_mode, json_mode=json_mode, namespace=namespace,
