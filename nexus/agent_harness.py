@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Sequence
 
 from ironman.agents.collaboration import CollabSession
 from ironman.agents.react_agent import ReActAgent
-from ironman.agents.sub_agent import SubAgent, SubAgentSpec
+from ironman.agents.sub_agent import SubAgent
 from ironman.agents.sub_agent_team import SubAgentTeam
 from ironman.agents.super_agent import SuperAgent
 from ironman.context_assembly import ContextAssembler
@@ -24,30 +23,10 @@ from ironman.types import AgentConfig
 
 from nexus.bee_memory import BeeMemoryBackend
 from nexus.harness_capabilities import HarnessCapabilities
+from nexus.harness_llm import LLMExecutor, gateway_executor
+from nexus.harness_profile import HarnessProfile
 from nexus.skill_source import NexusSkillSource
 from nexus.skills import SkillDirSpec, SkillRegistry
-
-
-@dataclass
-class HarnessProfile:
-    app_name: str
-    model: str | None = None
-    max_context_tokens: int = 32000
-    reserve_tokens: int = 512
-    keep_recent_tokens: int = 0
-    max_tool_result_chars: int | None = None
-    max_prompt_chars: int = 16000
-    memory_tokens: int = 8000
-    episode_limit: int = 50
-    instruction_dirs: tuple[str, ...] = ()
-    instruction_filenames: tuple[str, ...] = ("AGENTS.md",)
-    max_instruction_bytes: int = 32768
-    skill_dirs: tuple[str, ...] = ()
-    sections: tuple[PromptSection, ...] = ()
-    subagents: tuple[SubAgentSpec, ...] = ()
-    max_parallel_subagents: int = 0
-    memory_scope: MemoryScope = MemoryScope.SESSION
-    tools: ToolRegistry = field(default_factory=ToolRegistry)
 
 
 class AgentHarness(HarnessCapabilities):
@@ -65,6 +44,7 @@ class AgentHarness(HarnessCapabilities):
         memory_backend: BeeMemoryBackend | None = None,
         evolution: SkillEvolutionReview | None = None,
         lifecycle: PromptLifecycle | None = None,
+        llm_executor: LLMExecutor | None = None,
     ) -> None:
         super().__init__(
             profile=profile,
@@ -80,7 +60,8 @@ class AgentHarness(HarnessCapabilities):
         self._registry = registry
         self._tools = tools
         self._collab = collab
-        self._team = self._build_team()
+        self._llm_executor = llm_executor
+        self._team: SubAgentTeam | None = None
 
     @property
     def profile(self) -> HarnessProfile:
@@ -116,11 +97,27 @@ class AgentHarness(HarnessCapabilities):
 
     @property
     def team(self) -> SubAgentTeam:
+        if self._team is None:
+            self._team = self._build_team()
         return self._team
 
     @property
     def lifecycle(self) -> PromptLifecycle:
         return self._lifecycle
+
+    def _resolve_executor(self) -> LLMExecutor:
+        if self._llm_executor is not None:
+            return self._llm_executor
+        return gateway_executor(self._profile.app_name)
+
+    def _agent_config(self, system_prompt: str, max_steps: int | None = None) -> AgentConfig:
+        extra: dict[str, object] = {}
+        if self._profile.task_type:
+            extra["task_type"] = self._profile.task_type
+        config = AgentConfig(model=self._profile.model, system_prompt=system_prompt, llm_extra=extra)
+        if max_steps is not None:
+            config = config.model_copy(update={"max_steps": max_steps})
+        return config
 
     def spawn_react(
         self,
@@ -130,9 +127,8 @@ class AgentHarness(HarnessCapabilities):
         max_steps: int = 10,
         extra_sections: Sequence[PromptSection] = (),
     ) -> ReActAgent:
-        config = AgentConfig(
-            model=self._profile.model,
-            system_prompt=system_prompt if system_prompt is not None else self.build_system_prompt(extra_sections),
+        config = self._agent_config(
+            system_prompt if system_prompt is not None else self.build_system_prompt(extra_sections),
             max_steps=max_steps,
         )
         return ReActAgent(
@@ -141,6 +137,7 @@ class AgentHarness(HarnessCapabilities):
             memory=self._memory,
             tools=(tools or self._tools).copy(),
             steering=self._collab.steering,
+            llm_executor=self._resolve_executor(),
         )
 
     def spawn_super(
@@ -149,17 +146,17 @@ class AgentHarness(HarnessCapabilities):
         system_prompt: str | None = None,
         extra_sections: Sequence[PromptSection] = (),
     ) -> SuperAgent:
-        config = AgentConfig(
-            model=self._profile.model,
-            system_prompt=system_prompt if system_prompt is not None else self.build_system_prompt(extra_sections),
+        config = self._agent_config(
+            system_prompt if system_prompt is not None else self.build_system_prompt(extra_sections)
         )
-        workers = {worker_name: member for worker_name, member in self._team.members.items()}
+        workers = {worker_name: member for worker_name, member in self.team.members.items()}
         return SuperAgent(
             name=name,
             config=config,
             memory=self._memory,
             tools=self._tools.copy(),
             workers=workers or None,
+            llm_executor=self._resolve_executor(),
         )
 
     async def remember(
@@ -206,17 +203,21 @@ class AgentHarness(HarnessCapabilities):
         await self._collab.close()
 
     def _build_team(self) -> SubAgentTeam:
+        executor = self._resolve_executor()
         members: list[SubAgent] = []
         for spec in self._profile.subagents:
             tools = self._tools.subset(spec.tools) if spec.tools is not None else self._tools.copy()
+            config = self._agent_config(
+                spec.system_prompt if spec.system_prompt is not None else self.build_system_prompt(),
+                max_steps=spec.max_steps or 10,
+            )
+            if spec.model:
+                config = config.model_copy(update={"model": spec.model})
             inner = ReActAgent(
                 name=spec.name,
-                config=AgentConfig(
-                    model=spec.model or self._profile.model,
-                    system_prompt=spec.system_prompt if spec.system_prompt is not None else self.build_system_prompt(),
-                    max_steps=spec.max_steps or 10,
-                ),
+                config=config,
                 tools=tools,
+                llm_executor=executor,
             )
             members.append(SubAgent(name=spec.name, description=spec.description, agent=inner, spec=spec))
         return SubAgentTeam(members, collab=self._collab, max_parallel=self._profile.max_parallel_subagents)
@@ -250,6 +251,7 @@ def build_agent_harness(
     summarizer: StructuredSummarizer | None = None,
     evolution: SkillEvolutionReview | None = None,
     lifecycle: PromptLifecycle | None = None,
+    llm_executor: LLMExecutor | None = None,
 ) -> AgentHarness:
     skill_registry = registry or SkillRegistry(
         [SkillDirSpec(path=directory, source=profile.app_name) for directory in profile.skill_dirs]
@@ -289,4 +291,5 @@ def build_agent_harness(
         memory_backend=memory_backend,
         evolution=evolution,
         lifecycle=lifecycle,
+        llm_executor=llm_executor,
     )

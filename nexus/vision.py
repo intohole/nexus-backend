@@ -233,10 +233,11 @@ class VisionService(_GatewayServiceBase):
         profile: str = "auto",
         feature: str = "",
         no_cache: bool = False,
+        model: Optional[str] = None,
     ) -> str:
         return await self.recognize(
             prompt, images, system=system, temperature=temperature,
-            profile=profile, feature=feature, no_cache=no_cache,
+            profile=profile, feature=feature, no_cache=no_cache, model=model,
         )
 
     async def recognize(
@@ -248,6 +249,7 @@ class VisionService(_GatewayServiceBase):
         feature: str = "",
         profile: str = "auto",
         no_cache: bool = False,
+        model: Optional[str] = None,
     ) -> str:
         """通用图片识别：对单张/多张图片提问，返回模型文本回答。
 
@@ -256,7 +258,7 @@ class VisionService(_GatewayServiceBase):
         image_urls = self._normalize_images(images)
         return await self._chat_vision(
             system or "你是图片识别助手，用简体中文准确回答。", prompt, image_urls, temperature,
-            feature=feature, profile=profile, no_cache=no_cache,
+            feature=feature, profile=profile, no_cache=no_cache, model=model,
         )
 
     async def recognize_json(
@@ -268,12 +270,13 @@ class VisionService(_GatewayServiceBase):
         feature: str = "",
         profile: str = "auto",
         no_cache: bool = False,
+        model: Optional[str] = None,
     ) -> dict[str, object]:
         """结构化图片识别：要求模型输出 JSON 并解析为 dict；免费/轻量档解析失败时升档重试。"""
         image_urls = self._normalize_images(images)
         merged_system = f"{system or '你是图片识别助手。'}\n{JSON_HINT}"
         await self._resolve_config("vision_model", DEFAULT_VISION_MODEL)
-        start_model = str(self._model or DEFAULT_VISION_MODEL)
+        start_model = str(model or self._model or DEFAULT_VISION_MODEL)
         last_error = ""
         for candidate in self._model_chain(start_model):
             try:
@@ -300,11 +303,12 @@ class VisionService(_GatewayServiceBase):
         feature: str = "",
         profile: str = "auto",
         no_cache: bool = False,
+        model: Optional[str] = None,
     ) -> str:
         """本地图片字节识别的语义化入口（等价 recognize + 自动 data URL 转换）。"""
         return await self.recognize(
             prompt, blobs, system=system, temperature=temperature,
-            feature=feature, profile=profile, no_cache=no_cache,
+            feature=feature, profile=profile, no_cache=no_cache, model=model,
         )
 
 

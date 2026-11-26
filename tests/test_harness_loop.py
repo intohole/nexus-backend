@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from nexus.harness import LoopLimits, ToolSpec, parse_action, run_tool_loop
+from nexus.harness import LoopHooks, LoopLimits, LoopStep, ToolSpec, parse_action, run_tool_loop
 
 
 def _run(coro: object) -> object:
@@ -170,3 +170,47 @@ def test_repeat_limit_stops_no_progress() -> None:
     ))
     assert outcome.stop_reason == "repeat_limit"
     assert outcome.tool_uses == ["node_check", "node_check", "node_check"]
+
+
+def test_hooks_on_step_observes_every_record() -> None:
+    seen: list[tuple[int, str]] = []
+
+    async def on_step(step: LoopStep) -> None:
+        seen.append((step.step, step.action))
+
+    outcome = _run(run_tool_loop(
+        ask=_scripted([
+            {"action": "node_check"},
+            {"action": "final", "state": "b" * 60},
+        ]),
+        tools=_tools(),
+        initial_state="a" * 50,
+        limits=LoopLimits(),
+        hooks=LoopHooks(on_step=on_step),
+    ))
+    assert outcome.stop_reason == "final"
+    assert seen == [(1, "node_check"), (2, "final")]
+
+
+def test_hooks_tools_for_step_narrows_menu() -> None:
+    calls: list[int] = []
+
+    def tools_for_step(step: int) -> tuple[ToolSpec, ...]:
+        calls.append(step)
+        return _tools() if step > 1 else ()
+
+    outcome = _run(run_tool_loop(
+        ask=_scripted([
+            {"action": "node_check"},
+            {"action": "node_check"},
+            {"action": "final", "state": "b" * 60},
+        ]),
+        tools=_tools(),
+        initial_state="a" * 50,
+        limits=LoopLimits(max_steps=5),
+        hooks=LoopHooks(tools_for_step=tools_for_step),
+    ))
+    assert outcome.stop_reason == "final"
+    assert outcome.illegal_actions == 1
+    assert outcome.tool_uses == ["node_check"]
+    assert calls == [1, 2, 3]

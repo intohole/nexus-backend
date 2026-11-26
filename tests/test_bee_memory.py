@@ -11,6 +11,7 @@ from nexus.memory_contract import (
     MemoryOverflowError,
     MemoryUnavailableError,
 )
+from nexus.memory_media import DEFAULT_IMAGE_MEMORY_MODEL, VisionDescriber
 
 
 class _FakeDescriber:
@@ -170,6 +171,44 @@ async def test_add_image_composes_memory_and_forwards():
     assert str(call["content"]).startswith("[图片记忆]记住我的猫：")
     assert call["channel"] == "image"
     assert describer.calls[0][1] == "记住我的猫"
+
+
+@pytest.mark.asyncio
+async def test_vision_describer_forwards_image_model():
+    class _Vision:
+        def __init__(self) -> None:
+            self.models: list[str | None] = []
+
+        async def analyze(self, prompt: str, images: object, system: str | None = None, model: str | None = None) -> str:
+            self.models.append(model)
+            return "描述"
+
+    vision = _Vision()
+    describer = VisionDescriber(vision=vision)  # type: ignore[arg-type]
+    assert await describer.describe("data:image/png;base64,xx") == "描述"
+    assert vision.models == [DEFAULT_IMAGE_MEMORY_MODEL]
+
+
+@pytest.mark.asyncio
+async def test_bee_memory_image_model_override():
+    class _Vision:
+        def __init__(self) -> None:
+            self.models: list[str | None] = []
+
+        async def analyze(self, prompt: str, images: object, system: str | None = None, model: str | None = None) -> str:
+            self.models.append(model)
+            return "描述"
+
+    vision = _Vision()
+    sdk = _FakeSDK()
+    backend = BeeMemoryBackend(
+        "u1",
+        "demo",
+        sdk=sdk,
+        describer=VisionDescriber(vision=vision, model="glm-4.6v-flash"),  # type: ignore[arg-type]
+    )
+    await backend.add_image("data:image/png;base64,xx")
+    assert vision.models == ["glm-4.6v-flash"]
 
 
 @pytest.mark.asyncio

@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 
 AskFn = Callable[[str], Awaitable[dict[str, object]]]
 ToolHandler = Callable[[str, str], Awaitable[str]]
+StepHook = Callable[["LoopStep"], Awaitable[None]]
+ToolProvider = Callable[[int], Sequence["ToolSpec"]]
 
 RESERVED_ACTIONS = frozenset(("revise", "final"))
 _ILLEGAL_ACTION = "illegal"
@@ -80,6 +82,17 @@ class LoopOutcome:
 PromptRenderer = Callable[[LoopView], str]
 
 
+@dataclass(frozen=True)
+class LoopHooks:
+    on_step: StepHook | None = None
+    tools_for_step: ToolProvider | None = None
+
+
+async def _emit_step(hooks: LoopHooks | None, step: LoopStep) -> None:
+    if hooks is not None and hooks.on_step is not None:
+        await hooks.on_step(step)
+
+
 def parse_action(
     data: dict[str, object],
     tools: dict[str, ToolSpec],
@@ -128,10 +141,10 @@ async def run_tool_loop(
     limits: LoopLimits,
     render_prompt: PromptRenderer | None = None,
     state_field: str = "state",
+    hooks: LoopHooks | None = None,
 ) -> LoopOutcome:
     started = time.monotonic()
     renderer = render_prompt or render_default_prompt
-    tool_map = {tool.name: tool for tool in tools}
     state = initial_state
     steps: list[LoopStep] = []
     history: list[str] = []
@@ -147,13 +160,15 @@ async def run_tool_loop(
     for step in range(1, limits.max_steps + 1):
         if time.monotonic() - started > limits.wall_limit_s:
             return LoopOutcome(state, steps, "wall_limit", illegal, tool_uses, revised, elapsed_ms())
+        active_tools = tuple(hooks.tools_for_step(step)) if hooks and hooks.tools_for_step else tuple(tools)
+        tool_map = {tool.name: tool for tool in active_tools}
         view = LoopView(
             step=step,
             limits=limits,
             revised=revised,
             state=state,
             history=tuple(history),
-            tools=tuple(tools),
+            tools=active_tools,
             state_field=state_field,
         )
         try:
@@ -167,21 +182,27 @@ async def run_tool_loop(
             illegal += 1
             detail = str(exc)[:200]
             history.append(f"[illegal] {detail}")
-            steps.append(LoopStep(step, _ILLEGAL_ACTION, "", detail))
+            step_record = LoopStep(step, _ILLEGAL_ACTION, "", detail)
+            steps.append(step_record)
+            await _emit_step(hooks, step_record)
             if illegal >= limits.max_illegal:
                 return LoopOutcome(state, steps, "illegal_limit", illegal, tool_uses, revised, elapsed_ms())
             continue
         if action.kind == "final":
             if action.state:
                 state = action.state
-            steps.append(LoopStep(step, "final", "", f"{len(state)} chars"))
+            step_record = LoopStep(step, "final", "", f"{len(state)} chars")
+            steps.append(step_record)
+            await _emit_step(hooks, step_record)
             return LoopOutcome(state, steps, "final", illegal, tool_uses, revised, elapsed_ms())
         if action.kind == "revise":
             if revised >= limits.max_revise:
                 illegal += 1
                 detail = f"revise rejected {revised}/{limits.max_revise}"
                 history.append(f"[{step}] {detail}")
-                steps.append(LoopStep(step, _REVISE_REJECTED, "", detail))
+                step_record = LoopStep(step, _REVISE_REJECTED, "", detail)
+                steps.append(step_record)
+                await _emit_step(hooks, step_record)
                 if illegal >= limits.max_illegal:
                     return LoopOutcome(state, steps, "illegal_limit", illegal, tool_uses, revised, elapsed_ms())
                 continue
@@ -189,7 +210,9 @@ async def run_tool_loop(
             revised += 1
             detail = f"state replaced ({len(state)} chars)"
             history.append(f"[{step}] revise -> {detail}")
-            steps.append(LoopStep(step, "revise", "", detail))
+            step_record = LoopStep(step, "revise", "", detail)
+            steps.append(step_record)
+            await _emit_step(hooks, step_record)
             continue
         tool = tool_map[action.kind]
         try:
@@ -206,7 +229,9 @@ async def run_tool_loop(
         last_signature = signature
         tool_uses.append(action.kind)
         history.append(f"[{step}] {action.kind} -> {result}")
-        steps.append(LoopStep(step, action.kind, action.arg, result))
+        step_record = LoopStep(step, action.kind, action.arg, result)
+        steps.append(step_record)
+        await _emit_step(hooks, step_record)
         if limits.max_repeat > 0 and repeat_count >= limits.max_repeat:
             return LoopOutcome(
                 state, steps, "repeat_limit", illegal, tool_uses, revised, elapsed_ms())

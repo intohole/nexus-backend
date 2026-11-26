@@ -14,7 +14,12 @@ from nexus.bee_memory_items import payload_items
 from nexus.bm_sdk import BeeMemorySDK, get_bm_sdk
 from nexus.memory import render_memory_context_bounded
 from nexus.memory_contract import MemoryBudget
-from nexus.memory_media import MediaDescriber, VisionDescriber, compose_image_memory
+from nexus.memory_media import (
+    DEFAULT_IMAGE_MEMORY_MODEL,
+    MediaDescriber,
+    VisionDescriber,
+    compose_image_memory,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,20 +33,18 @@ class BeeMemoryBackend:
         app_name: str,
         sdk: BeeMemorySDK | None = None,
         session_id: str = "",
-        tenant_id: str = "",
-        memory_scope: str = "",
         write_gate: MemoryGate | None = None,
         min_write_chars: int = 32,
         describer: MediaDescriber | None = None,
+        image_model: str = DEFAULT_IMAGE_MEMORY_MODEL,
         budget: MemoryBudget | None = None,
     ) -> None:
         self._user_id = user_id
         self._app_name = app_name
         self._sdk = sdk or get_bm_sdk(app_name=app_name)
         self._session_id = session_id
-        self._tenant_id = tenant_id
-        self._memory_scope = memory_scope
         self._describer = describer
+        self._image_model = image_model
         self._budget = budget or MemoryBudget()
         self._writeback = MemoryWriteback(
             writer=self._write_turn,
@@ -217,7 +220,7 @@ class BeeMemoryBackend:
 
     def _resolve_describer(self) -> MediaDescriber:
         if self._describer is None:
-            self._describer = VisionDescriber()
+            self._describer = VisionDescriber(model=self._image_model)
         return self._describer
 
     async def remember_turn(self, turn: MemoryTurn) -> MemoryWriteReport:

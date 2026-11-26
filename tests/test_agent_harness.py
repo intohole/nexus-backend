@@ -4,10 +4,26 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from ironman.types import LLMRequest, LLMResponse, TokenUsage
 
 from nexus.agent_harness import HarnessProfile, build_agent_harness
+from nexus.harness_llm import HarnessGatewayError, gateway_executor
 from nexus.skill_source import NexusSkillSource
 from nexus.skills import SkillDirSpec, SkillRegistry
+
+
+class _Executor:
+    def __init__(self) -> None:
+        self.requests: list[LLMRequest] = []
+
+    async def __call__(self, request: LLMRequest) -> LLMResponse:
+        self.requests.append(request)
+        last = request.messages[-1].content
+        return LLMResponse(
+            content=str(last),
+            model="test-model",
+            usage=TokenUsage(prompt_tokens=3, completion_tokens=3, total_tokens=6),
+        )
 
 
 def _write_skill(base: Path, dirname: str, name: str, description: str, body: str) -> Path:
@@ -88,7 +104,7 @@ def test_harness_spawns_react_and_team(tmp_path: Path):
         ),
     )
     profile.tools.register(FunctionTool(name="lookup", description="查询", handler=handler))
-    harness = build_agent_harness(profile)
+    harness = build_agent_harness(profile, llm_executor=_Executor())
     agent = harness.spawn_react(name="lead")
     assert agent.name == "lead"
     assert agent.model == "test-model"
@@ -107,23 +123,8 @@ def test_nexus_top_level_reexport():
 
 @pytest.mark.asyncio
 async def test_harness_team_end_to_end_with_executor(tmp_path: Path):
-    from ironman.agents.base import BaseAgent
     from ironman.agents.sub_agent import SubAgentSpec
     from ironman.tools.function_tool import FunctionTool
-    from ironman.types import LLMRequest, LLMResponse, TokenUsage
-
-    seen_prompts: list[str] = []
-
-    class _Executor:
-        async def __call__(self, request: LLMRequest) -> LLMResponse:
-            system = next((m.content for m in request.messages if m.role.value == "system"), "")
-            seen_prompts.append(system if isinstance(system, str) else "")
-            last = request.messages[-1].content
-            return LLMResponse(
-                content=str(last),
-                model="test-model",
-                usage=TokenUsage(prompt_tokens=3, completion_tokens=3, total_tokens=6),
-            )
 
     async def handler() -> str:
         return "ok"
@@ -137,13 +138,63 @@ async def test_harness_team_end_to_end_with_executor(tmp_path: Path):
         subagents=(SubAgentSpec(name="reviewer", description="审查", tools=("lookup",)),),
     )
     profile.tools.register(FunctionTool(name="lookup", description="查询", handler=handler))
-    harness = build_agent_harness(profile)
-    BaseAgent.set_llm_executor(_Executor())
-    try:
-        results = await harness.team.dispatch([("reviewer", "检查部署方案")], parallel=True)
-    finally:
-        BaseAgent.set_llm_executor(None)
+    executor = _Executor()
+    harness = build_agent_harness(profile, llm_executor=executor)
+    results = await harness.team.dispatch([("reviewer", "检查部署方案")], parallel=True)
     assert results[0].success is True
     assert results[0].content == "检查部署方案"
-    assert any("deploy" in prompt for prompt in seen_prompts)
+    assert any("deploy" in str(message.content) for request in executor.requests for message in request.messages)
     await harness.close()
+
+
+def test_spawn_requires_gateway_route(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("nexus.ironman.is_ironman_available", lambda: False)
+    harness = build_agent_harness(HarnessProfile(app_name="demo"))
+    with pytest.raises(HarnessGatewayError):
+        harness.spawn_react()
+
+
+def test_spawn_requires_gateway_mode(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("nexus.ironman.is_ironman_available", lambda: True)
+    monkeypatch.setattr("nexus.ironman_config.is_gateway_mode", lambda: False)
+    harness = build_agent_harness(HarnessProfile(app_name="demo"))
+    with pytest.raises(HarnessGatewayError):
+        harness.team
+
+
+def test_spawn_rejects_app_name_mismatch(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("nexus.ironman.is_ironman_available", lambda: True)
+    monkeypatch.setattr("nexus.ironman_config.is_gateway_mode", lambda: True)
+    monkeypatch.setattr("ironman.bootstrap.current_app_name", lambda: "other")
+    harness = build_agent_harness(HarnessProfile(app_name="demo"))
+    with pytest.raises(HarnessGatewayError):
+        harness.spawn_react()
+
+
+@pytest.mark.asyncio
+async def test_gateway_executor_delegates_to_facade(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("nexus.ironman.is_ironman_available", lambda: True)
+    monkeypatch.setattr("nexus.ironman_config.is_gateway_mode", lambda: True)
+    monkeypatch.setattr("ironman.bootstrap.current_app_name", lambda: "demo")
+    seen: list[LLMRequest] = []
+
+    async def fake_execute(request: LLMRequest) -> LLMResponse:
+        seen.append(request)
+        return LLMResponse(content="ok", model="fake")
+
+    monkeypatch.setattr("ironman._facade._execute", fake_execute)
+    executor = gateway_executor("demo")
+    response = await executor(LLMRequest(messages=[]))
+    assert response.content == "ok"
+    assert len(seen) == 1
+
+
+@pytest.mark.asyncio
+async def test_task_type_flows_to_executor():
+    executor = _Executor()
+    harness = build_agent_harness(HarnessProfile(app_name="demo", model="test-model", task_type="assistant"), llm_executor=executor)
+    agent = harness.spawn_react()
+    result = await agent.run("问点事")
+    assert result.success is True
+    assert executor.requests
+    assert all(request.extra.get("task_type") == "assistant" for request in executor.requests)

@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from nexus.vision import VisionService
 
 IMAGE_MEMORY_PREFIX = "[图片记忆]"
+DEFAULT_IMAGE_MEMORY_MODEL = "deepseek-flash"
 DEFAULT_IMAGE_PROMPT = (
     "请客观描述这张图片里可用于长期记忆的关键信息：人物、场景、事件、"
     "偏好、文字要点与可复用事实，不要臆测。"
@@ -19,8 +20,13 @@ class MediaDescriber(Protocol):
 
 
 class VisionDescriber:
-    def __init__(self, vision: VisionService | None = None) -> None:
+    def __init__(
+        self,
+        vision: VisionService | None = None,
+        model: str = DEFAULT_IMAGE_MEMORY_MODEL,
+    ) -> None:
         self._vision = vision
+        self._model = model
 
     def _service(self) -> VisionService:
         if self._vision is not None:
@@ -35,6 +41,7 @@ class VisionDescriber:
             prompt or DEFAULT_IMAGE_PROMPT,
             image,
             system=MEDIA_SYSTEM_PROMPT,
+            model=self._model or None,
         )
         return str(text or "").strip()
 
@@ -50,6 +57,7 @@ def compose_image_memory(description: str, prompt: str = "") -> str:
 
 
 __all__ = [
+    "DEFAULT_IMAGE_MEMORY_MODEL",
     "DEFAULT_IMAGE_PROMPT",
     "IMAGE_MEMORY_PREFIX",
     "MEDIA_SYSTEM_PROMPT",

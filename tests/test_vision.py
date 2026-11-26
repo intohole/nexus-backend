@@ -138,6 +138,27 @@ async def test_recognize_single_str_image(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_recognize_model_override(monkeypatch):
+    from nexus.vision import VisionService
+
+    service = VisionService()
+    service._base_url = "http://gateway"
+    service._api_key = "sk-test"
+    service._model = "glm-4.6v-flash"
+    service._resolved = True
+
+    captured: dict = {}
+
+    async def fake_chat(system, prompt, urls, temperature, feature="", profile="auto", model=None, no_cache=False):
+        captured["model"] = model
+        return "通过"
+
+    monkeypatch.setattr(service, "_chat_vision", fake_chat)
+    assert await service.recognize("看图", _PNG, model="deepseek-flash") == "通过"
+    assert captured["model"] == "deepseek-flash"
+
+
+@pytest.mark.asyncio
 async def test_vision_meters_feature_and_charges(monkeypatch):
     from nexus import vision as vision_mod
     import nexus.credits as credits_module

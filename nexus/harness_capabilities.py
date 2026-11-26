@@ -27,7 +27,7 @@ from nexus.memory import render_memory_context_bounded
 from nexus.memory_contract import MemoryBudget
 
 if TYPE_CHECKING:
-    from nexus.agent_harness import HarnessProfile
+    from nexus.harness_profile import HarnessProfile
 
 
 class HarnessCapabilities:
