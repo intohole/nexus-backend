@@ -27,6 +27,9 @@ class JobManager:
         task = self._tasks.get(job_id)
         return bool(task and not task.done())
 
+    def running_count(self) -> int:
+        return sum(1 for task in self._tasks.values() if not task.done())
+
     def submit(
         self,
         job_id: int,
