@@ -178,7 +178,7 @@ async def test_ask_json_schema_branch_reads_finish_reason(monkeypatch):
     class FakeSvc:
         pass
 
-    FakeSvc.chat = fake_chat
+    FakeSvc._chat = fake_chat
     monkeypatch.setattr(llm_client_mod, "get_llm_service", lambda: FakeSvc)
     client = LLMJsonClient()
     result = await client.ask_json("出题", "系统", schema=Card, max_tokens=2000)
@@ -199,7 +199,7 @@ async def test_ask_json_multimodal_schema_repair_and_clean_cache(monkeypatch):
     class FakeSvc:
         pass
 
-    FakeSvc.chat = fake_chat
+    FakeSvc._chat = fake_chat
     monkeypatch.setattr(llm_client_mod, "get_llm_service", lambda: FakeSvc)
     monkeypatch.setattr(llm_client_mod, "resolve_profile", lambda p: p)
     monkeypatch.setattr(llm_client_mod, "plan_for", lambda prof: type("P", (), {"max_side": 1024, "target_tokens": 800})())
@@ -244,7 +244,7 @@ async def test_llm_json_client_schema_fallback_contract(monkeypatch):
     async def fake_chat(messages, json_mode=False, **kwargs: object) -> str:
         return BAD
 
-    FakeSvc.chat = fake_chat
+    FakeSvc._chat = fake_chat
     monkeypatch.setattr(llm_client_mod, "get_llm_service", lambda: FakeSvc)
     client = LLMJsonClient()
     fallback = {"question": "兜底", "options": []}
@@ -264,7 +264,7 @@ async def test_llm_json_client_schema_repair_success(monkeypatch):
     async def fake_chat(messages, json_mode=False, **kwargs: object) -> str:
         return await chat(messages, json_mode=json_mode, **kwargs)
 
-    FakeSvc.chat = fake_chat
+    FakeSvc._chat = fake_chat
     monkeypatch.setattr(llm_client_mod, "get_llm_service", lambda: FakeSvc)
     client = LLMJsonClient()
     result = await client.ask_json("出题", "系统", schema=Card)

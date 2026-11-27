@@ -32,7 +32,7 @@ async def test_ask_json_forwards_effort(monkeypatch):
         return '{"ok": true}'
 
     client = LLMJsonClient(model="deepseek-flash", reasoning_effort="high")
-    monkeypatch.setattr(client._svc, "chat", fake_ask)
+    monkeypatch.setattr(client._svc, "_chat", fake_ask)
     result = await client.ask_json(prompt="p", system="s")
     assert result == {"ok": True}
     assert captured.get("reasoning_effort") == "high"
@@ -47,7 +47,7 @@ async def test_ask_json_no_effort_by_default(monkeypatch):
         return '{"ok": true}'
 
     client = LLMJsonClient(model="deepseek-flash")
-    monkeypatch.setattr(client._svc, "chat", fake_ask)
+    monkeypatch.setattr(client._svc, "_chat", fake_ask)
     await client.ask_json(prompt="p", system="s")
     assert "reasoning_effort" not in captured
 
@@ -61,6 +61,6 @@ async def test_ask_json_call_level_overrides_instance(monkeypatch):
         return '{"ok": true}'
 
     client = LLMJsonClient(model="deepseek-flash", reasoning_effort="high")
-    monkeypatch.setattr(client._svc, "chat", fake_ask)
+    monkeypatch.setattr(client._svc, "_chat", fake_ask)
     await client.ask_json(prompt="p", system="s", reasoning_effort="low")
     assert captured.get("reasoning_effort") == "low"

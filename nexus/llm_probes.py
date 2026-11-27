@@ -19,6 +19,52 @@ from nexus.logging import get_logger
 
 logger = get_logger("nexus.llm")
 
+# r264 刀D：embed 回执维度守底状态（warn-once 去重键+计数器；进程内观测态非业务态）
+_EMBED_DIM_WARN_SEEN: set[tuple[int, int]] = set()
+_EMBED_DIM_WARN_COUNT: dict[str, int] = {"warnings": 0}
+
+
+def _check_embed_dimensions(result: Optional[list[list[float]]]) -> None:
+    """embed 回执维度 vs Lion embedding_dimensions warn-only 守底（r264 刀D）。
+
+    r70 生产事故（2048 vs 1024 dim 漂移）判例线：配置侧在码（ironman bootstrap
+    装配 EmbeddingConfig.dimensions+wire payload 下发），回执侧此前零校验。
+    期望值缺席（未配 dimensions）=skip 不 warn；warn-once 每进程每
+    (expected, actual) 组合首次（漂移场景禁恒刷日志）。恒不拦截（S200 判例：
+    warn-only 恒不拦，enforce 切换严禁自动翻转，触发器窗归属后续）。
+    """
+    if not result:
+        return
+    try:
+        expected: object = None
+        try:
+            from nexus.ironman import get_bootstrap
+
+            expected = getattr(getattr(get_bootstrap(), "config", None), "embedding_default", None)
+            expected = getattr(expected, "dimensions", None)
+        except Exception:
+            return
+        if not expected:
+            return
+        actual = len(result[0])
+        if actual == int(expected):
+            return
+        key = (int(expected), actual)
+        if key in _EMBED_DIM_WARN_SEEN:
+            return
+        _EMBED_DIM_WARN_SEEN.add(key)
+        _EMBED_DIM_WARN_COUNT["warnings"] += 1
+        logger.warning(
+            "embed dimension mismatch: expected=%d actual=%d "
+            "(Lion embedding_dimensions 配置在码而回执漂移——r70 判例线；"
+            "warn-only 不拦，向量消费方自行核对兼容性)",
+            int(expected),
+            actual,
+        )
+    except Exception:
+        # 守底永不反咬（走查 P3-4）：守底自身异常吞掉，不把成功 embed 转失败
+        return
+
 
 class LLMProbesMixin:
     async def probe_ping(self, prompt: str = "ping", timeout: float = 20.0) -> dict[str, object]:
@@ -182,6 +228,7 @@ class LLMProbesMixin:
 
         try:
             result = await with_llm_retry(_do, timeout, effective_retries(max_retries))
+            _check_embed_dimensions(result)
             await _meter("embed", app_name, request_id, calls=len(texts) or 1, feature=feature)
             await _charge("embed", app_name, request_id)
             return result

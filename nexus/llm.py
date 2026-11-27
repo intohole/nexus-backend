@@ -102,7 +102,7 @@ class LLMService(LLMCore, LLMProbesMixin, LLMStreamMixin):
             bills: list[dict[str, object]] = []
 
             async def _billing_chat(**chat_kw: object) -> object:
-                bill = await self.chat(_want_usage=True, **chat_kw)  # type: ignore[arg-type]
+                bill = await self._chat(_want_usage=True, **chat_kw)  # type: ignore[arg-type]
                 if isinstance(bill, dict):
                     bills.append({k: v for k, v in bill.items() if k != "content"})
                     return bill

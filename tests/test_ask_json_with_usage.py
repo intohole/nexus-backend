@@ -60,7 +60,7 @@ async def test_facade_schema_path_bills_each_repair(svc, monkeypatch):
         content = json.dumps({"score": 2, "note": "ok"}) if state["n"] > 1 else "totally not json"
         return _bill(content, seq=state["n"])
 
-    monkeypatch.setattr(svc, "chat", fake_chat)
+    monkeypatch.setattr(svc, "_chat", fake_chat)
     data, usage = await svc.ask_json_with_usage(
         "p", system="s", schema=TinyVerdict, repair_attempts=1, task_type="evaluation", max_tokens=2000,
     )
@@ -74,7 +74,7 @@ async def test_facade_schema_path_raise_on_invalid(svc, monkeypatch):
     async def fake_chat(**kwargs):
         return _bill("still not json", seq=1)
 
-    monkeypatch.setattr(svc, "chat", fake_chat)
+    monkeypatch.setattr(svc, "_chat", fake_chat)
     with pytest.raises(ValueError):
         await svc.ask_json_with_usage("p", system="s", schema=TinyVerdict, repair_attempts=0)
 

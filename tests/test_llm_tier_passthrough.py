@@ -244,7 +244,7 @@ class _CaptureSvc:
         self.ask_kwargs = kwargs
         return self._responses.pop(0)
 
-    async def chat(self, **kwargs):
+    async def _chat(self, **kwargs):
         self.ask_kwargs = kwargs
         raw = self._responses.pop(0)
         if kwargs.get("_want_usage"):

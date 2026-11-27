@@ -15,7 +15,7 @@ class FakeLLM:
         self.fail_kwargs = set(fail_kwargs or [])
         self.replies_final = "garbage"
 
-    async def chat(self, messages, system=None, **kwargs):
+    async def _chat(self, messages, system=None, **kwargs):
         for key in self.fail_kwargs:
             if len(self.calls) > 0 and not kwargs.get(key):
                 raise AssertionError(f"attempt {len(self.calls) + 1} missing kwarg {key}={True}")
@@ -102,7 +102,7 @@ def svc(monkeypatch):
             return " STILL THINKING "
         return json.dumps({"done": True})
 
-    monkeypatch.setattr(service, "chat", fake_chat)
+    monkeypatch.setattr(service, "_chat", fake_chat)
     return service, captured
 
 
@@ -123,7 +123,7 @@ async def test_method_raise_on_error_after_retries(svc, monkeypatch):
     async def always_garbage(messages, system=None, **kwargs):
         return "garbage"
 
-    monkeypatch.setattr(service, "chat", always_garbage)
+    monkeypatch.setattr(service, "_chat", always_garbage)
     with pytest.raises(ValueError, match="failed JSON shape gate"):
         await service.chat_json(MSGS)
 
@@ -138,7 +138,7 @@ async def test_method_sentinel_opt_out(svc, monkeypatch):
             return "garbage"
         return json.dumps({"late": True})
 
-    monkeypatch.setattr(service, "chat", garbage_then_valid)
+    monkeypatch.setattr(service, "_chat", garbage_then_valid)
     result = await service.chat_json(MSGS, raise_on_error=False)
     assert result == {"late": True}
     assert len(captured) == 2

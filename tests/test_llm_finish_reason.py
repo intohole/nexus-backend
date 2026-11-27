@@ -22,7 +22,7 @@ class _BillSvc:
         self._calls = list(calls)
         self.chat_kwargs: list[dict] = []
 
-    async def chat(self, **kwargs):
+    async def _chat(self, **kwargs):
         self.chat_kwargs.append(dict(kwargs))
         raw, finish_reason = self._calls.pop(0)
         return {

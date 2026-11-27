@@ -215,7 +215,7 @@ class LLMCore:
             "finish_reason": str(getattr(response, "finish_reason", "") or ""),
         }
 
-    async def chat(
+    async def _chat(
         self,
         messages: list[dict[str, str]],
         system: Optional[str] = None,
@@ -239,13 +239,19 @@ class LLMCore:
         tools: Optional[list[object]] = None,
         _want_usage: bool = False,
     ) -> str | dict[str, object]:
-        """r263 刀4 判定书定档=收编（内部组合原语底座）：本方法是 ask/chat_with_usage
-        （llm_core.py:306/300）与 ask_json 计费孪生 _billing_chat（llm.py:105）及
-        LLMJsonClient 五方法（llm_client.py:80/132/203/291/314）的底座——包内底座
-        调用共 8 处（r263 终局找茬 P2-1 锚点勘误：原「7 处」系 def 行凑数+ask 真锚
-        306 漏记，终审实拍 grep self.chat/_svc.chat 全包=8）；业务消费走组合原语面；
-        业务仓裸 chat 跨包消费=0（r263 分层普查实锚，退役窗触发器=chat 私有化
-        _chat+底座迁移评估，M8 别名一周期节奏）。外部接入请走 ask/chat_with_usage。
+        """内部组合原语底座（r264 刀B 私有化）：本方法是 ask/chat_with_usage
+        （本类两方法，符号锚定勿引行号——行号锚三轮漂移判例 r263 P2-1+r264 P3-1）
+        与 ask_json 计费孪生 _billing_chat（llm.py）及 LLMJsonClient 五方法
+        （llm_client.py _ask_json_once/_verified_chat/chat/_vision_chat/
+        ask_json_multimodal 内）与 chat_json plumbing（llm_utils._chat_json_core，
+        duck-type 双名兼容 getattr(llm,"_chat") or llm.chat）的底座——包内底座
+        调用共 9 处（r264 普查勘误：r263「8 处」漏记 llm_utils 形参 receiver，
+        grep self.chat|_svc.chat 模式盲区）。外部公开名 chat=全签名保真 alias
+        （退役窗=条件触发器：oneNote/suki/codeBlock/nexus-agent 业务消费迁移组合
+        原语面完成后撤，禁 M8 时间窗自动到期——r264 陪审团 P0 勘误：r263「业务仓
+        裸 chat 跨包消费=0」失实，实锚=oneNote chat.py:41/suki rag_service.py:90+
+        summary_service.py:32/codeBlock llm.py:62,254/nexus-agent funnel
+        llm_client.py:33）。外部新接入请走 ask/chat_with_usage。
 
         images（r30 additive）：data URL/URL 列表，挂到末条 user 消息尾部
         （convert_messages 位置契约）；带图调用恒绕 PromptCache——缓存 key 只拼
@@ -277,14 +283,14 @@ class LLMCore:
             hit: Optional[str] = cache.get(key)
             if hit is not None:
                 return self._usage_payload(hit, None) if _want_usage else hit
-        from ironman import chat as _chat
+        from ironman import chat as _ironman_chat
         request_id: str = get_request_id() or "-"
         app_name: str = resolve_app_name()
         await _preflight("chat", model=str(getattr(opts, "model", "") or ""))
 
         async def _do() -> object:
             with credits_gateway_handled():
-                return await _chat(messages=ironman_messages, llm=opts, tools=tools)
+                return await _ironman_chat(messages=ironman_messages, llm=opts, tools=tools)
 
         result, response = await self._execute(_do, timeout, max_retries, app_name, request_id, "chat", feature=feature, llm_opts=opts)
         await _charge("chat", app_name, request_id, model=str(getattr(response, "model", "") or ""),
@@ -299,12 +305,17 @@ class LLMCore:
         计费/熔断/重试/缓存/json_mode 语义与 chat 完全一致；缓存命中时 usage 为 0 且 cached=True。
         """
         kwargs["_want_usage"] = True
-        result = await self.chat(messages=messages, **kwargs)
+        result = await self._chat(messages=messages, **kwargs)
         assert isinstance(result, dict)
         return result
 
     async def ask(self, prompt: str, system: Optional[str] = None, **kwargs) -> str:
         """单轮提问 = 单条 user 消息的 chat。"""
-        return await self.chat(
+        return await self._chat(
             messages=[{"role": "user", "content": prompt}], system=system, **kwargs
         )
+
+    # r264 刀B：公开名=全签名保真 alias（同一函数对象，签名探针契约逐参保真——
+    # nexus-agent llm_signature_probe 逐参 inspect.signature 核对面）。退役窗=条件
+    # 触发器（业务仓消费迁移完成），禁时间窗自动到期。
+    chat = _chat

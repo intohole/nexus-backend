@@ -12,13 +12,29 @@ from typing import Awaitable, Callable, Optional, TypeVar
 
 from nexus.llm_json import (  # noqa: F401
     extract_json_rows as extract_json_rows,
+)
+from nexus.llm_json import (
     find_balanced_json as find_balanced_json,
+)
+from nexus.llm_json import (
     is_llm_json_error as is_llm_json_error,
+)
+from nexus.llm_json import (
     json_shape_gate as json_shape_gate,
+)
+from nexus.llm_json import (
     parse_json_column as parse_json_column,
+)
+from nexus.llm_json import (
     parse_llm_json as parse_llm_json,
+)
+from nexus.llm_json import (
     parse_llm_json_lenient as parse_llm_json_lenient,
+)
+from nexus.llm_json import (
     parse_llm_json_or as parse_llm_json_or,
+)
+from nexus.llm_json import (
     strip_code_fence as strip_code_fence,
 )
 
@@ -359,17 +375,20 @@ async def chat_json(
     委托免费升级（suki 5 处+nexus-agent 3 处，r66 census 实测）。
 
     Args:
-        llm: 提供 ``chat(messages, system=..., **kwargs)`` 的服务实例。
+        llm: 提供 ``chat(messages, system=..., **kwargs)`` 的服务实例（duck-type
+            双名兼容，走查 P3-3：优先 _chat 内部底座，回退公开名 chat——外部宿主
+            仿制 LLMService 最小面时两形态均可）。
         messages: chat 形消息列表（稳定 system 前缀置顶，动态内容后置）。
         root_type / list_key / attempts: 语义同 ask_json。
-        chat_kwargs: 透传 llm.chat（temperature/model/namespace/timeout 等）。
+        chat_kwargs: 透传 llm.chat/_chat（temperature/model/namespace/timeout 等）。
     """
     total = max(1, attempts)
+    chat_fn = getattr(llm, "_chat", None) or llm.chat  # type: ignore[attr-defined]
     for attempt in range(total):
         kwargs = dict(chat_kwargs)
         if attempt > 0:
             kwargs.setdefault("no_cache", True)
-        raw = await llm.chat(messages, system=system, **kwargs)  # type: ignore[attr-defined]
+        raw = await chat_fn(messages, system=system, **kwargs)
         if root_type is dict:
             parsed = parse_llm_json(raw, fallback=None)
         else:

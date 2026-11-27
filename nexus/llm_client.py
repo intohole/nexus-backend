@@ -77,7 +77,7 @@ class LLMJsonClient:
         timeout: float,
         call: dict[str, object],
     ) -> tuple[Dict[str, Any], str]:
-        bill = await self._svc.chat(
+        bill = await self._svc._chat(
             messages=[{"role": "user", "content": prompt}],
             system=system,
             max_tokens=max_tokens,
@@ -129,7 +129,7 @@ class LLMJsonClient:
         if schema is not None:
             async def _verified_chat(messages, json_mode: bool = True, **chat_kw: object) -> object:
                 """bill 通道（r128）：_want_usage 让修复环读 finish_reason 驱动条件化。"""
-                return await self._svc.chat(
+                return await self._svc._chat(
                     messages=messages,
                     json_mode=True,
                     _want_usage=True,
@@ -200,7 +200,7 @@ class LLMJsonClient:
         reasoning_effort: Optional[str] = None,
     ) -> str:
         try:
-            return await self._svc.chat(
+            return await self._svc._chat(
                 messages=messages,
                 system=system,
                 temperature=self._temperature if temperature is None else temperature,
@@ -288,7 +288,7 @@ class LLMJsonClient:
         call.update(self._thinking_kwargs(enable_thinking, thinking_budget))
 
         async def _vision_chat(messages: list[dict[str, object]], json_mode: bool = True, **kw: object) -> object:
-            return await self._svc.chat(messages=messages, system=system, json_mode=json_mode, **kw)
+            return await self._svc._chat(messages=messages, system=system, json_mode=json_mode, **kw)
 
         if schema is not None:
             try:
@@ -311,7 +311,7 @@ class LLMJsonClient:
                 return fallback
             raise ValueError(self._last_error or "LLM 多模态返回无效 JSON")
         try:
-            raw = await self._svc.chat(
+            raw = await self._svc._chat(
                 messages=[{"role": "user", "content": content}],
                 system=system,
                 json_mode=True,

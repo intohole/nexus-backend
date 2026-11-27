@@ -15,7 +15,7 @@ def svc(monkeypatch):
     async def fake_ask(prompt, system=None, json_mode=False, **kwargs):
         return "这不是 JSON 的独白回复"
 
-    monkeypatch.setattr(service, "chat", fake_chat)
+    monkeypatch.setattr(service, "_chat", fake_chat)
     monkeypatch.setattr(service, "ask", fake_ask)
     return service
 
