@@ -239,7 +239,15 @@ class LLMCore:
         tools: Optional[list[object]] = None,
         _want_usage: bool = False,
     ) -> str | dict[str, object]:
-        """images（r30 additive）：data URL/URL 列表，挂到末条 user 消息尾部
+        """r263 刀4 判定书定档=收编（内部组合原语底座）：本方法是 ask/chat_with_usage
+        （llm_core.py:306/300）与 ask_json 计费孪生 _billing_chat（llm.py:105）及
+        LLMJsonClient 五方法（llm_client.py:80/132/203/291/314）的底座——包内底座
+        调用共 8 处（r263 终局找茬 P2-1 锚点勘误：原「7 处」系 def 行凑数+ask 真锚
+        306 漏记，终审实拍 grep self.chat/_svc.chat 全包=8）；业务消费走组合原语面；
+        业务仓裸 chat 跨包消费=0（r263 分层普查实锚，退役窗触发器=chat 私有化
+        _chat+底座迁移评估，M8 别名一周期节奏）。外部接入请走 ask/chat_with_usage。
+
+        images（r30 additive）：data URL/URL 列表，挂到末条 user 消息尾部
         （convert_messages 位置契约）；带图调用恒绕 PromptCache——缓存 key 只拼
         消息文本，同 prompt 不同截图会命中旧答案串图（视觉修复环每轮换图=必须 bypass）。
         tools（r259 additive）：ironman ToolDef 列表直透（r259 勘察 P0#1 断点修复：

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ironman.kernel import LLMExecutor
+from ironman.memory.summarizer import SummaryCallOutcome, SummaryLLM
 from ironman.types import LLMRequest, LLMResponse
 
 LLMExecutor = LLMExecutor  # re-export：r260 B1 单源=ironman.kernel.ports（契约面不变）
@@ -47,4 +48,40 @@ def gateway_executor(app_name: str) -> LLMExecutor:
     return _execute
 
 
-__all__ = ["HarnessGatewayError", "LLMExecutor", "ensure_gateway_route", "gateway_executor"]
+def summary_llm_from_gateway(app_name: str) -> "SummaryLLM":
+    """r263 刀1：宿主侧 SUMMARY 摘要闭包适配构件（nexus 网关→ironman SummaryCallOutcome）。
+
+    普查判定（r263）：全舰队 SUMMARY 策略零生产消费（build_agent_harness 零生产调用、
+    Bootstrap.create 不建 harness、ironman contracts §8 休眠面登记在案）——本构件
+    **入库不接线**，激活触发器=B1 首接（首个宿主 harness 会话启用 SUMMARY 策略时
+    以 summarizer=StructuredSummarizer(llm_call=summary_llm_from_gateway(app)) 形态
+    直兑；r263 法官 R1 形状 c+登记前置）。语义：finish_reason∈{length,content_filter}
+    → SummaryCallOutcome（ironman summarize() 据此拒落盘截断摘要，pi compaction.ts:590
+    纪律）；缓存命中 finish_reason="" 恒 str 返回零破坏。身份门与 gateway_executor
+    同律：构造+每调用双复核。
+    """
+    ensure_gateway_route(app_name)
+
+    async def _summarize(prompt: str) -> "str | SummaryCallOutcome":
+        ensure_gateway_route(app_name)
+        from nexus.llm import get_llm_service
+
+        bill = await get_llm_service().chat_with_usage(
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = str(bill.get("content") or "")
+        finish_reason = str(bill.get("finish_reason") or "")
+        if finish_reason in ("length", "content_filter"):
+            return SummaryCallOutcome(text=text, finish_reason=finish_reason)
+        return text
+
+    return _summarize
+
+
+__all__ = [
+    "HarnessGatewayError",
+    "LLMExecutor",
+    "ensure_gateway_route",
+    "gateway_executor",
+    "summary_llm_from_gateway",
+]
