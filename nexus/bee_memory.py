@@ -65,10 +65,8 @@ class BeeMemoryBackend:
         return self._budget
 
     @staticmethod
-    def _payload_failure(payload: object) -> str:
+    def _payload_failure(payload: dict) -> str:
         """bm_sdk 吞错返回 unavailable/success=False 载荷（不抛异常），在此显式接回契约 failure 通道。"""
-        if not isinstance(payload, dict):
-            return ""
         if payload.get("unavailable"):
             return str(payload.get("message") or "beeMemory 服务不可用")
         if payload.get("success") is False:
@@ -98,7 +96,10 @@ class BeeMemoryBackend:
             logger.warning("beeMemory recall 失败: %s", exc)
             contract.on_failure(str(exc))
             return []
-        payload = payload if isinstance(payload, dict) else {}
+        if not isinstance(payload, dict):
+            logger.warning("beeMemory recall 载荷非 dict: %s", type(payload).__name__)
+            contract.on_failure(f"beeMemory 载荷非 dict: {type(payload).__name__}")
+            return []
         failure = self._payload_failure(payload)
         if failure:
             logger.warning("beeMemory recall 失败: %s", failure)
@@ -125,7 +126,10 @@ class BeeMemoryBackend:
             logger.warning("beeMemory snapshot 失败: %s", exc)
             contract.on_failure(str(exc))
             return {}
-        payload = payload if isinstance(payload, dict) else {}
+        if not isinstance(payload, dict):
+            logger.warning("beeMemory snapshot 载荷非 dict: %s", type(payload).__name__)
+            contract.on_failure(f"beeMemory 载荷非 dict: {type(payload).__name__}")
+            return {}
         failure = self._payload_failure(payload)
         if failure:
             logger.warning("beeMemory snapshot 失败: %s", failure)

@@ -35,6 +35,23 @@ from nexus.skill_source import NexusSkillSource
 from nexus.skills import SkillDirSpec, SkillRegistry
 
 
+def make_budgeted_payload_renderer(budget: MemoryBudget | None):
+    """B5 注入路径预算契约缝（r268）：裸 renderer 的 readout 被 capabilities_core 读数
+    即弃——overflow=fail_query 旗开时截断必须在此显式接回 contract.ensure（已通电缝
+    的静默失效分支根治）。budget 缺席=裸 renderer 等价（金样等价不变式保持）。"""
+    if budget is None:
+        return render_memory_context_bounded
+
+    def _renderer(payload: dict, *, self_app: str = "", kind: str = "", budget_chars: int | None = None):
+        text, readout = render_memory_context_bounded(
+            payload, self_app=self_app, kind=kind, budget_chars=budget_chars
+        )
+        budget.ensure(readout)
+        return text, readout
+
+    return _renderer
+
+
 class AgentHarness(KernelHarness):
     def __init__(
         self,
@@ -66,7 +83,9 @@ class AgentHarness(KernelHarness):
             evolution=evolution,
             lifecycle=lifecycle,
             llm_executor=llm_executor,
-            memory_payload_renderer=render_memory_context_bounded,
+            memory_payload_renderer=make_budgeted_payload_renderer(
+                memory_backend.budget if memory_backend is not None else None
+            ),
         )
         self._nexus_registry = registry
 

@@ -78,10 +78,15 @@ def has_b64_evidence(blob: str) -> bool:
 def scan_text(rel: str, text: str) -> list[Finding]:
     out: list[Finding] = []
     lines = text.splitlines()
+    frontmatter_closed = (
+        len(lines) > 1
+        and lines[0].strip() == "---"
+        and any(line.strip() == "---" for line in lines[1:])
+    )
     in_frontmatter = False
     prereq_zone = False
     for i, line in enumerate(lines, 1):
-        if i == 1 and line.strip() == "---":
+        if i == 1 and line.strip() == "---" and frontmatter_closed:
             in_frontmatter = True
             continue
         if in_frontmatter:

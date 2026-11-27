@@ -17,6 +17,14 @@ logger = get_logger("nexus.ironman.instr")
 _instrumented: bool = False
 
 
+def _embed_provider_key(provider: object) -> str:
+    """embed 熔断通道键单源（r267 触发器族刀3 key 设计前置）：显式 provider 直取，
+    空则默认通道（与 chat/ask/extract/stream 四操作同键空间 llm: registry）。"""
+    from nexus.circuit_breaker import llm_provider_key
+
+    return str(provider or "") or llm_provider_key(None)
+
+
 def _instrument_ironman(app_name: str) -> None:
     """包装 ironman 模块级函数，注入 metrics/circuit_breaker/req_id。幂等。"""
     global _instrumented
@@ -46,6 +54,16 @@ def _instrument_ironman(app_name: str) -> None:
 
         return get_llm_circuit(llm_provider_key(llm))
 
+    def _entry_circuit_embed(provider: object) -> object:
+        from nexus.circuit_breaker import get_llm_circuit
+
+        return get_llm_circuit(_embed_provider_key(provider))
+
+    async def _record_embed(provider: object, error: object, response: object = None) -> None:
+        from nexus.circuit_breaker import record_llm_outcome
+
+        await record_llm_outcome(_embed_provider_key(provider), error, response)
+
     def _usage(result: object) -> tuple:
         tokens: int = 0
         usage = getattr(result, "usage", None)
@@ -71,8 +89,8 @@ def _instrument_ironman(app_name: str) -> None:
         metrics.record(app, model, latency, tokens=0, error=error_type)
         log_fn = logger.warning if error_type == "CircuitBreakerOpenError" else logger.error
         log_fn(
-            "LLM %s failed [req_id=%s, app=%s, latency=%.2fs]: %s: %s",
-            op, req_id, app, latency, error_type, e or "(无错误详情)",
+            "LLM %s failed [req_id=%s, app=%s, model=%s, latency=%.2fs]: %s: %s",
+            op, req_id, app, model, latency, error_type, e or "(无错误详情)",
         )
 
     async def _wrapped_chat(messages: object, llm: object = None, tools: object = None) -> object:
@@ -99,16 +117,20 @@ def _instrument_ironman(app_name: str) -> None:
         dimensions: object = None, encoding_format: object = None,
     ) -> object:
         request_id, app, metrics, start = _ctx()
+        circuit = _entry_circuit_embed(provider)
+        emb_model: str = f"embed:{model or 'unknown'}"
         try:
+            await circuit.acquire_call()
             result: object = await original_embed(  # type: ignore[misc]
                 text, model=model, provider=provider,
                 dimensions=dimensions, encoding_format=encoding_format,
             )
-            emb_model: str = model or "unknown"
-            _ok("embed", request_id, app, metrics, f"embed:{emb_model}", start)
+            await _record_embed(provider, None, result)
+            _ok("embed", request_id, app, metrics, emb_model, start)
             return result
         except Exception as e:
-            _fail("embed", request_id, app, metrics, start, e, model="embed:unknown")
+            await _record_embed(provider, e)
+            _fail("embed", request_id, app, metrics, start, e, model=emb_model)
             raise
 
     async def _record(llm: object, error: object, response: object = None) -> None:
