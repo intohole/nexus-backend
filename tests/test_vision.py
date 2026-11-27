@@ -71,9 +71,10 @@ async def test_recognize_uses_gateway(monkeypatch):
     assert captured["url"] == "http://gateway" + GATEWAY_VISION_PATH
     assert captured["payload"]["model"] == "glm-4.6v-flash"
     parts = captured["payload"]["messages"][1]["content"]
-    assert parts[0]["type"] == "image_url" and parts[0]["image_url"]["url"].startswith("data:image/png")
-    assert parts[0]["image_url"]["detail"] == "auto"
-    assert parts[1] == {"type": "text", "text": "这是什么动物"}
+    # r112 前缀缓存友好：稳定文本前置、动态截图后置（改前断言锚定旧排列，实锚=r112 方案刀4）
+    assert parts[0] == {"type": "text", "text": "这是什么动物"}
+    assert parts[1]["type"] == "image_url" and parts[1]["image_url"]["url"].startswith("data:image/png")
+    assert parts[1]["image_url"]["detail"] == "auto"
     meta = captured["payload"]["vision_meta"]
     assert meta["profile"] == "auto" and meta["image_count"] == 1
     assert meta["image_detail"] == "auto"
@@ -160,8 +161,8 @@ async def test_recognize_model_override(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_vision_meters_feature_and_charges(monkeypatch):
-    from nexus import vision as vision_mod
     import nexus.credits as credits_module
+    from nexus import vision as vision_mod
     from nexus.credits import CreditsService
 
     service = vision_mod.VisionService()

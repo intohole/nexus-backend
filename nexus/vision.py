@@ -195,11 +195,13 @@ class VisionService(_GatewayServiceBase):
                 return cached
         await _vision_preflight(effective_model)
         prepared_urls, metas = self._prepare_images(image_urls, resolved_profile)
-        content: list[dict[str, object]] = [
+        # r112 前缀缓存友好（cache-buster 破坏因子⑦多模态字节漂移的对治半边）：稳定文本
+        # 指令前置、动态截图后置——system+文本段构成可命中前缀，图后不再有字节
+        content: list[dict[str, object]] = [{"type": "text", "text": prompt}]
+        content.extend(
             {"type": "image_url", "image_url": {"url": url, "detail": detail}}
             for url in prepared_urls
-        ]
-        content.append({"type": "text", "text": prompt})
+        )
         payload = {
             "model": effective_model,
             "temperature": temperature,
