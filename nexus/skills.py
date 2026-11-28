@@ -37,7 +37,8 @@ __all__ = [
 ]
 
 NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
+# r270 刀4b：闭分隔符 EOF 无换行收容（DSH findClosingFrontmatter 判例——SKILL.md 以 --- 结尾无尾换行不再整技能拒载）
 _WORD_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 

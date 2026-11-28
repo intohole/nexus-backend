@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Awaitable, Callable
 
@@ -23,6 +24,34 @@ def _embed_provider_key(provider: object) -> str:
     from nexus.circuit_breaker import llm_provider_key
 
     return str(provider or "") or llm_provider_key(None)
+
+
+def _classify_failure(exc: BaseException) -> str:
+    """r270 刀8②：五面失败分类单源——provider 失败才进熔断通道，取消/中止/本地
+    异常不再连坐默认通道（旧形态 except Exception 全记=本地 pydantic/ConfigError
+    也喂熔断、g321 同族取消超时一次不计，与「宁可多熔不可漏熔」声明相反）。
+
+    返回："provider"（记熔断）| "cancelled"（re-raise 不记）| "aborted"（不记）|
+    "local"（记 metrics 不记熔断）。"""
+    import asyncio
+
+    from ironman.errors import ConfigError
+    from ironman.middleware.pipeline import AbortedError
+
+    if isinstance(exc, asyncio.CancelledError):
+        return "cancelled"
+    if isinstance(exc, AbortedError):
+        return "aborted"
+    if isinstance(exc, (ValueError, TypeError, KeyError, ConfigError)):
+        return "local"
+    try:
+        from pydantic import ValidationError
+
+        if isinstance(exc, ValidationError):
+            return "local"
+    except ImportError:  # pragma: no cover
+        pass
+    return "provider"
 
 
 def _instrument_ironman(app_name: str) -> None:
@@ -108,8 +137,13 @@ def _instrument_ironman(app_name: str) -> None:
             _ok("chat", request_id, app, metrics, model, start, tokens)
             return result
         except Exception as e:
-            await _record(llm, e)
+            # r270 刀8②：失败分类（provider 才进熔断；cancelled/aborted/local 不连坐）
+            if _classify_failure(e) == "provider":
+                await _record(llm, e)
             _fail("chat", request_id, app, metrics, start, e)
+            raise
+        except asyncio.CancelledError:
+            metrics.record(app, "chat", time.monotonic() - start, tokens=0, error="cancelled")
             raise
 
     async def _wrapped_embed(
@@ -129,7 +163,9 @@ def _instrument_ironman(app_name: str) -> None:
             _ok("embed", request_id, app, metrics, emb_model, start)
             return result
         except Exception as e:
-            await _record_embed(provider, e)
+            # r270 刀8②：embed 同款失败分类（第五面旁路修复的诚实性配套）
+            if _classify_failure(e) == "provider":
+                await _record_embed(provider, e)
             _fail("embed", request_id, app, metrics, start, e, model=emb_model)
             raise
 
@@ -155,8 +191,13 @@ def _instrument_ironman(app_name: str) -> None:
             _ok(op, request_id, app, metrics, model, start, tokens)
             return result
         except Exception as e:
-            await _record(llm, e)
+            # r270 刀8②：失败分类（ask/extract 共用 _circuit_op 通道）
+            if _classify_failure(e) == "provider":
+                await _record(llm, e)
             _fail(op, request_id, app, metrics, start, e)
+            raise
+        except asyncio.CancelledError:
+            metrics.record(app, str(op), time.monotonic() - start, tokens=0, error="cancelled")
             raise
 
     async def _wrapped_ask(*args: object, **kwargs: object) -> object:
@@ -209,8 +250,12 @@ def _instrument_ironman(app_name: str) -> None:
                 await _record(llm, None, None)
                 _ok("stream", request_id, app, metrics, "stream", start)
             except Exception as e:
-                await _record(llm, e)
+                if _classify_failure(e) == "provider":
+                    await _record(llm, e)
                 _fail("stream", request_id, app, metrics, start, e, model="stream")
+                raise
+            except asyncio.CancelledError:
+                metrics.record(app, "stream", time.monotonic() - start, tokens=0, error="cancelled")
                 raise
 
         return _gen()
@@ -355,6 +400,13 @@ def _instrument_facade_credits(app_name: str) -> None:
                     yield chunk
             finally:
                 if produced:
+                    if last_usage is None:
+                        # r270 刀8③：断连零账显影（已产字节白交付、usage chunk 未达；
+                        # 不发明计费——此处只留观测账，计费诚实性归 credits 面登记）
+                        logger.warning(
+                            "stream 断连零账（已产字节无 usage chunk，按 0 计费）: kind=%s",
+                            feature_kind,
+                        )
                     await _meter_charge(
                         feature_kind, get_request_id() or "-", model, None,
                         time.monotonic() - start,

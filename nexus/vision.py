@@ -153,6 +153,13 @@ class VisionService(_GatewayServiceBase):
         return prepared, metas
 
     def _model_chain(self, start: str) -> list[str]:
+        # r270 刀7b：非视觉家族守卫（glm-4.6v* 视觉家族与 deepseek-flash* 除外——
+        # deepseek-flash 多模态能力系用户钦定形态 r254/r256 在案，不得误伤；其余未知
+        # 模型带图请求=要么报错要么"看不到图"垃圾文本，改派视觉链）
+        if not start.startswith(("glm-4.6v", "deepseek-flash")):
+            logger.warning("vision 非视觉模型 %s 改派视觉链 glm-4.6v-flash（非视觉守卫）", start)
+            _FALLBACK_CENSUS[f"{start}->glm-4.6v-flash(非视觉守卫)"] += 1
+            start = "glm-4.6v-flash"
         chain = [start]
         if start.startswith("glm-4.6v-flash"):
             for candidate in ("glm-4.6v-flashx", "glm-4.6v"):
@@ -268,12 +275,27 @@ class VisionService(_GatewayServiceBase):
         """通用图片识别：对单张/多张图片提问，返回模型文本回答。
 
         images 元素支持图片 URL、base64 data URL 或原始字节（bytes 自动转 data URL）。
+        r270 刀7b：接 _model_chain 升档回退（旧形态单次 _chat_vision 零回退——只有
+        recognize_json 有链，解析失败才升档；文本面失败直接裸抛）。
         """
         image_urls = self._normalize_images(images)
-        return await self._chat_vision(
-            system or "你是图片识别助手，用简体中文准确回答。", prompt, image_urls, temperature,
-            feature=feature, profile=profile, no_cache=no_cache, model=model,
-        )
+        await self._resolve_config("vision_model", DEFAULT_VISION_MODEL)
+        start_model = str(model or self._model or DEFAULT_VISION_MODEL)
+        last_error: Exception | None = None
+        for candidate in self._model_chain(start_model):
+            try:
+                if candidate != start_model:
+                    logger.warning("vision 升档回退: %s -> %s", start_model, candidate)
+                    _FALLBACK_CENSUS[f"{start_model}->{candidate}"] += 1
+                return await self._chat_vision(
+                    system or "你是图片识别助手，用简体中文准确回答。", prompt, image_urls, temperature,
+                    feature=feature, profile=profile, no_cache=no_cache, model=candidate,
+                )
+            except Exception as exc:
+                last_error = exc
+                logger.warning("vision recognize 模型 %s 失败: %s", candidate, exc)
+        assert last_error is not None
+        raise last_error
 
     async def recognize_json(
         self,

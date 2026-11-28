@@ -41,9 +41,21 @@ def gateway_executor(app_name: str) -> LLMExecutor:
     async def _execute(request: LLMRequest) -> LLMResponse:
         # 长生命周期 executor 每次调用复核：bootstrap 换 app / 网关模式翻转后身份门不失效（纯内存检查）
         ensure_gateway_route(app_name)
+        # r270 刀8 顺刀（挑刺席裁定随刀8② 同族）：agent/harness 第六缝熔断+outcome
+        # 接线——旧行为 credits 有账但零熔断零指标（同 provider 宕机时 agent loop 裸打）。
+        # 键空间=默认通道（llm_provider_key(None)，与模块级 chat(llm=None) 同通道同熔断语义）。
+        from nexus.circuit_breaker import CircuitBreakerOpenError, get_llm_circuit, llm_provider_key, record_llm_outcome
         from ironman._facade import _execute
 
-        return await _execute(request)
+        circuit = get_llm_circuit(llm_provider_key(None))
+        await circuit.acquire_call()  # CircuitBreakerOpenError 直接传播=agent 面同款熔断拒绝
+        try:
+            result = await _execute(request)
+        except Exception as exc:
+            await record_llm_outcome(llm_provider_key(None), exc, None)
+            raise
+        await record_llm_outcome(llm_provider_key(None), None, result)
+        return result
 
     return _execute
 

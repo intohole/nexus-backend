@@ -177,7 +177,12 @@ class BeeMemoryBackend:
             logger.warning("beeMemory context 失败: %s", exc)
             contract.on_failure(str(exc))
             return {}
-        payload = payload if isinstance(payload, dict) else {}
+        if not isinstance(payload, dict):
+            # r270 刀6c：非 dict 载荷显式记契约失败（r268 recall/snapshot 同款对称分支，
+            # 旧形态静默转 {} 后 _payload_failure({})="" 绕过 on_failure=fail_query 档放行）
+            logger.warning("beeMemory context 载荷非 dict: %s", type(payload).__name__)
+            contract.on_failure(f"beeMemory 载荷非 dict: {type(payload).__name__}")
+            return {}
         failure = self._payload_failure(payload)
         if failure:
             logger.warning("beeMemory context 失败: %s", failure)
