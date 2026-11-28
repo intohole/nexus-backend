@@ -52,7 +52,11 @@ def gateway_executor(app_name: str) -> LLMExecutor:
         try:
             result = await _execute(request)
         except Exception as exc:
-            await record_llm_outcome(llm_provider_key(None), exc, None)
+            # r270 评审修正①：同款失败分类——仅 provider 异常记熔断（本地/取消/中止不连坐）
+            from nexus.ironman_instrument import _classify_failure
+
+            if _classify_failure(exc) == "provider":
+                await record_llm_outcome(llm_provider_key(None), exc, None)
             raise
         await record_llm_outcome(llm_provider_key(None), None, result)
         return result

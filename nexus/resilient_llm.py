@@ -232,6 +232,14 @@ async def resilient_stream(
         aborted = True
         raise
     except Exception as e:
+        # r270 评审修正②：ironman 刀8① 起 abort 打穿本层——AbortedError=预算帽/限流
+        # 中止的一等退出（非 provider 故障），中性退出不计熔断失败（否则正常流量被
+        # 误开熔断）；CancelledError 分支同语义先例。
+        from ironman.middleware.pipeline import AbortedError
+
+        if isinstance(e, AbortedError):
+            aborted = True
+            raise
         error = e
         logger.warning("resilient_stream %s failed: %s", alias, e)
         raise

@@ -85,4 +85,26 @@ async def test_gateway_executor_circuit_wiring(monkeypatch):
     monkeypatch.setattr(facade, "_execute", failing_facade_execute)
     with pytest.raises(RuntimeError):
         await executor(object())
+    # r270 评审修正③b：provider 异常才记熔断失败
     assert recorded[-1] == ("llm:default", True)
+
+    # 本地异常不连坐（评审 P1 修正①配套用例）
+    async def local_error_execute(request):
+        raise ValueError("local bug")
+
+    monkeypatch.setattr(facade, "_execute", local_error_execute)
+    with pytest.raises(ValueError):
+        await executor(object())
+    # r270 评审修正③b：local 不记=无新条目（成功 1+provider 失败 1 后长度守恒）
+    assert len(recorded) == 2
+
+    # AbortedError 中性退出不记
+    from ironman.middleware.pipeline import AbortedError
+
+    async def aborted_execute(request):
+        raise AbortedError("budget abort")
+
+    monkeypatch.setattr(facade, "_execute", aborted_execute)
+    with pytest.raises(AbortedError):
+        await executor(object())
+    assert len(recorded) == 2
