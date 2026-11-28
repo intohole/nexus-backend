@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 
 _FALLBACK_CENSUS: dict[str, int] = defaultdict(int)
 
+# r272 刀24：视觉家族前缀单源（_model_chain 守卫+docstring 同源；glm-4.5v 系
+# docstring 自述支持面，deepseek-flash* 系用户钦定多模态 r254/r256）
+_VISION_FAMILY_PREFIXES = ("glm-4.6v", "glm-4.5v", "deepseek-flash")
+
 DEFAULT_VISION_MODEL = "glm-4.6v-flash"
 JSON_HINT = "只输出一个 JSON 对象，不要包含解释、markdown 代码块或其他文字。"
 
@@ -153,10 +157,13 @@ class VisionService(_GatewayServiceBase):
         return prepared, metas
 
     def _model_chain(self, start: str) -> list[str]:
-        # r270 刀7b：非视觉家族守卫（glm-4.6v* 视觉家族与 deepseek-flash* 除外——
+        # r270 刀7b：非视觉家族守卫（视觉家族前缀与 deepseek-flash* 除外——
         # deepseek-flash 多模态能力系用户钦定形态 r254/r256 在案，不得误伤；其余未知
-        # 模型带图请求=要么报错要么"看不到图"垃圾文本，改派视觉链）
-        if not start.startswith(("glm-4.6v", "deepseek-flash")):
+        # 模型带图请求=要么报错要么"看不到图"垃圾文本，改派视觉链）。
+        # r272 刀24（狩猎C P2）：豁免族提模块常量并补 glm-4.5v——模块 docstring
+        # 自述支持 GLM-4.5V，旧白名单只有 glm-4.6v 前缀=显式选型被静默改派+降档
+        # census 把正常选型记成救援（读数污染）。
+        if not start.startswith(_VISION_FAMILY_PREFIXES):
             logger.warning("vision 非视觉模型 %s 改派视觉链 glm-4.6v-flash（非视觉守卫）", start)
             _FALLBACK_CENSUS[f"{start}->glm-4.6v-flash(非视觉守卫)"] += 1
             start = "glm-4.6v-flash"
@@ -291,6 +298,11 @@ class VisionService(_GatewayServiceBase):
                     system or "你是图片识别助手，用简体中文准确回答。", prompt, image_urls, temperature,
                     feature=feature, profile=profile, no_cache=no_cache, model=candidate,
                 )
+            except CreditsInsufficientError:
+                # r272 刀25（狩猎C P3）：计费致命错不做升档重试（recognize_json:330
+                # 同款豁免，形制对齐）——欠费全链烧穿=多次 preflight+回退 census 把
+                # 计费失败记成模型回退（运营误读）。
+                raise
             except Exception as exc:
                 last_error = exc
                 logger.warning("vision recognize 模型 %s 失败: %s", candidate, exc)

@@ -54,9 +54,17 @@ class LLMStreamMixin:
                     yield chunk
         finally:
             await _meter("chat_stream", app_name, request_id, start=start, feature=feature)
-            if produced:
-                await _charge("chat_stream", app_name, request_id,
-                              model=str(getattr(opts, "model", "") or ""), usage=usage_read or None)
+            if produced and usage_read:
+                # r272 刀28+M8（狩猎A P2存疑）：计费挪旁路任务——消费方提前 aclose 时
+                # GeneratorExit 在飞，finally 内真实 await 网关 I/O=RuntimeError(ignored
+                # GeneratorExit) 面。spawn_background 原语复用（异常 WARNING 留痕不上抛）。
+                # 口径钉死：断流（消费方断连）usage_read 依赖 ironman r271 正门自然结束
+                # 置位——断流=空读=不计费（漏记非错记，与 resilient_stream 中性退出声明
+                # 对齐）；正常流计费恰好一次。
+                from nexus.utils.background import spawn_background
+                model_name = str(getattr(opts, "model", "") or "")
+                spawn_background(_charge("chat_stream", app_name, request_id,
+                                         model=model_name, usage=usage_read or None))
 
     async def stream_ask(self, prompt: str, system: Optional[str] = None, **kwargs) -> AsyncGenerator[str, None]:
         """单轮流式提问 = 单条 user 消息的 stream_chat。"""

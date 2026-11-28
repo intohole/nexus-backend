@@ -92,7 +92,10 @@ def render_working_context_bounded(
     dropped = 0
     fence_cost = len(MEMORY_FENCE_OPEN) + len(MEMORY_FENCE_CLOSE) + 2
     if budget_chars is not None and budget_chars > 0:
-        room = budget_chars - len(FOOTER) - fence_cost - 2
+        # r272 刀29（狩猎B P3）：room 预截断尾标上界（模板+四位数行位）——旧形态尾标
+        # 在预算外追加=满预算场景最终块超 contract 上限一条尾标（姊妹渲染器
+        # nexus/memory.py 占位回缩同律；dropped==0 时余量 ≤40 字符无害）。
+        room = budget_chars - len(FOOTER) - fence_cost - 2 - (len(WORKING_TRUNCATION_NOTE.format(dropped=9999)) + 1)
         if history_lines:
             room -= len(HISTORY_HEADER.format(count=len(history_lines))) + 1
         if memory_lines:
@@ -120,6 +123,10 @@ def render_working_context_bounded(
         sections.append(SNAPSHOT_HEADER.format(count=len(kept_memory)) + "\n" + "\n".join(kept_memory))
     if not sections:
         readout["truncated"] = dropped > 0
+        if dropped > 0:
+            # r272 刀29 边缘 honesty：预算内一行都装不下时独落尾注（消费方注入块
+            # 直接可见截断原因，而非空串靠 readout 旗才可察）。
+            return WORKING_TRUNCATION_NOTE.format(dropped=dropped) + "\n", readout
         return "", readout
     text = "\n\n".join(sections) + "\n"
     if dropped > 0:

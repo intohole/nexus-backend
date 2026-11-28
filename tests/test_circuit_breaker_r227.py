@@ -173,3 +173,28 @@ def test_all_llm_circuits_aggregates_only_llm_entries() -> None:
 def test_get_llm_circuit_requires_provider() -> None:
     with pytest.raises(TypeError):
         get_llm_circuit()  # type: ignore[call-arg]
+
+
+@pytest.mark.asyncio
+async def test_half_open_probe_quota_returned_on_neutral_exit(tmp_path):
+    """r272 刀21+M7（狩猎D P1）prove-red：中性退出归还探测配额。
+
+    旧形态：HALF_OPEN 名额被取消/断连烧掉后不还→配额耗尽全量拒绝→拒绝被记
+    失败→OPEN↔HALF_OPEN 弹跳（provider 愈后仍不开闸）。钉死：release_neutral
+    归还名额后新探测可再进入；中性不推进连胜不记失败。"""
+    import asyncio as _asyncio
+
+    from nexus.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitState
+
+    cb = CircuitBreaker("probe-quota", CircuitBreakerConfig(failure_threshold=1, recovery_timeout=0.0, half_open_max_calls=2))
+    await cb.record_outcome(RuntimeError("boom"))
+    assert cb.state == CircuitState.OPEN
+    await _asyncio.sleep(0.01)
+    await cb.acquire_call()  # OPEN→HALF_OPEN 迁移+占额 1
+    assert cb.state == CircuitState.HALF_OPEN
+    await cb.acquire_call()  # 占额 2（满）
+    with pytest.raises(Exception):
+        await cb.acquire_call()
+    await cb.release_neutral()  # 中性归还一笔
+    await cb.acquire_call()  # 名额可再用（旧形态此处必拒）
+    assert cb.state == CircuitState.HALF_OPEN

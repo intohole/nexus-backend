@@ -57,6 +57,15 @@ def gateway_executor(app_name: str) -> LLMExecutor:
 
             if _classify_failure(exc) == "provider":
                 await record_llm_outcome(llm_provider_key(None), exc, None)
+            else:
+                # r272 刀21+M7：非 provider 失败不记熔断且显式归还探测配额
+                # （HALF_OPEN 名额烧穿根治的 executor 侧对称面）
+                await circuit.release_neutral()
+            raise
+        except BaseException:
+            # r272 刀21+M7：CancelledError 等中性退出归还探测配额（except Exception
+            # 不捕 BaseException——旧形态此处配额只烧不还）
+            await circuit.release_neutral()
             raise
         await record_llm_outcome(llm_provider_key(None), None, result)
         return result

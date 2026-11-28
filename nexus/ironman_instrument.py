@@ -19,21 +19,16 @@ _instrumented: bool = False
 
 
 def _embed_provider_key(provider: object) -> str:
-    """embed 熔断通道键单源（r267 刀3）：显式 provider 直取，空则默认通道（同键空间 llm:）。"""
+    """embed 熔断键单源（r267 刀3）：显式 provider 直取，空则默认通道（同键空间 llm:）。"""
     from nexus.circuit_breaker import llm_provider_key
-
     return str(provider or "") or llm_provider_key(None)
 
 
 def _classify_failure(exc: BaseException) -> str:
-    """r270 刀8②：五面失败分类单源——provider 失败才进熔断通道，取消/中止/本地
-    异常不再连坐默认通道（旧形态 except Exception 全记=本地 pydantic/ConfigError
-    也喂熔断、g321 同族取消超时一次不计，与「宁可多熔不可漏熔」声明相反）。
-
-    返回："provider"（记熔断）| "cancelled"（re-raise 不记）| "aborted"（不记）|
-    "local"（记 metrics 不记熔断）。"""
+    """r270 刀8②：五面失败分类单源——provider 失败才进熔断，取消/中止/本地异常
+    不连坐默认通道（旧形态全记=本地 ConfigError 也喂熔断，g321 同族）。
+    返回："provider"（记熔断）|"cancelled"（不记）|"aborted"（不记）|"local"（仅 metrics）。"""
     import asyncio
-
     from ironman.errors import ConfigError
     from ironman.middleware.pipeline import AbortedError
 
@@ -45,7 +40,6 @@ def _classify_failure(exc: BaseException) -> str:
         return "local"
     try:
         from pydantic import ValidationError
-
         if isinstance(exc, ValidationError):
             return "local"
     except ImportError:  # pragma: no cover
@@ -70,21 +64,14 @@ def _instrument_ironman(app_name: str) -> None:
     def _ctx() -> tuple:
         from nexus.context import get_request_id
         from nexus.llm_metrics import get_llm_metrics
-        return (
-            get_request_id() or "-",
-            app_name or "unknown",
-            get_llm_metrics(),
-            time.monotonic(),
-        )
+        return (get_request_id() or "-", app_name or "unknown", get_llm_metrics(), time.monotonic())
 
     def _entry_circuit(llm: object) -> object:
         from nexus.circuit_breaker import get_llm_circuit, llm_provider_key
-
         return get_llm_circuit(llm_provider_key(llm))
 
     def _entry_circuit_embed(provider: object) -> object:
         from nexus.circuit_breaker import get_llm_circuit
-
         return get_llm_circuit(_embed_provider_key(provider))
 
     async def _record_embed(provider: object, error: object, response: object = None) -> None:
@@ -92,12 +79,9 @@ def _instrument_ironman(app_name: str) -> None:
         await record_llm_outcome(_embed_provider_key(provider), error, response)
 
     def _usage(result: object) -> tuple:
-        tokens: int = 0
-        cached: int = 0
         usage = getattr(result, "usage", None)
-        if usage:
-            tokens = (getattr(usage, "prompt_tokens", 0) or 0) + (getattr(usage, "completion_tokens", 0) or 0)
-            cached = int(getattr(usage, "cached_tokens", 0) or 0)
+        tokens = ((getattr(usage, "prompt_tokens", 0) or 0) + (getattr(usage, "completion_tokens", 0) or 0)) if usage else 0
+        cached = int(getattr(usage, "cached_tokens", 0) or 0) if usage else 0
         model: str = getattr(result, "model", None) or "unknown"
         return model, tokens, cached
 
@@ -131,13 +115,17 @@ def _instrument_ironman(app_name: str) -> None:
             _ok("chat", request_id, app, metrics, model, start, tokens, cached_tokens=cached)
             return result
         except Exception as e:
-            # r270 刀8②：失败分类（provider 才进熔断；cancelled/aborted/local 不连坐）
             if _classify_failure(e) == "provider":
                 await _record(llm, e)
+            else:
+                # r272 P1-1：非 provider 归还配额（五面对称，chat 为终审抓出的漏面）
+                await circuit.release_neutral()
             _fail("chat", request_id, app, metrics, start, e)
             raise
         except asyncio.CancelledError:
-            metrics.record(app, "chat", time.monotonic() - start, tokens=0, error="cancelled")
+            # r272 刀27 幻影 model 改 unknown + P1-1 配额归还（chat 面）
+            metrics.record(app, "unknown", time.monotonic() - start, tokens=0, error="cancelled")
+            await circuit.release_neutral()
             raise
 
     async def _wrapped_embed(
@@ -150,17 +138,22 @@ def _instrument_ironman(app_name: str) -> None:
         try:
             await circuit.acquire_call()
             result: object = await original_embed(  # type: ignore[misc]
-                text, model=model, provider=provider,
-                dimensions=dimensions, encoding_format=encoding_format,
+                text, model=model, provider=provider, dimensions=dimensions, encoding_format=encoding_format,
             )
             await _record_embed(provider, None, result)
             _ok("embed", request_id, app, metrics, emb_model, start)
             return result
         except Exception as e:
-            # r270 刀8②：embed 同款失败分类（第五面旁路修复的诚实性配套）
             if _classify_failure(e) == "provider":
                 await _record_embed(provider, e)
+            else:
+                await circuit.release_neutral()
             _fail("embed", request_id, app, metrics, start, e, model=emb_model)
+            raise
+        except asyncio.CancelledError:
+            # r272 刀30：embed 取消分支补齐（chat/stream 有，embed/extract 缺）
+            metrics.record(app, "unknown", time.monotonic() - start, tokens=0, error="cancelled")
+            await circuit.release_neutral()
             raise
 
     async def _record(llm: object, error: object, response: object = None) -> None:
@@ -184,19 +177,21 @@ def _instrument_ironman(app_name: str) -> None:
             _ok(op, request_id, app, metrics, model, start, tokens, cached_tokens=cached)
             return result
         except Exception as e:
-            # r270 刀8②：失败分类（ask/extract 共用 _circuit_op 通道）
             if _classify_failure(e) == "provider":
                 await _record(llm, e)
             _fail(op, request_id, app, metrics, start, e)
             raise
         except asyncio.CancelledError:
-            metrics.record(app, str(op), time.monotonic() - start, tokens=0, error="cancelled")
+            # r272 刀27（狩猎D P2）：op 名当 model=幻影维度污染 by_model，改
+            # unknown（llm_telemetry 同口径）+刀30 配额归还。
+            metrics.record(app, "unknown", time.monotonic() - start, tokens=0, error="cancelled")
+            await circuit.release_neutral()
             raise
 
     async def _wrapped_ask(*args: object, **kwargs: object) -> object:
         return await _circuit_op("ask", original_ask, *args, **kwargs)  # type: ignore[misc]
 
-    async def _wrapped_extract(*args: object, **kwargs: object) -> object:
+    async def _wrapped_extract(*args, **kwargs):
         schema_obj = kwargs.get("schema") if kwargs else None
         schema_name: str = (getattr(schema_obj, "__name__", None) or "extract") if schema_obj is not None else "raw"
         request_id, app, metrics, start = _ctx()
@@ -209,14 +204,22 @@ def _instrument_ironman(app_name: str) -> None:
             _ok("extract", request_id, app, metrics, f"extract:{schema_name}", start)
             return result
         except Exception as e:
-            await _record(llm, e)
+            # r272 刀26（双席同判）：extract 补分类门槛（第五缝漏网根治）。
+            if _classify_failure(e) == "provider":
+                await _record(llm, e)
+            else:
+                await circuit.release_neutral()
             _fail("extract", request_id, app, metrics, start, e, model="extract:unknown")
+            raise
+        except BaseException:
+            # 刀26+刀30+终审 P2-1：取消=中性退出（配额归还+计数三面对齐）
+            metrics.record(app, "unknown", time.monotonic() - start, tokens=0, error="cancelled")
+            await circuit.release_neutral()
             raise
 
     def _wrapped_stream(*args: object, **kwargs: object) -> object:
         async def _gen() -> object:
             from nexus.circuit_breaker import CircuitBreakerOpenError, llm_provider_key
-
             request_id, app, metrics, start = _ctx()
             llm = kwargs.get("llm")
             circuit = _entry_circuit(llm)
@@ -225,14 +228,12 @@ def _instrument_ironman(app_name: str) -> None:
                 await circuit.acquire_call()
             except CircuitBreakerOpenError:
                 metrics.record(app, "stream", 0.0, tokens=0, error="CircuitBreakerOpenError")
-                logger.warning(
-                    "LLM stream blocked by open circuit [req_id=%s, app=%s, provider=%s]",
-                    request_id, app, llm_provider_key(llm),
-                )
+                logger.warning("LLM stream blocked by open circuit [req_id=%s, app=%s, provider=%s]",
+                           request_id, app, llm_provider_key(llm))
                 raise
 
             try:
-                # r271 刀1c：采集 chunk.model/usage（病行修：旧 model 恒 stream/tokens 恒 0）
+                # r271 刀1c：chunk.model/usage 采集（旧 model 恒 stream/tokens 恒 0 病行修）
                 last_model, last_usage = "stream", None
                 async for chunk in original_chat_stream(*args, **kwargs):  # type: ignore[misc]
                     last_model = str(getattr(chunk, "model", "") or "") or last_model
@@ -246,10 +247,14 @@ def _instrument_ironman(app_name: str) -> None:
             except Exception as e:
                 if _classify_failure(e) == "provider":
                     await _record(llm, e)
+                else:
+                    await circuit.release_neutral()
                 _fail("stream", request_id, app, metrics, start, e, model="stream")
                 raise
             except asyncio.CancelledError:
-                metrics.record(app, "stream", time.monotonic() - start, tokens=0, error="cancelled")
+                # r272 刀27 幻影 model 改 unknown + 配额归还（stream 面）
+                metrics.record(app, "unknown", time.monotonic() - start, tokens=0, error="cancelled")
+                await circuit.release_neutral()
                 raise
 
         return _gen()
@@ -264,7 +269,7 @@ def _instrument_ironman(app_name: str) -> None:
         _ironman_mod.chat_stream = _wrapped_stream
     _instrument_facade_credits(app_name)
     _instrumented = True
-    logger.info("ironman instrumented (chat + embed + ask + extract + chat_stream wrapped with metrics/circuit/req_id; facade _execute/_stream_engine wrapped with credits metering/charging)")
+    logger.info("ironman instrumented (5 faces + facade credits metering/charging)")
 
 
 def _detect_vision_request(request: object) -> bool:
@@ -273,7 +278,8 @@ def _detect_vision_request(request: object) -> bool:
         return True
     try:
         for msg in (getattr(request, "messages", None) or []):
-            for part in (getattr(msg, "content", None) or [] if isinstance(getattr(msg, "content", None), list) else []):
+            content = getattr(msg, "content", None)
+            for part in (content or [] if isinstance(content, list) else []):
                 if str(getattr(part, "type", "") or "") in ("image_url", "image") or hasattr(part, "image_url"):
                     return True
     except Exception:
@@ -282,12 +288,9 @@ def _detect_vision_request(request: object) -> bool:
 
 
 def _instrument_facade_credits(app_name: str) -> None:
-    """ironman facade 层计量+计费（绕过 LLMService 的调用统一归账）。
-
-    _execute=非流式唯一执行点（三命名空间同名引用都换绑，覆盖函数内 from-import）；
-    _stream_engine=流式唯一引擎；LLMService 出口经 credits_gateway_handled() 防双计；
-    全程 fail-open：计量/计费/预检失败绝不影响调用本身。
-    """
+    """ironman facade 层计量+计费（绕过 LLMService 统一归账）。_execute=非流式唯一
+    执行点（三命名空间换绑覆盖函数内 from-import）；_stream_engine=流式唯一引擎；
+    LLMService 出口 credits_gateway_handled() 防双计；全程 fail-open。"""
     import ironman._facade as facade_pkg
     import ironman._facade_core as facade_core
     import ironman._facade_stream as facade_stream
@@ -297,15 +300,12 @@ def _instrument_facade_credits(app_name: str) -> None:
     original_stream_engine = facade_stream._stream_engine
 
     async def _safe_preflight(kind: str, model: str) -> None:
+        from nexus.credits import CreditsInsufficientError, get_credits_service
         try:
-            from nexus.credits import CreditsInsufficientError, get_credits_service
-
             await get_credits_service().gateway_preflight(kind, model=model)
+        except CreditsInsufficientError:
+            raise
         except Exception as exc:
-            from nexus.credits import CreditsInsufficientError
-
-            if isinstance(exc, CreditsInsufficientError):
-                raise
             logger.debug("facade 计费预检失败(放行): %s", exc)
 
     def _usage_from_usage(usage: object) -> dict | None:

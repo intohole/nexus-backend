@@ -171,10 +171,16 @@ async def stream_chunks(
     start: float = time.monotonic()
     has_content: bool = False
     think_filter = ThinkStreamFilter()
-    last_usage: _Optional[object] = None
     last_model: str = "unknown"
     max_attempts: int = 2
+    # r272 刀23（狩猎C P2）：跨 attempt 累计记账——每轮 attempt 是一次真实 provider
+    # 计费调用，空内容重试时旧形态 last_usage 直接覆盖=首轮 token 从 metrics 与
+    # credits 扣费双双漏记（provider 已计费、ironman 正门已记账，唯独平台侧漏收）。
+    # attempt 内取末帧（防流内累计帧双计），attempt 间逐字段求和。
+    usage_totals: dict[str, int] = {}
+    _USAGE_FIELDS = ("prompt_tokens", "completion_tokens", "cached_tokens", "total_tokens")
     for attempt in range(max_attempts):
+        attempt_usage: _Optional[object] = None
         async for chunk in chat_stream(messages=msgs, llm=llm_opts):
             if chunk.content:
                 piece = think_filter.feed(chunk.content)
@@ -182,9 +188,12 @@ async def stream_chunks(
                     has_content = True
                     yield piece
             if chunk.usage is not None:
-                last_usage = chunk.usage
+                attempt_usage = chunk.usage
             if chunk.model:
                 last_model = chunk.model
+        if attempt_usage is not None:
+            for field in _USAGE_FIELDS:
+                usage_totals[field] = usage_totals.get(field, 0) + int(getattr(attempt_usage, field, 0) or 0)
         tail = think_filter.flush()
         if tail:
             has_content = True
@@ -198,15 +207,15 @@ async def stream_chunks(
         app_name,
         last_model,
         time.monotonic() - start,
-        tokens=int(getattr(last_usage, "total_tokens", 0) or 0),
+        tokens=usage_totals.get("total_tokens", 0),
         error=None,
     )
-    if usage_sink is not None and last_usage is not None:
+    if usage_sink is not None and usage_totals:
         usage_sink.update(
             {
-                "input_tokens": int(getattr(last_usage, "prompt_tokens", 0) or 0),
-                "output_tokens": int(getattr(last_usage, "completion_tokens", 0) or 0),
-                "cached_tokens": int(getattr(last_usage, "cached_tokens", 0) or 0),
+                "input_tokens": usage_totals.get("prompt_tokens", 0),
+                "output_tokens": usage_totals.get("completion_tokens", 0),
+                "cached_tokens": usage_totals.get("cached_tokens", 0),
                 "model": last_model,
                 "called_at": datetime.now(timezone.utc).isoformat(),
             }

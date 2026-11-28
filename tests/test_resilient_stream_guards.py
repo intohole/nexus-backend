@@ -60,6 +60,10 @@ class _SpyBreaker:
     async def record_outcome(self, error: object) -> None:
         self.outcomes.append(error)
 
+    async def release_neutral(self) -> None:
+        self.neutrals: list[bool] = getattr(self, "neutrals", [])
+        self.neutrals.append(True)
+
 
 @pytest.mark.asyncio
 async def test_stream_blocked_by_budget(monkeypatch: pytest.MonkeyPatch) -> None:

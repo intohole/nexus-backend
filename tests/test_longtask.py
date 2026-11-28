@@ -198,3 +198,43 @@ async def test_recover_inactive_cleared_without_settle(tmp_path: Path) -> None:
     assert (resumed, settled) == (0, 0)
     assert not failed
     assert j.events(5, include_archive=False) == []
+
+
+@pytest.mark.asyncio
+async def test_recover_empty_rows_skips_orphan_sweep(tmp_path: Path) -> None:
+    """r272 刀22（狩猎A P2）：枚举瞬态空集不得清空全部孤儿 journal。
+
+    rows 为空（DB 枚举瞬态失败/返回空列表）时 sweep(seen=∅) 会把全部数字键
+    journal 当孤儿 unlink——崩溃任务的唯一续跑载荷蒸发、任务行与 journal 脱钩。
+    钉死：空枚举跳过 sweep 并 warning fail-visible；有枚举行时 sweep 照常。"""
+    j = TaskJournal(tmp_path / "j")
+    j.record(7, "start", instruction="a")
+
+    async def _fail(task_id, payload, case):  # noqa: ANN001
+        return None
+
+    resumed, settled = await recover_interrupted(
+        j,
+        [],
+        max_resumes=3,
+        is_resumable=lambda status, payload: True,
+        needs_settle=lambda status: False,
+        on_fail=_fail,
+        on_resume=lambda task_id, payload: None,
+    )
+    assert (resumed, settled) == (0, 0)
+    assert j.events(7), "空枚举清掉了在役任务 journal（续跑载荷蒸发）"
+
+    j.record(8, "start", instruction="b")
+    resumed, settled = await recover_interrupted(
+        j,
+        [(8, "pending")],
+        max_resumes=3,
+        is_resumable=lambda status, payload: True,
+        needs_settle=lambda status: False,
+        on_fail=_fail,
+        on_resume=lambda task_id, payload: None,
+    )
+    assert resumed == 1
+    swept = j.sweep(set())
+    assert swept >= 1

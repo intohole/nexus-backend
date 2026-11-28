@@ -244,5 +244,9 @@ async def resilient_stream(
         logger.warning("resilient_stream %s failed: %s", alias, e)
         raise
     finally:
-        if not aborted:
+        if aborted:
+            # r272 刀21+M7：中性退出显式归还探测配额（取消/断连不再烧穿 HALF_OPEN
+            # 配额；docstring「中性退出不计熔断成败」自此处起真正兑现到配额面）
+            await cb.release_neutral()
+        else:
             await cb.record_outcome(error)

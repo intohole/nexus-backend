@@ -104,6 +104,16 @@ class CircuitBreaker:
         else:
             await self._on_failure(error)
 
+    async def release_neutral(self) -> None:
+        """r272 刀21+M7（狩猎D P1）：中性归还——取消/断连的探测名额只烧不还=
+        HALF_OPEN 配额烧穿后 OPEN↔HALF_OPEN 弹跳（provider 愈后仍不开闸）。
+
+        中性语义三不（复核席钉死）：不记失败、不进连胜（防取消被当恢复信号假
+        开闸）、仅归还探测配额。仅 HALF_OPEN 态有配额可还；OPEN/CLOSED 幂等。"""
+        async with self._lock:
+            if self._state == CircuitState.HALF_OPEN and self._half_open_calls > 0:
+                self._half_open_calls -= 1
+
     async def call(
         self,
         func: Callable[..., Awaitable[object]],
@@ -144,8 +154,14 @@ class CircuitBreaker:
             task = asyncio.current_task()
             if task is not None and task.cancelling() > 0:
                 await self._on_failure(TimeoutError(f"Circuit '{self._name}' call cancelled (likely timeout)"))
+            else:
+                # r272 刀21+M7：未计数取消（GeneratorExit/裸取消）中性归还探测配额
+                # （旧形态此处配额只烧不还；保守计数面维持已裁决口径不动）
+                await self.release_neutral()
             raise
         except self._config.excluded_exceptions:
+            # r272 刀21+M7：豁免异常不记成败，配额同步归还
+            await self.release_neutral()
             raise
         except Exception as e:
             await self._on_failure(e)

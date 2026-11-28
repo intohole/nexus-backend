@@ -324,3 +324,46 @@ async def test_recognize_cache_hit_skips_second_call(monkeypatch):
     second = await service.recognize("缓存唯一问题", _PNG)
     assert first == second == "缓存命中测试"
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_model_chain_keeps_declared_vision_family():
+    """r272 刀24（狩猎C P2）：非视觉守卫不得误伤 glm-4.5v 家族。
+
+    模块 docstring 自述支持 GLM-4.5V；旧形态 startswith 白名单只有 glm-4.6v
+    前缀，显式 model="glm-4.5v" 被静默改派 glm-4.6v-flash 且降档 census 记成
+    「救援」。钉死：glm-4.5v 起点保持原样，链首=自身。"""
+    from nexus.vision import VisionService
+
+    service = VisionService()
+    chain = service._model_chain("glm-4.5v")
+    assert chain[0] == "glm-4.5v", f"glm-4.5v 被改派：{chain}"
+
+
+@pytest.mark.asyncio
+async def test_recognize_reraises_credits_error():
+    """r272 刀25（狩猎C P3）：recognize 不吞 CreditsInsufficientError。
+
+    recognize_json 已有同款豁免（形制不一）；缺豁免时欠费用户一次调用跑满
+    升档链（多次 preflight+告警）且把计费失败记成模型回退 census。钉死：
+    首候选 CreditsInsufficientError 即抛，升档链零展开（旧形态 except Exception
+    吞进 last_error 跑满链）。"""
+    from nexus.credits import CreditsInsufficientError
+    from nexus.vision import VisionService
+
+    service = VisionService()
+    calls = {"n": 0}
+
+    async def _credits_fail(*args, **kwargs):
+        calls["n"] += 1
+        raise CreditsInsufficientError("balance exhausted")
+
+    service._chat_vision = _credits_fail
+
+    async def _no_config(*args, **kwargs):
+        return None
+
+    service._resolve_config = _no_config
+    with pytest.raises(CreditsInsufficientError):
+        await service.recognize("图里是什么", images=["data:image/png;base64,AAAA"])
+    assert calls["n"] == 1, f"欠费仍烧满升档链：{calls['n']} 次调用"

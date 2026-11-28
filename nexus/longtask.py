@@ -219,6 +219,7 @@ async def recover_interrupted(
     resumed = 0
     settled = 0
     seen: set[object] = set()
+    rows = list(rows)
     for task_id, status in rows:
         seen.add(task_id)
         payload = journal.resume_payload(task_id)
@@ -237,7 +238,17 @@ async def recover_interrupted(
         journal.record(task_id, "resume", resume_no=count + 1)
         on_resume(task_id, payload)
         resumed += 1
-    swept = journal.sweep(seen)
-    if swept:
-        logger.info("orphan journal files swept: %s", swept)
+    # r272 刀22（狩猎A P2）：枚举瞬态空集防线——rows 为空时 seen=∅，sweep 会把
+    # 全部数字键 journal 当孤儿 unlink，崩溃任务的唯一续跑载荷蒸发、任务行与
+    # journal 从此脱钩。空枚举跳过 sweep 并 warning fail-visible（claude SDK
+    # session_store GC「删除集合必须来自已核实孤儿判定，不接受空集全删」同律）。
+    if rows:
+        swept = journal.sweep(seen)
+        if swept:
+            logger.info("orphan journal files swept: %s", swept)
+    else:
+        logger.warning(
+            "recover_interrupted: empty task enumeration, skip orphan sweep "
+            "(transient enum failure would erase all journals)"
+        )
     return resumed, settled

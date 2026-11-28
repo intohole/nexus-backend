@@ -51,6 +51,9 @@ async def test_gateway_executor_circuit_wiring(monkeypatch):
         async def acquire_call(self):
             calls.append("acquire")
 
+        async def release_neutral(self):
+            calls.append("release_neutral")
+
     async def fake_route(app):
         return None
 
