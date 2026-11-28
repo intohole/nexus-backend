@@ -42,6 +42,17 @@ INSTALL_CMD = re.compile(
 INJECTION_INSTRUCTIONS = re.compile(
     r"(?:ignore|disregard|forget)\s+(?:all\s+)?(?:previous|prior|above)\s+instructions", re.I
 )
+# r270 刀5 三族补漏（勘察实锚：eval "$(curl -fsSL …)" 双规则全绕/iex(iwr) cradle 零规则/
+# 中文注入短语零覆盖）：
+CMD_SUBST_REMOTE = re.compile(r"(?:\$\(|<\(|`)[^)`]*\b(?:curl|wget|irm|iwr)\b[^)`]*https?://[^)`]*(?:\)|`)", re.I)
+# r270 普查判例收紧：span 内必须含下载动词——纯 prose/文档链接（backtick 跨 markdown
+# 吞 URL）零误报；威胁模型=远程取回进命令替换被执行，无 fetch 即无此威胁
+EXEC_KEYWORDS = re.compile(r"\b(?:eval|source|sh|bash|zsh|python3?|node|perl|ruby|iex)\b", re.I)
+PS_CRADLE = re.compile(
+    r"\b(?:iex|iwr|Invoke-Expression|Invoke-WebRequest|Invoke-RestMethod|DownloadString| WebClient)\b", re.I
+)
+INTERPRETER_EXEC = re.compile(r"\b(?:node|python3?|perl|ruby)\s+(?:-e|--eval|-c)\b", re.I)
+INJECTION_ZH = re.compile(r"(?:忽略|无视|不必理会)(?:以上|上面|之前|前面|先前)的?(?:所有)?(?:系统)?(?:提示|指令)|\b(?:disregards?|overrides?)\s+(?:the\s+)?(?:system|safety)\s+prompt", re.I)
 TEXT_SUFFIX = {".md", ".txt", ".py", ".js", ".ts", ".sh", ".json", ".yaml", ".yml", ".toml", ""}
 
 RULE_SOURCES = {
@@ -54,6 +65,9 @@ RULE_SOURCES = {
     "R7": "AST01/Snyk: 远程内容管道执行（curl|sh）；ClawHavoc AMOS投递形态",
     "R8": "AST01: 过度权限请求——写上下文注入文件（CSA Agent Context Poisoning）",
     "R9": "Snyk/USENIX: 外传凭据意图（.ssh/.aws/wallet/keychain词面）",
+    "R10": "r270 刀5: 命令替换包远程载荷（eval \"$(curl …)\"/反引号变体——R7 管道形态绕行）",
+    "R11": "r270 刀5: 扩展执行面（PowerShell iex/iwr cradle/node -e/python -c 配远程下载）",
+    "R12": "r270 刀5: 中文提示词注入（忽略以上所有指令族）+ system prompt 覆盖英文变体",
 }
 
 __all__ = ["Finding", "has_b64_evidence", "scan_text", "scan_skill_dir"]
@@ -125,6 +139,13 @@ def scan_text(rel: str, text: str) -> list[Finding]:
             out.append(Finding("R6", "medium", rel, i, line.strip()[:120], RULE_SOURCES["R6"]))
         if INJECTION_INSTRUCTIONS.search(line):
             out.append(Finding("R6", "high", rel, i, line.strip()[:120], RULE_SOURCES["R6"]))
+        # r270 刀5 三族接线：
+        if CMD_SUBST_REMOTE.search(line) and EXEC_KEYWORDS.search(line):
+            out.append(Finding("R10", "critical", rel, i, line.strip()[:120], RULE_SOURCES["R10"]))
+        if (PS_CRADLE.search(line) or INTERPRETER_EXEC.search(line)) and (hit_dl or URL_ANY.search(line)):
+            out.append(Finding("R11", "high", rel, i, line.strip()[:120], RULE_SOURCES["R11"]))
+        if INJECTION_ZH.search(line):
+            out.append(Finding("R12", "high", rel, i, line.strip()[:120], RULE_SOURCES["R12"]))
         if prereq_zone and INSTALL_CMD.search(line):
             out.append(Finding("R5", "medium", rel, i, line.strip()[:120], RULE_SOURCES["R5"]))
     return out
