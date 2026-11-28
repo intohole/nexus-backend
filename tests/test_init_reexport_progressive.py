@@ -8,6 +8,9 @@ import sys
 import nexus
 
 _GOLDEN = frozenset((
+    # r271：流式事件孪生公开面（nexus.llm_stream，cache 窗业务侧 usage 回填出口）
+    "StreamEvent",
+    "LLMStreamEventsMixin",
     "AgentHarness",
     "AuditMiddleware",
     "AutomationContext",

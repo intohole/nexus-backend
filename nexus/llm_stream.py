@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import AsyncGenerator, Optional
 
 from nexus.context import get_request_id
@@ -29,6 +30,7 @@ class LLMStreamMixin:
         thinking_budget: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
         feature: str = "",
+        usage_sink: Optional[dict] = None,
     ) -> AsyncGenerator[str, None]:
         opts, _temp, _eff_max, budget_mode = await self._prepare_call(
             temperature=temperature, max_tokens=max_tokens, task_type=task_type,
@@ -44,7 +46,7 @@ class LLMStreamMixin:
         start: float = time.monotonic()
         await _preflight("chat_stream", model=str(getattr(opts, "model", "") or ""))
         produced: bool = False
-        usage_read: dict = {}
+        usage_read: dict = usage_sink if usage_sink is not None else {}
         try:
             with credits_gateway_handled():
                 async for chunk in stream_chunks(_chat_stream, ironman_messages, opts, usage_sink=usage_read):
@@ -62,3 +64,54 @@ class LLMStreamMixin:
             messages=[{"role": "user", "content": prompt}], system=system, **kwargs
         ):
             yield chunk
+
+@dataclass
+class StreamEvent:
+    """r271 刀1b：流式事件面（delta=文本增量 / usage=末次用量回执）。
+
+    「stream 缓存 token 业务侧回填」业务侧出口：usage 事件携带 input_tokens/
+    output_tokens/cached_tokens/model（与 stream_chunks usage_sink 同源）。
+    末次 usage 缺席（上游无 usage 帧）时 usage 事件不产出=诚实缺席。"""
+
+    kind: str
+    text: str = ""
+    usage: Optional[dict] = None
+
+
+class LLMStreamEventsMixin:
+    async def stream_chat_events(
+        self,
+        messages: list[dict[str, str]],
+        system: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        output_mode: Optional[OutputMode] = None,
+        namespace: Optional[str] = None,
+        task_type: Optional[str] = None,
+        model: Optional[str] = None,
+        enable_thinking: Optional[bool] = None,
+        thinking_budget: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
+        feature: str = "",
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """stream_chat 的事件孪生（additive，存量 stream_chat 零改动）：文本走 delta
+        事件，结束后按 usage_sink 读数产出 usage 事件（缓存 token 业务侧回填出口）。"""
+        usage_read: dict = {}
+        async for chunk in self.stream_chat(
+            messages=messages,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            output_mode=output_mode,
+            namespace=namespace,
+            task_type=task_type,
+            model=model,
+            enable_thinking=enable_thinking,
+            thinking_budget=thinking_budget,
+            reasoning_effort=reasoning_effort,
+            feature=feature,
+            usage_sink=usage_read,
+        ):
+            yield StreamEvent(kind="delta", text=chunk)
+        if usage_read:
+            yield StreamEvent(kind="usage", usage=dict(usage_read))

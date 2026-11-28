@@ -18,6 +18,8 @@ _REEXPORTS: dict[str, str] = {
     "BeeMemoryBackend": "nexus.bee_memory",
     "build_agent_harness": "nexus.agent_harness",
     "NexusSkillSource": "nexus.skill_source",
+    "StreamEvent": "nexus.llm_stream",
+    "LLMStreamEventsMixin": "nexus.llm_stream",
     "handle_api_errors": "nexus.api_decorators",
     "asr_transcribe": "nexus.asr",
     "AuditMiddleware": "nexus.audit_middleware",

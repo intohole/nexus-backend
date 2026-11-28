@@ -10,7 +10,7 @@ from typing import Optional
 
 from nexus.llm_core import DEFAULT_MAX_OUTPUT_TOKENS, LLMCore
 from nexus.llm_probes import LLMProbesMixin
-from nexus.llm_stream import LLMStreamMixin
+from nexus.llm_stream import LLMStreamEventsMixin, LLMStreamMixin
 from nexus.llm_utils import ask_json as _ask_json_core
 from nexus.llm_utils import chat_json as _chat_json_core
 from nexus.llm_utils import usage_summary
@@ -29,7 +29,7 @@ def _apply_json_primitive_fallback(kwargs: dict) -> None:
         kwargs.setdefault("max_tokens", 1500)
 
 
-class LLMService(LLMCore, LLMProbesMixin, LLMStreamMixin):
+class LLMService(LLMCore, LLMProbesMixin, LLMStreamMixin, LLMStreamEventsMixin):
     async def ask_json(
         self,
         prompt: str,

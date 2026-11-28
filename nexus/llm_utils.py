@@ -42,9 +42,7 @@ logger = logging.getLogger("nexus.llm_utils")
 
 T = TypeVar("T")
 
-# P1: 不可重试的 HTTP 状态码（4xx 客户端错误，除 429 限流）
-# S155: 402 Insufficient Balance（生产 5,785 条实证，余额窗前重试纯放大）与
-# 499 client closed request（调用方已断连，重试结果无人收）补入永久表。
+# P1: 不可重试 4xx（除 429）；S155: +402 余额（生产 5,785 条实证重试纯放大）+499 断连无人收
 _NON_RETRYABLE_STATUS_CODES: tuple[str, ...] = ("400", "401", "402", "403", "404", "422", "499")
 # P1: 可重试的 HTTP 状态码（429 限流、5xx 服务端错误）
 _RETRYABLE_STATUS_CODES: tuple[str, ...] = ("429", "500", "502", "503", "504")
@@ -56,13 +54,9 @@ class LLMTimeoutError(Exception):
 
 
 class LLMEmptyContentError(RuntimeError):
-    """LLM 返回空 content（含 reasoning-only 输出）。
-
-    reasoning 是思考过程而非业务内容，禁止兜底充当 content（2026-10-22
-    verseCraft novel 8 实锤：思考独白整章落库）。空 content 属瞬时故障
-    （thinking 吃光预算，S27 实测约 50% 概率），交由 with_llm_retry 重试。
-    """
-    pass
+    """LLM 返回空 content（含 reasoning-only）。reasoning 禁止兜底充当 content
+    （2026-10-22 verseCraft 8 实锤整章落库）；空 content=瞬时故障（S27 实测
+    thinking 吃光预算约 50% 概率），交由 with_llm_retry 重试。"""
 
 
 def error_body_snippet(exc: Exception, limit: int = 500) -> str:
@@ -79,16 +73,16 @@ def error_body_snippet(exc: Exception, limit: int = 500) -> str:
 def is_retryable_error(exc: Exception) -> bool:
     """P1: 判断异常是否值得重试。
 
-    策略：
-    - 熔断器 OPEN：不可重试（重试只会被熔断器再次拒绝）
-    - 超时/连接错误：可重试（瞬时故障）
-    - 4xx 客户端错误（除 429）：不可重试（请求本身有问题，重试无用）
-    - 429 限流、5xx 服务端错误：可重试
-    - 未知错误：保守重试（宁可多重试也不漏重试）
+    熔断 OPEN/确定性 4xx(除 429)/retryable=False 不可重试；超时/连接/429/5xx 可重试；
+    未知错误保守重试（宁可多不漏）。
     """
     # A4.2: 熔断器 OPEN 状态：不可重试（用字符串匹配避免循环导入）
     exc_type_name: str = type(exc).__name__
     if exc_type_name == "CircuitBreakerOpenError":
+        return False
+
+    # r271 刀3b 对账：ironman 解析坏行 ProviderError(retryable=False) 不再保守白烧重试
+    if getattr(exc, "retryable", None) is False:
         return False
 
     # 超时错误：可重试
