@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from nexus.longtask import RuntimeGate, TaskJournal, recover_interrupted
+from nexus.longtask import RuntimeGate, TaskJournal, make_journal, recover_interrupted
 
 _NEXUS_ROOT = str(Path(__file__).resolve().parent.parent)
 
@@ -238,3 +238,53 @@ async def test_recover_empty_rows_skips_orphan_sweep(tmp_path: Path) -> None:
     assert resumed == 1
     swept = j.sweep(set())
     assert swept >= 1
+
+
+def test_make_journal_same_path_shares_instance_and_seq(tmp_path: Path) -> None:
+    j = make_journal(lambda: tmp_path / "j")
+    j.record(1, "start", instruction="a")
+    j.record(1, "stage", name="prepare")
+    assert j.current() is j.current()
+    assert [r["seq"] for r in j.events(1)] == [1, 2]
+
+
+def test_make_journal_resolves_lazily_per_access(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LONGTASK_JOURNAL_DIR_TEST", str(tmp_path / "first"))
+    calls = {"n": 0}
+
+    def _resolve() -> Path:
+        calls["n"] += 1
+        return Path(os.environ["LONGTASK_JOURNAL_DIR_TEST"])
+
+    j = make_journal(_resolve)
+    j.record(1, "start", instruction="a")
+    assert calls["n"] == 1
+    assert (tmp_path / "first" / "1.jsonl").is_file()
+    inst_first = j.current()
+    assert calls["n"] == 2
+    monkeypatch.setenv("LONGTASK_JOURNAL_DIR_TEST", str(tmp_path / "second"))
+    j.record(1, "start", instruction="b")
+    inst_second = j.current()
+    assert calls["n"] == 4
+    assert (tmp_path / "second" / "1.jsonl").is_file()
+    assert inst_first is not inst_second
+
+
+def test_make_journal_reset_rebuilds_instance(tmp_path: Path) -> None:
+    j = make_journal(lambda: tmp_path / "j")
+    inst = j.current()
+    assert j.reset() == 1
+    assert j.current() is not inst
+    assert j.current() is j.current()
+
+
+def test_make_journal_distinct_resolvers_isolated(tmp_path: Path) -> None:
+    a = make_journal(lambda: tmp_path / "a")
+    b = make_journal(lambda: tmp_path / "b")
+    a.record(1, "start", instruction="x")
+    b.record(1, "start", instruction="y")
+    assert a.current() is not b.current()
+    assert a.events(1)[0]["instruction"] == "x"
+    assert b.events(1)[0]["instruction"] == "y"

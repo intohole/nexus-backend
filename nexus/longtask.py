@@ -20,13 +20,17 @@ resume 载荷字段映射、活动状态判定、续跑执行器、失败文案�
 射程外（诚实边界）：DB 会话与行查询归消费方（crontab.py 同款）；结算
 文案、resume 后执行器（如何续）、结算落库（patch 到什么状态）全部业务域。
 供给形态档位=强契约工具档（显式 import 显式调用）。
+
+r273 增 make_journal 工厂档：目录惰性解析+同路径实例缓存单例，收编
+arcade gen_journal / piying run_journal / MiaoBi deck_journal 三仓
+同构 wrapper 的机械面（目录来源+缓存不变量），业务转发面签名不变。
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import os
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 from typing import Optional
 
@@ -142,6 +146,72 @@ class TaskJournal:
                 target.unlink(missing_ok=True)
                 cleared += 1
         return cleared
+
+
+class LazyJournal:
+    """make_journal 工厂档：目录惰性解析 + 同路径实例缓存单例。
+
+    目录来源（settings 属性/env var/默认路径）经 resolver 注入，每次取
+    实例时才求值——测试缝等效保留（改 env/patch settings 后下一次取数
+    即生效，不要求声明期目录已存在）。同路径缓存同一 TaskJournal 实例：
+    _seq 连续性是 TaskJournal 自身不变量，原语不再摊派给消费方手搓
+    （r208 get_asset_gateway 按 key 单例同款）。reset() 供测试隔离清
+    缓存；运行期调用行为仍等价（新实例首笔 record 会重读全量补齐 seq），
+    仅多一次全量读。
+
+    契约 hazard（自 piying run_journal 升入单源）：同仓多个恢复面禁止
+    共用 journal 目录——sweep/孤儿清扫按目录进行，混用会互删对方不在册
+    文件（blueprint_job 恢复面互删案）。
+    """
+
+    def __init__(
+        self,
+        dir_resolver: Callable[[], str | Path],
+        *,
+        archive_dir_name: str = "archive",
+    ) -> None:
+        self._resolver = dir_resolver
+        self._archive_name = archive_dir_name
+        self._instances: dict[str, TaskJournal] = {}
+
+    def current(self) -> TaskJournal:
+        path = str(self._resolver())
+        instance = self._instances.get(path)
+        if instance is None:
+            instance = TaskJournal(path, archive_dir_name=self._archive_name)
+            self._instances[path] = instance
+        return instance
+
+    def reset(self) -> int:
+        cleared = len(self._instances)
+        self._instances.clear()
+        return cleared
+
+    def record(self, key: object, event: str, **fields: object) -> None:
+        self.current().record(key, event, **fields)
+
+    def events(
+        self, key: object, include_archive: bool = True
+    ) -> list[dict[str, object]]:
+        return self.current().events(key, include_archive)
+
+    def resume_payload(self, key: object) -> Optional[dict[str, object]]:
+        return self.current().resume_payload(key)
+
+    def clear(self, key: object) -> None:
+        self.current().clear(key)
+
+    def sweep(self, active_ids: set[object]) -> int:
+        return self.current().sweep(active_ids)
+
+
+def make_journal(
+    dir_resolver: Callable[[], str | Path],
+    *,
+    archive_dir_name: str = "archive",
+) -> LazyJournal:
+    """journal 工厂：仓接入面=一行声明（r273 扩容判据，禁再手搓 wrapper）。"""
+    return LazyJournal(dir_resolver, archive_dir_name=archive_dir_name)
 
 
 class RuntimeGate:
